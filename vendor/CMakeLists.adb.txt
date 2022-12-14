@@ -63,6 +63,9 @@ target_include_directories(libadb PUBLIC
 	libziparchive/include
 	native/include)
 
+target_link_libraries(libadb
+	${CMAKE_SOURCE_DIR}/vendor/libtermuxadb.a)
+
 add_library(libadb_crypto_defaults STATIC
 	adb/crypto/key.cpp
 	adb/crypto/rsa_2048_key.cpp

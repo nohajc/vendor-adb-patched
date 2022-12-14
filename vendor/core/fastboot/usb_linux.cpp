@@ -36,6 +36,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -49,6 +50,7 @@
 #include <memory>
 #include <thread>
 
+#include "termux_adb.h"
 #include "usb.h"
 #include "util.h"
 
@@ -140,7 +142,7 @@ static int check(void *_desc, int len, unsigned type, int size)
     return 0;
 }
 
-static int filter_usb_device(char* sysfs_name,
+static int filter_usb_device(int fd,
                              char *ptr, int len, int writable,
                              ifc_match_func callback,
                              int *ept_in_id, int *ept_out_id, int *ifc_id)
@@ -174,6 +176,26 @@ static int filter_usb_device(char* sysfs_name,
     info.dev_protocol = dev->bDeviceProtocol;
     info.writable = writable;
 
+    struct stat st;
+    char pathbuf[128];
+    char link[256];
+    char *sysfs_name = nullptr;
+
+    if (!fstat(fd, &st) && S_ISCHR(st.st_mode)) {
+        snprintf(pathbuf, sizeof(pathbuf), "/sys/dev/char/%d:%d",
+                major(st.st_rdev), minor(st.st_rdev));
+        ssize_t link_len = readlink(pathbuf, link, sizeof(link) - 1);
+        if (link_len > 0) {
+            link[link_len] = '\0';
+            const char* slash = strrchr(link, '/');
+            if (slash) {
+                snprintf(pathbuf, sizeof(pathbuf),
+                        "%s", slash + 1);
+                sysfs_name = pathbuf;
+            }
+        }
+    }
+
     snprintf(info.device_path, sizeof(info.device_path), "usb:%s", sysfs_name);
 
     /* Read device serial number (if there is one).
@@ -191,11 +213,11 @@ static int filter_usb_device(char* sysfs_name,
                  "/sys/bus/usb/devices/%s/serial", sysfs_name);
         path[sizeof(path) - 1] = '\0';
 
-        fd = open(path, O_RDONLY);
+        fd = termuxadb::open(path, O_RDONLY);
         if (fd >= 0) {
             int chars_read = read(fd, info.serial_number,
                                   sizeof(info.serial_number) - 1);
-            close(fd);
+            termuxadb::close(fd);
 
             if (chars_read <= 0)
                 info.serial_number[0] = '\0';
@@ -322,30 +344,16 @@ static int read_sysfs_number(const char *sysfs_name, const char *sysfs_node)
     return value;
 }
 
-/* Given the name of a USB device in sysfs, get the name for the same
- * device in devfs. Returns 0 for success, -1 for failure.
- */
-static int convert_to_devfs_name(const char* sysfs_name,
-                                 char* devname, int devname_size)
-{
-    int busnum, devnum;
-
-    busnum = read_sysfs_number(sysfs_name, "busnum");
-    if (busnum < 0)
-        return -1;
-
-    devnum = read_sysfs_number(sysfs_name, "devnum");
-    if (devnum < 0)
-        return -1;
-
-    snprintf(devname, devname_size, "/dev/bus/usb/%03d/%03d", busnum, devnum);
-    return 0;
+static inline bool contains_non_digit(const char* name) {
+    while (*name) {
+        if (!isdigit(*name++)) return true;
+    }
+    return false;
 }
 
-static std::unique_ptr<usb_handle> find_usb_device(const char* base, ifc_match_func callback)
+static std::unique_ptr<usb_handle> find_usb_device(const std::string& base, ifc_match_func callback)
 {
     std::unique_ptr<usb_handle> usb;
-    char devname[64];
     char desc[1024];
     int n, in, out, ifc;
 
@@ -353,42 +361,49 @@ static std::unique_ptr<usb_handle> find_usb_device(const char* base, ifc_match_f
     int fd;
     int writable;
 
-    std::unique_ptr<DIR, decltype(&closedir)> busdir(opendir(base), closedir);
-    if (busdir == 0) return 0;
+    std::unique_ptr<DIR, int(*)(DIR*)> bus_dir(termuxadb::opendir(base.c_str()), termuxadb::closedir);
+    if (!bus_dir) return nullptr;
 
-    while ((de = readdir(busdir.get())) && (usb == nullptr)) {
-        if (badname(de->d_name)) continue;
+    while ((de = termuxadb::readdir(bus_dir.get())) != nullptr) {
+        if (contains_non_digit(de->d_name)) continue;
 
-        if (!convert_to_devfs_name(de->d_name, devname, sizeof(devname))) {
+        std::string bus_name = base + "/" + de->d_name;
 
-//            DBG("[ scanning %s ]\n", devname);
+        std::unique_ptr<DIR, int(*)(DIR*)> dev_dir(termuxadb::opendir(bus_name.c_str()), termuxadb::closedir);
+        if (!dev_dir) continue;
+
+        while ((de = termuxadb::readdir(dev_dir.get()))) {
+            if (contains_non_digit(de->d_name)) continue;
+
+            std::string dev_name = bus_name + "/" + de->d_name;
+
             writable = 1;
-            if ((fd = open(devname, O_RDWR)) < 0) {
+            if ((fd = termuxadb::open(dev_name, O_RDWR)) < 0) {
                 // Check if we have read-only access, so we can give a helpful
                 // diagnostic like "adb devices" does.
                 writable = 0;
-                if ((fd = open(devname, O_RDONLY)) < 0) {
+                if ((fd = termuxadb::open(dev_name, O_RDONLY)) < 0) {
                     continue;
                 }
             }
 
             n = read(fd, desc, sizeof(desc));
 
-            if (filter_usb_device(de->d_name, desc, n, writable, callback, &in, &out, &ifc) == 0) {
+            if (filter_usb_device(fd, desc, n, writable, callback, &in, &out, &ifc) == 0) {
                 usb.reset(new usb_handle());
-                strcpy(usb->fname, devname);
+                strcpy(usb->fname, dev_name.c_str());
                 usb->ep_in = in;
                 usb->ep_out = out;
                 usb->desc = fd;
 
                 n = ioctl(fd, USBDEVFS_CLAIMINTERFACE, &ifc);
                 if (n != 0) {
-                    close(fd);
+                    termuxadb::close(fd);
                     usb.reset();
                     continue;
                 }
             } else {
-                close(fd);
+                termuxadb::close(fd);
             }
         }
     }
@@ -486,7 +501,7 @@ int LinuxUsbTransport::Close()
     fd = handle_->desc;
     handle_->desc = -1;
     if(fd >= 0) {
-        close(fd);
+        termuxadb::close(fd);
         DBG("[ usb closed %d ]\n", fd);
     }
 
@@ -504,7 +519,7 @@ int LinuxUsbTransport::Reset() {
 }
 
 UsbTransport* usb_open(ifc_match_func callback, uint32_t timeout_ms) {
-    std::unique_ptr<usb_handle> handle = find_usb_device("/sys/bus/usb/devices", callback);
+    std::unique_ptr<usb_handle> handle = find_usb_device("/dev/bus/usb", callback);
     return handle ? new LinuxUsbTransport(std::move(handle), timeout_ms) : nullptr;
 }
 

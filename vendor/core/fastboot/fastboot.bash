@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-_fastboot() {
+_termux_fastboot() {
     if ! check_type "$1" >/dev/null; then
         return
     fi
@@ -67,7 +67,7 @@ _fastboot() {
             COMPREPLY=( $(compgen -W "$OPTIONS $COMMAND" -- "$cur") )
             ;;
         OPT_SERIAL_ARG)
-            local devices=$(command fastboot devices 2> /dev/null | awk '{ print $1 }')
+            local devices=$(command termux-fastboot devices 2> /dev/null | awk '{ print $1 }')
             COMPREPLY=( $(compgen -W "${devices}" -- ${cur}) )
             ;;
         OPT_SLOT_ARG)
@@ -81,7 +81,7 @@ _fastboot() {
                 i=$((i+1))
                 case "${cur}" in
                     flash)
-                        _fastboot_cmd_flash "$serial" $i
+                        _termux_fastboot_cmd_flash "$serial" $i
                         ;;
                     reboot)
                         if [[ $COMP_CWORD == $i ]]; then
@@ -90,7 +90,7 @@ _fastboot() {
                         fi
                         ;;
                     update)
-                        _fastboot_cmd_update "$serial" $i
+                        _termux_fastboot_cmd_update "$serial" $i
                         ;;
                 esac
             fi
@@ -100,7 +100,7 @@ _fastboot() {
     return 0
 }
 
-_fastboot_cmd_flash() {
+_termux_fastboot_cmd_flash() {
     local serial i cur
     local partitions
 
@@ -112,11 +112,11 @@ _fastboot_cmd_flash() {
         partitions="boot bootloader dtbo init_boot modem odm odm_dlkm oem product pvmfw radio recovery system system_dlkm vbmeta vendor vendor_dlkm vendor_kernel_boot"
         COMPREPLY=( $(compgen -W "$partitions" -- $cur) )
     else
-        _fastboot_util_complete_local_file "${cur}" '!*.img'
+        _termux_fastboot_util_complete_local_file "${cur}" '!*.img'
     fi
 }
 
-_fastboot_cmd_update() {
+_termux_fastboot_cmd_update() {
     local serial i cur
 
     serial=$1
@@ -124,10 +124,10 @@ _fastboot_cmd_update() {
 
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-    _fastboot_util_complete_local_file "${cur}" '!*.zip'
+    _termux_fastboot_util_complete_local_file "${cur}" '!*.zip'
 }
 
-_fastboot_util_complete_local_file() {
+_termux_fastboot_util_complete_local_file() {
     local file xspec i j IFS=$'\n'
     local -a dirs files
 
@@ -176,7 +176,7 @@ _fastboot_util_complete_local_file() {
 }
 
 if [[ $(check_type compopt) == "builtin" ]]; then
-    complete -F _fastboot fastboot
+    complete -F _termux_fastboot termux-fastboot
 else
-    complete -o nospace -F _fastboot fastboot
+    complete -o nospace -F _termux_fastboot termux-fastboot
 fi

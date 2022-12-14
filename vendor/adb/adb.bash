@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-_adb() {
+_termux_adb() {
     if ! check_type "$1" >/dev/null; then
         return
     fi
@@ -77,7 +77,7 @@ _adb() {
             COMPREPLY=( $(compgen -W "$OPTIONS $COMMAND" -- "$cur") )
             ;;
         OPT_SERIAL_ARG)
-            _adb_devices
+            _termux_adb_devices
             ;;
         COMMAND)
             if [[ $i -eq $COMP_CWORD ]]; then
@@ -86,19 +86,19 @@ _adb() {
                 i=$((i+1))
                 case "${cur}" in
                     disconnect)
-                        _adb_devices
+                        _termux_adb_devices
                         ;;
                     install)
-                        _adb_cmd_install "$serial" $i
+                        _termux_adb_cmd_install "$serial" $i
                         ;;
                     sideload)
-                        _adb_cmd_sideload "$serial" $i
+                        _termux_adb_cmd_sideload "$serial" $i
                         ;;
                     pull)
-                        _adb_cmd_pull "$serial" $i
+                        _termux_adb_cmd_pull "$serial" $i
                         ;;
                     push)
-                        _adb_cmd_push "$serial" $i
+                        _termux_adb_cmd_push "$serial" $i
                         ;;
                     reboot)
                         if [[ $COMP_CWORD == $i ]]; then
@@ -107,10 +107,10 @@ _adb() {
                         fi
                         ;;
                     shell)
-                        _adb_cmd_shell "$serial" $i
+                        _termux_adb_cmd_shell "$serial" $i
                         ;;
                     uninstall)
-                        _adb_cmd_uninstall "$serial" $i
+                        _termux_adb_cmd_uninstall "$serial" $i
                         ;;
                 esac
             fi
@@ -120,13 +120,13 @@ _adb() {
     return 0
 }
 
-_adb_devices() {
-    local devices=$(command adb devices 2> /dev/null | grep -v "List of devices" | awk '{ print $1 }')
+_termux_adb_devices() {
+    local devices=$(command termux-adb devices 2> /dev/null | grep -v "List of devices" | awk '{ print $1 }')
     COMPREPLY=( $(compgen -W "${devices}" -- ${cur}) )
     return
 }
 
-_adb_cmd_install() {
+_termux_adb_cmd_install() {
     local serial i cur where
 
     serial=$1
@@ -152,10 +152,10 @@ _adb_cmd_install() {
         return
     fi
 
-    _adb_util_complete_local_file "${cur}" '!*.apk'
+    _termux_adb_util_complete_local_file "${cur}" '!*.apk'
 }
 
-_adb_cmd_sideload() {
+_termux_adb_cmd_sideload() {
     local serial i cur
 
     serial=$1
@@ -163,10 +163,10 @@ _adb_cmd_sideload() {
 
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-    _adb_util_complete_local_file "${cur}" '!*.zip'
+    _termux_adb_util_complete_local_file "${cur}" '!*.zip'
 }
 
-_adb_cmd_push() {
+_termux_adb_cmd_push() {
     local serial IFS=$'\n' i cur
 
     serial=$1
@@ -175,16 +175,16 @@ _adb_cmd_push() {
     cur="${COMP_WORDS[COMP_CWORD]}"
 
     if [[ $COMP_CWORD == $i ]]; then
-        _adb_util_complete_local_file "${cur}"
+        _termux_adb_util_complete_local_file "${cur}"
     elif [[ $COMP_CWORD == $(($i+1)) ]]; then
         if [ "${cur}" == "" ]; then
             cur="/"
         fi
-        _adb_util_list_files $serial "${cur}"
+        _termux_adb_util_list_files $serial "${cur}"
     fi
 }
 
-_adb_cmd_pull() {
+_termux_adb_cmd_pull() {
     local serial IFS=$'\n' i cur
 
     serial=$1
@@ -196,13 +196,13 @@ _adb_cmd_pull() {
         if [ "${cur}" == "" ]; then
             cur="/"
         fi
-        _adb_util_list_files $serial "${cur}"
+        _termux_adb_util_list_files $serial "${cur}"
     elif [[ $COMP_CWORD == $(($i+1)) ]]; then
-        _adb_util_complete_local_file "${cur}"
+        _termux_adb_util_complete_local_file "${cur}"
     fi
 }
 
-_adb_cmd_shell() {
+_termux_adb_cmd_shell() {
     local serial IFS=$'\n' i cur
     local -a args
 
@@ -215,8 +215,8 @@ _adb_cmd_shell() {
     fi
 
     if [[ $i -eq $COMP_CWORD && ${cur:0:1} != "/" ]]; then
-        paths=$(command adb ${args[@]} shell echo '$'PATH 2> /dev/null | tr -d '\r' | tr : '\n')
-        COMMAND=$(command adb ${args[@]} shell ls $paths '2>' /dev/null | tr -d '\r' | {
+        paths=$(command termux-adb ${args[@]} shell echo '$'PATH 2> /dev/null | tr -d '\r' | tr : '\n')
+        COMMAND=$(command termux-adb ${args[@]} shell ls $paths '2>' /dev/null | tr -d '\r' | {
             while read -r tmp; do
                 command=${tmp##*/}
                 printf '%s\n' "$command"
@@ -229,22 +229,22 @@ _adb_cmd_shell() {
     i=$((i+1))
     case "$cur" in
         ls)
-            _adb_shell_file_command $serial $i "--color -A -C -F -H -L -R -S -Z -a -c -d -f -h -i -k -l -m -n -p -q -r -s -t -u -x -1"
+            _termux_adb_shell_file_command $serial $i "--color -A -C -F -H -L -R -S -Z -a -c -d -f -h -i -k -l -m -n -p -q -r -s -t -u -x -1"
             ;;
         cat)
-            _adb_shell_file_command $serial $i "-h -e -t -u -v"
+            _termux_adb_shell_file_command $serial $i "-h -e -t -u -v"
             ;;
         dumpsys)
-            _adb_cmd_shell_dumpsys "$serial" $i
+            _termux_adb_cmd_shell_dumpsys "$serial" $i
             ;;
         am)
-            _adb_cmd_shell_am "$serial" $i
+            _termux_adb_cmd_shell_am "$serial" $i
             ;;
         pm)
-            _adb_cmd_shell_pm "$serial" $i
+            _termux_adb_cmd_shell_pm "$serial" $i
             ;;
         /*)
-            _adb_util_list_files $serial "$cur"
+            _termux_adb_util_list_files $serial "$cur"
             ;;
         *)
             COMPREPLY=( )
@@ -254,7 +254,7 @@ _adb_cmd_shell() {
     return 0
 }
 
-_adb_cmd_shell_dumpsys() {
+_termux_adb_cmd_shell_dumpsys() {
     local serial i cur
     local -a args
     local candidates
@@ -271,7 +271,7 @@ _adb_cmd_shell_dumpsys() {
     if (( $i == $COMP_CWORD )) ; then
         cur="${COMP_WORDS[COMP_CWORD]}"
         # First line is a header, so need "1d".
-        candidates=$(command adb ${args[@]} shell dumpsys -l 2> /dev/null | sed -e '1d;s/^  *//' | tr -d '\r')
+        candidates=$(command termux-adb ${args[@]} shell dumpsys -l 2> /dev/null | sed -e '1d;s/^  *//' | tr -d '\r')
         candidates="-l $candidates"
         COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
         return 0
@@ -281,7 +281,7 @@ _adb_cmd_shell_dumpsys() {
     return 0
 }
 
-_adb_cmd_shell_am() {
+_termux_adb_cmd_shell_am() {
     local serial i cur
     local candidates
 
@@ -302,7 +302,7 @@ _adb_cmd_shell_am() {
 }
 
 
-_adb_cmd_shell_pm() {
+_termux_adb_cmd_shell_pm() {
     local serial i cur
     local candidates
 
@@ -339,7 +339,7 @@ _adb_cmd_shell_pm() {
     return 0
 }
 
-_adb_cmd_uninstall() {
+_termux_adb_cmd_uninstall() {
     local serial i where cur packages
 
     serial=$1
@@ -368,7 +368,7 @@ _adb_cmd_uninstall() {
     fi
 
     packages="$(
-        command adb ${args[@]} shell pm list packages '2>' /dev/null 2> /dev/null | tr -d '\r' | {
+        command termux-adb ${args[@]} shell pm list packages '2>' /dev/null 2> /dev/null | tr -d '\r' | {
             while read -r tmp; do
                 local package=${tmp#package:}
                 echo -n "${package} "
@@ -379,7 +379,7 @@ _adb_cmd_uninstall() {
     COMPREPLY=( ${COMPREPLY[@]:-} $(compgen -W "${packages}" -- "${cur}") )
 }
 
-_adb_shell_file_command() {
+_termux_adb_shell_file_command() {
     local serial i cur file options
     local -a args
 
@@ -415,14 +415,14 @@ _adb_shell_file_command() {
             COMPREPLY=( $(compgen -W "$options" -- "$cur") )
             ;;
         FILE)
-            _adb_util_list_files $serial "$file"
+            _termux_adb_util_list_files $serial "$file"
             ;;
     esac
 
     return 0
 }
 
-_adb_util_list_files() {
+_termux_adb_util_list_files() {
     local serial dir IFS=$'\n'
     local -a toks
     local -a args
@@ -434,9 +434,9 @@ _adb_util_list_files() {
         args=(-s $serial)
     fi
 
-    if [[ $( command adb ${args[@]} shell ls -dF / '2>/dev/null' | tr -d '\r' ) == "d /" ]] ; then
+    if [[ $( command termux-adb ${args[@]} shell ls -dF / '2>/dev/null' | tr -d '\r' ) == "d /" ]] ; then
         toks=( ${toks[@]-} $(
-            command adb ${args[@]} shell ls -dF ${file}"*" '2>' /dev/null 2> /dev/null | tr -d '\r' | {
+            command termux-adb ${args[@]} shell ls -dF ${file}"*" '2>' /dev/null 2> /dev/null | tr -d '\r' | {
                 while read -r tmp; do
                     filetype=${tmp%% *}
                     filename=${tmp:${#filetype}+1}
@@ -450,7 +450,7 @@ _adb_util_list_files() {
         ))
     else
         toks=( ${toks[@]-} $(
-            command adb ${args[@]} shell ls -dp ${file}"*" '2>/dev/null' 2> /dev/null | tr -d '\r'
+            command termux-adb ${args[@]} shell ls -dp ${file}"*" '2>/dev/null' 2> /dev/null | tr -d '\r'
         ))
     fi
 
@@ -462,7 +462,7 @@ _adb_util_list_files() {
     COMPREPLY=( ${COMPREPLY[@]:-} "${toks[@]}" )
 }
 
-_adb_util_complete_local_file()
+_termux_adb_util_complete_local_file()
 {
     local file xspec i j IFS=$'\n'
     local -a dirs files
@@ -513,7 +513,7 @@ _adb_util_complete_local_file()
 
 
 if [[ $(check_type compopt) == "builtin" ]]; then
-    complete -F _adb adb
+    complete -F _termux_adb termux-adb
 else
-    complete -o nospace -F _adb adb
+    complete -o nospace -F _termux_adb termux-adb
 fi

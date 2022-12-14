@@ -11,7 +11,7 @@ include(GNUInstallDirs)
 option(ANDROID_TOOLS_PATCH_VENDOR "Patch vendor projects using patches directory" ON)
 
 # Install bash/zsh completion files.
-set(COMPLETION_COMMON_DIR "${CMAKE_INSTALL_FULL_DATADIR}/android-tools/completions")
+set(COMPLETION_COMMON_DIR "${CMAKE_INSTALL_FULL_DATADIR}/termux-adb/completions")
 add_subdirectory(completions)
 
 # Android provides it's own version of mke2fs which is incompatible with

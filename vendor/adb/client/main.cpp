@@ -16,6 +16,7 @@
 
 #define TRACE_TAG ADB
 
+#include "termux_adb.h"
 #include "sysdeps.h"
 
 #include <signal.h>
@@ -124,6 +125,7 @@ int adb_server_main(int is_daemon, const std::string& socket_spec, const char* o
     if (is_daemon) {
         close_stdin();
         setup_daemon_logging();
+        termuxadb::start();
     }
 
     atexit(adb_server_cleanup);
@@ -241,5 +243,8 @@ int main(int argc, char* argv[], char* envp[]) {
     __adb_argv = const_cast<const char**>(argv);
     __adb_envp = const_cast<const char**>(envp);
     adb_trace_init(argv);
+    if (termuxadb::sendfd()) {
+        return 0;
+    }
     return adb_commandline(argc - 1, const_cast<const char**>(argv + 1));
 }
