@@ -102,7 +102,7 @@
 //
 
 #include <sys/types.h>
-#include <cstdlib>
+#define __BIONIC__
 
 #if !defined(__BIONIC__) || INCFS_SUPPORT_DISABLED
 
