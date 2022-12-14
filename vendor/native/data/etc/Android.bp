@@ -1,0 +1,275 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+prebuilt_defaults {
+    name: "frameworks_native_data_etc_defaults",
+    relative_install_path: "permissions",
+    soc_specific: true,
+}
+
+// Modules use the 'prebuilt.xml' suffix to prevent conflicting
+// overridden paths, so that this Android.bp can exist alongside
+// devices that use PRODUCT_COPY_FILES for these files.
+//
+// This override prevention is also possible using a soong_namespace,
+// but that requires every dependent module (e.g. an APEX that includes
+// one of these files) to also reference this namespace, and so on
+// for all dependent modules. It is simpler to just use new path names.
+
+prebuilt_etc {
+    name: "android.hardware.audio.low_latency.prebuilt.xml",
+    src: "android.hardware.audio.low_latency.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.biometrics.face.prebuilt.xml",
+    src: "android.hardware.biometrics.face.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.bluetooth_le.prebuilt.xml",
+    src: "android.hardware.bluetooth_le.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.bluetooth.prebuilt.xml",
+    src: "android.hardware.bluetooth.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.concurrent.prebuilt.xml",
+    src: "android.hardware.camera.concurrent.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.flash-autofocus.prebuilt.xml",
+    src: "android.hardware.camera.flash-autofocus.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.front.prebuilt.xml",
+    src: "android.hardware.camera.front.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.full.prebuilt.xml",
+    src: "android.hardware.camera.full.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.camera.raw.prebuilt.xml",
+    src: "android.hardware.camera.raw.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.ethernet.prebuilt.xml",
+    src: "android.hardware.ethernet.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.faketouch.prebuilt.xml",
+    src: "android.hardware.faketouch.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.fingerprint.prebuilt.xml",
+    src: "android.hardware.fingerprint.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.location.gps.prebuilt.xml",
+    src: "android.hardware.location.gps.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.reboot_escrow.prebuilt.xml",
+    src: "android.hardware.reboot_escrow.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.ambient_temperature.prebuilt.xml",
+    src: "android.hardware.sensor.ambient_temperature.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.barometer.prebuilt.xml",
+    src: "android.hardware.sensor.barometer.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.dynamic.head_tracker.prebuilt.xml",
+    src: "android.hardware.sensor.dynamic.head_tracker.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.gyroscope.prebuilt.xml",
+    src: "android.hardware.sensor.gyroscope.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.hinge_angle.prebuilt.xml",
+    src: "android.hardware.sensor.hinge_angle.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.light.prebuilt.xml",
+    src: "android.hardware.sensor.light.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.proximity.prebuilt.xml",
+    src: "android.hardware.sensor.proximity.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.sensor.relative_humidity.prebuilt.xml",
+    src: "android.hardware.sensor.relative_humidity.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.telephony.gsm.prebuilt.xml",
+    src: "android.hardware.telephony.gsm.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.telephony.ims.prebuilt.xml",
+    src: "android.hardware.telephony.ims.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.usb.accessory.prebuilt.xml",
+    src: "android.hardware.usb.accessory.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.usb.host.prebuilt.xml",
+    src: "android.hardware.usb.host.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.vulkan.level-0.prebuilt.xml",
+    src: "android.hardware.vulkan.level-0.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.vulkan.version-1_0_3.prebuilt.xml",
+    src: "android.hardware.vulkan.version-1_0_3.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.wifi.prebuilt.xml",
+    src: "android.hardware.wifi.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.wifi.direct.prebuilt.xml",
+    src: "android.hardware.wifi.direct.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.hardware.wifi.passpoint.prebuilt.xml",
+    src: "android.hardware.wifi.passpoint.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.device_id_attestation.prebuilt.xml",
+    src: "android.software.device_id_attestation.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.ipsec_tunnels.prebuilt.xml",
+    src: "android.software.ipsec_tunnels.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.opengles.deqp.level-2021-03-01.prebuilt.xml",
+    src: "android.software.opengles.deqp.level-2021-03-01.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.opengles.deqp.level-2022-03-01.prebuilt.xml",
+    src: "android.software.opengles.deqp.level-2022-03-01.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.sip.voip.prebuilt.xml",
+    src: "android.software.sip.voip.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.verified_boot.prebuilt.xml",
+    src: "android.software.verified_boot.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.vulkan.deqp.level-2021-03-01.prebuilt.xml",
+    src: "android.software.vulkan.deqp.level-2021-03-01.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "android.software.vulkan.deqp.level-2022-03-01.prebuilt.xml",
+    src: "android.software.vulkan.deqp.level-2022-03-01.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "aosp_excluded_hardware.prebuilt.xml",
+    src: "aosp_excluded_hardware.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "go_handheld_core_hardware.prebuilt.xml",
+    src: "go_handheld_core_hardware.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}
+
+prebuilt_etc {
+    name: "handheld_core_hardware.prebuilt.xml",
+    src: "handheld_core_hardware.xml",
+    defaults: ["frameworks_native_data_etc_defaults"],
+}

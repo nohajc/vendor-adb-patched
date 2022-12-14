@@ -1,0 +1,13 @@
+{
+  "presubmit": [
+    {
+      // small test which assumes the output format of dumpsys, however
+      // there are many other parts of Android that expect the output
+      // to be a specific way (see b/141728094)
+      "name": "timezone_data_e2e_tests"
+    },
+    {
+      "name": "dumpsys_test"
+    }
+  ]
+}

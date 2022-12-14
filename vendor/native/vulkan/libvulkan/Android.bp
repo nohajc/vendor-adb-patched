@@ -1,0 +1,116 @@
+// Copyright (C) 2016 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Headers module is in external/vulkan-headers/Android.bp.
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+ndk_library {
+    name: "libvulkan",
+    symbol_file: "libvulkan.map.txt",
+    first_version: "24",
+    unversioned_until: "current",
+    export_header_libs: [
+        "ndk_vulkan_headers",
+    ],
+}
+
+cc_library_shared {
+    name: "libvulkan",
+    llndk: {
+        symbol_file: "libvulkan.map.txt",
+        export_llndk_headers: [
+            "vulkan_headers",
+        ],
+    },
+    sanitize: {
+        misc_undefined: ["integer"],
+    },
+
+    cflags: [
+        "-DLOG_TAG=\"vulkan\"",
+        "-DVK_USE_PLATFORM_ANDROID_KHR",
+        "-DVK_NO_PROTOTYPES",
+        "-fvisibility=hidden",
+        "-fstrict-aliasing",
+        "-Wextra",
+        "-Werror",
+        "-Wno-padded",
+        "-Wno-sign-compare",
+        "-Wno-switch-enum",
+        "-Wno-unused-variable",
+        "-Wno-unused-function",
+
+        // Have clang emit complete debug_info.
+        "-fstandalone-debug",
+
+        //"-DLOG_NDEBUG=0",
+    ],
+
+    cppflags: [
+        "-Wno-c99-extensions",
+        "-Wno-c++98-compat-pedantic",
+        "-Wno-exit-time-destructors",
+        "-Wno-float-equal",
+        "-Wno-global-constructors",
+        "-Wno-zero-length-array",
+    ],
+
+    srcs: [
+        "api.cpp",
+        "api_gen.cpp",
+        "debug_report.cpp",
+        "driver.cpp",
+        "driver_gen.cpp",
+        "layers_extensions.cpp",
+        "stubhal.cpp",
+        "swapchain.cpp",
+    ],
+
+    header_libs: [
+        "hwvulkan_headers",
+        "libnativeloader-headers",
+        "vulkan_headers",
+        "libsurfaceflinger_headers",
+    ],
+    export_header_lib_headers: ["vulkan_headers"],
+    shared_libs: [
+        "android.hardware.configstore@1.0",
+        "android.hardware.configstore-utils",
+        "libziparchive",
+        "libhardware",
+        "libsync",
+        "libbase",
+        "libhidlbase",
+        "liblog",
+        "libui",
+        "libgraphicsenv",
+        "libutils",
+        "libcutils",
+        "libz",
+        "libnativebridge_lazy",
+        "libnativeloader_lazy",
+        "libnativewindow",
+        "libvndksupport",
+        "android.hardware.graphics.common@1.0",
+        "libSurfaceFlingerProp",
+    ],
+    static_libs: ["libgrallocusage"],
+}

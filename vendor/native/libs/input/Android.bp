@@ -1,0 +1,164 @@
+// Copyright (C) 2013 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// libinput is partially built for the host (used by build time keymap validation tool)
+
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+filegroup {
+    name: "inputconstants_aidl",
+    srcs: [
+        "android/os/BlockUntrustedTouchesMode.aidl",
+        "android/os/IInputConstants.aidl",
+        "android/os/InputEventInjectionResult.aidl",
+        "android/os/InputEventInjectionSync.aidl",
+        "android/os/InputConfig.aidl",
+    ],
+}
+
+cc_library {
+    name: "libinput",
+    cpp_std: "c++20",
+    host_supported: true,
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    srcs: [
+        "Input.cpp",
+        "InputDevice.cpp",
+        "InputEventLabels.cpp",
+        "Keyboard.cpp",
+        "KeyCharacterMap.cpp",
+        "KeyLayoutMap.cpp",
+        "PrintTools.cpp",
+        "PropertyMap.cpp",
+        "TouchVideoFrame.cpp",
+        "VelocityControl.cpp",
+        "VelocityTracker.cpp",
+        "VirtualKeyMap.cpp",
+    ],
+
+    header_libs: ["jni_headers"],
+    export_header_lib_headers: ["jni_headers"],
+
+    shared_libs: [
+        "libbase",
+        "liblog",
+        "libcutils",
+        "libvintf",
+    ],
+
+    static_libs: [
+        "libui-types",
+    ],
+
+    export_static_lib_headers: [
+        "libui-types",
+    ],
+
+    target: {
+        android: {
+            srcs: [
+                "InputTransport.cpp",
+                "android/os/IInputFlinger.aidl",
+                ":inputconstants_aidl",
+            ],
+
+            export_shared_lib_headers: ["libbinder"],
+
+            shared_libs: [
+                "libutils",
+                "libbinder",
+                "libui",
+            ],
+
+            static_libs: [
+                "libgui_window_info_static",
+            ],
+
+            export_static_lib_headers: [
+                "libgui_window_info_static",
+            ],
+
+            sanitize: {
+                misc_undefined: ["integer"],
+            },
+        },
+        host: {
+            shared: {
+                enabled: false,
+            },
+            include_dirs: [
+                "frameworks/native/libs/arect/include",
+            ],
+        },
+        host_linux: {
+            srcs: [
+                "InputTransport.cpp",
+                "android/os/IInputConstants.aidl",
+                "android/os/IInputFlinger.aidl",
+                "android/os/InputConfig.aidl",
+            ],
+            static_libs: [
+                "libhostgraphics",
+                "libgui_window_info_static",
+            ],
+            shared_libs: [
+                "libbinder",
+            ],
+
+            export_static_lib_headers: [
+                "libgui_window_info_static",
+            ],
+        },
+    },
+
+    aidl: {
+        local_include_dirs: ["."],
+        export_aidl_headers: true,
+        include_dirs: [
+            "frameworks/native/libs/gui",
+        ],
+    },
+}
+
+cc_defaults {
+    name: "libinput_fuzz_defaults",
+    host_supported: true,
+    shared_libs: [
+        "libutils",
+        "libbase",
+        "liblog",
+    ],
+}
+
+cc_fuzz {
+    name: "libinput_fuzz_propertymap",
+    defaults: ["libinput_fuzz_defaults"],
+    srcs: [
+        "PropertyMap.cpp",
+        "PropertyMap_fuzz.cpp",
+    ],
+}
+
+subdirs = ["tests"]

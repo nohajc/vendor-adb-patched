@@ -1,0 +1,84 @@
+package {
+    default_applicable_licenses: ["frameworks_native_cmds_dumpsys_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "frameworks_native_cmds_dumpsys_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_defaults {
+    name: "dumpsys_defaults",
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    srcs: [
+        "dumpsys.cpp",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libutils",
+        "liblog",
+        "libbinder",
+        "libbinderdebug",
+    ],
+
+    static_libs: [
+        "libserviceutils",
+    ],
+}
+
+//
+// Static library used in testing and executable
+//
+
+cc_library_static {
+    name: "libdumpsys",
+
+    defaults: ["dumpsys_defaults"],
+
+    export_include_dirs: ["."],
+}
+
+//
+// Executable
+//
+
+cc_binary {
+    name: "dumpsys",
+
+    defaults: ["dumpsys_defaults"],
+
+    srcs: [
+        "main.cpp",
+    ],
+
+    shared_libs: [
+        "packagemanager_aidl-cpp",
+    ],
+}
+
+cc_binary {
+    name: "dumpsys_vendor",
+    stem: "dumpsys",
+
+    vendor: true,
+
+    defaults: ["dumpsys_defaults"],
+
+    srcs: [
+        "main.cpp",
+    ],
+}

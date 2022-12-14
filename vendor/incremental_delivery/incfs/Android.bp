@@ -1,0 +1,200 @@
+// Copyright (C) 2020 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package {
+    default_applicable_licenses: ["system_incremental_delivery_incfs_license"],
+}
+
+// Added automatically by a large-scale-change that took the approach of
+// 'apply every license found to every target'. While this makes sure we respect
+// every license restriction, it may not be entirely correct.
+//
+// e.g. GPL in an MIT project might only apply to the contrib/ directory.
+//
+// Please consider splitting the single license below into multiple licenses,
+// taking care not to lose any license_kind information, and overriding the
+// default license using the 'licenses: [...]' property on targets as needed.
+//
+// For unused files, consider creating a 'fileGroup' with "//visibility:private"
+// to attach the license to, and including a comment whether the files may be
+// used in the current project.
+// See: http://go/android-license-faq
+license {
+    name: "system_incremental_delivery_incfs_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_defaults {
+    name: "libincfs_defaults_common",
+    cpp_std: "c++2a",
+    cflags: ["-Werror", "-Wall", "-Wextra", "-Wno-deprecated-enum-enum-conversion", "-D_FILE_OFFSET_BITS=64"],
+    tidy: true,
+    tidy_checks: [
+        "android-*",
+        "cert-*",
+        "clang-analyzer-security*",
+        "-cert-err34-c",
+        "clang-analyzer-security*",
+        // Disabling due to many unavoidable warnings from POSIX API usage.
+        "-google-runtime-int",
+        "-google-explicit-constructor",
+        // operator=() does not handle self-assignment properly - all protobuf-generated classes
+        "-cert-oop54-cpp",
+    ],
+    target: {
+        linux_bionic: {
+            enabled: true,
+        },
+    },
+}
+
+cc_defaults {
+    name: "libincfs_defaults",
+    defaults: [
+        "libincfs_defaults_common",
+        "linux_bionic_supported",
+    ],
+    header_libs: ["libincfs_headers"],
+    export_header_lib_headers: ["libincfs_headers"],
+    static_libs: [
+        "libbase",
+    ],
+    shared_libs: [
+        "libcrypto",
+        "liblog",
+        "libselinux",
+    ],
+    target: {
+        android: {
+            static_libs: [
+                "libcom.android.sysprop.incremental",
+            ],
+        },
+    },
+}
+
+cc_library {
+    name: "libincfs",
+    defaults: ["libincfs_defaults"],
+    srcs: [
+        "incfs_ndk.c",
+        "incfs.cpp",
+        "MountRegistry.cpp",
+        "path.cpp",
+    ],
+}
+
+cc_library_static {
+    name: "libincfs-utils",
+    defaults: ["libincfs_defaults_common"],
+    local_include_dirs: ["util/include"],
+    export_include_dirs: ["util/include"],
+    host_supported: true,
+    srcs: [
+        "util/map_ptr.cpp",
+    ],
+    target: {
+        android: {
+            header_libs: ["libincfs_headers"],
+            shared_libs: [
+                "libbase",
+                "libincfs",
+                "libutils",
+            ],
+        },
+        host: {
+            static_libs: [
+                "libbase",
+                "libutils",
+            ],
+        },
+        windows: {
+            enabled: true,
+        },
+    },
+}
+
+cc_library_headers {
+    name: "libincfs_headers",
+    export_include_dirs: ["include/", "kernel-headers",],
+    host_supported: true,
+    target: {
+        linux_bionic: {
+            enabled: true,
+        }
+    }
+}
+
+cc_test {
+    name: "libincfs-test",
+    defaults: ["libincfs_defaults"],
+    local_include_dirs: ["tests/include"],
+    static_libs: [
+        "libincfs",
+        "libincfs-utils",
+    ],
+    shared_libs: [
+        "libbase",
+        "libutils",
+    ],
+    srcs: [
+        "tests/util/map_ptr_test.cpp",
+        "tests/incfs_test.cpp",
+        "tests/MountRegistry_test.cpp",
+    ],
+    require_root: true,
+    test_suites: [
+        "general-tests",
+        "device-tests",
+    ],
+}
+
+cc_benchmark {
+    name: "hardening-benchmark",
+    defaults: ["libincfs_defaults"],
+
+    srcs: [
+        "tests/hardening_benchmark.cpp",
+    ],
+    static_libs: [
+        "libziparchive_for_incfs",
+        "libutils",
+        "libincfs",
+        "libincfs-utils",
+    ],
+}
+
+cc_binary {
+    name: "incfsdump",
+    defaults: ["libincfs_defaults"],
+    host_supported: true,
+    static_libs: [
+        "libbase",
+    ],
+    srcs: [
+        "incfsdump/main.cpp",
+        "incfsdump/dump.cpp",
+    ],
+    target: {
+        linux_glibc: {
+            enabled: true,
+        },
+    },
+}

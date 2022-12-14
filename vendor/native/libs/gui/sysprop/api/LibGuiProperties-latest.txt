@@ -1,0 +1,8 @@
+props {
+  module: "android.sysprop.LibGuiProperties"
+  prop {
+    api_name: "frame_event_history_size"
+    type: Integer
+    prop_name: "ro.lib_gui.frame_event_history_size"
+  }
+}

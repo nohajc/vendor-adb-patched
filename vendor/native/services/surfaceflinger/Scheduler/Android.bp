@@ -1,0 +1,60 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_defaults {
+    name: "libscheduler_defaults",
+    defaults: ["surfaceflinger_defaults"],
+    cflags: [
+        "-DLOG_TAG=\"Scheduler\"",
+        "-DATRACE_TAG=ATRACE_TAG_GRAPHICS",
+    ],
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "liblog",
+        "libutils",
+    ],
+}
+
+cc_library_headers {
+    name: "libscheduler_headers",
+    defaults: ["libscheduler_defaults"],
+    export_include_dirs: ["include"],
+}
+
+// TODO(b/185535769): Remove libsurfaceflinger_unittest's dependency on AsyncCallRecorder.
+cc_library_headers {
+    name: "libscheduler_test_headers",
+    defaults: ["libscheduler_defaults"],
+    export_include_dirs: ["tests"],
+}
+
+cc_library_static {
+    name: "libscheduler",
+    defaults: ["libscheduler_defaults"],
+    srcs: [
+        "src/Timer.cpp",
+    ],
+    local_include_dirs: ["include"],
+    export_include_dirs: ["include"],
+}
+
+cc_test {
+    name: "libscheduler_test",
+    test_suites: ["device-tests"],
+    defaults: ["libscheduler_defaults"],
+    srcs: [
+        "tests/TimerTest.cpp",
+    ],
+    static_libs: [
+        "libgmock",
+        "libgtest",
+        "libscheduler",
+    ],
+}

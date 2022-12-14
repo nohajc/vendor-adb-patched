@@ -1,0 +1,18 @@
+{
+  "presubmit": [
+    {
+      "name": "debuggerd_test"
+    },
+    {
+      "name": "libtombstoned_client_rust_test"
+    },
+    {
+      "name": "MicrodroidHostTestCases"
+    }
+  ],
+  "hwasan-presubmit": [
+    {
+      "name": "debuggerd_test"
+    }
+  ]
+}

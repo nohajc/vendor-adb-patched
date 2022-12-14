@@ -1,0 +1,305 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_defaults {
+    name: "installd_defaults",
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+
+        "-Wunreachable-code",
+        "-Wunreachable-code-break",
+        "-Wunreachable-code-return",
+    ],
+    srcs: [
+        "CacheItem.cpp",
+        "CacheTracker.cpp",
+        "CrateManager.cpp",
+        "InstalldNativeService.cpp",
+        "QuotaUtils.cpp",
+        "SysTrace.cpp",
+        "dexopt.cpp",
+        "execv_helper.cpp",
+        "globals.cpp",
+        "restorable_file.cpp",
+        "run_dex2oat.cpp",
+        "unique_file.cpp",
+        "utils.cpp",
+        "utils_default.cpp",
+        "view_compiler.cpp",
+        ":installd_aidl",
+    ],
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libcrypto",
+        "libcutils",
+        "liblog",
+        "liblogwrap",
+        "libprocessgroup",
+        "libselinux",
+        "libutils",
+        "libziparchive",
+        "server_configurable_flags",
+    ],
+    static_libs: [
+        "libasync_safe",
+        "libext2_uuid",
+    ],
+    export_shared_lib_headers: [
+        "libbinder",
+    ],
+
+    product_variables: {
+        arc: {
+            exclude_srcs: [
+                "QuotaUtils.cpp",
+            ],
+            static_libs: [
+                "libarcdiskquota",
+                "arc_services_aidl",
+            ],
+            cflags: [
+                "-DUSE_ARC",
+            ],
+        },
+    },
+
+    tidy: true,
+    tidy_checks: [
+        "-*",
+        "clang-analyzer-security*",
+        "cert-*",
+        "-cert-err58-cpp",
+    ],
+    tidy_checks_as_errors: [
+        "clang-analyzer-security*",
+        "cert-*",
+    ],
+}
+
+//
+// Static library used in testing and executable
+//
+
+cc_library_static {
+    name: "libinstalld",
+    defaults: ["installd_defaults"],
+
+    export_include_dirs: ["."],
+    aidl: {
+        export_aidl_headers: true,
+    },
+
+    product_variables: {
+        arc: {
+            exclude_srcs: [
+                "QuotaUtils.cpp",
+            ],
+            static_libs: [
+                "libarcdiskquota",
+                "arc_services_aidl",
+            ],
+            cflags: [
+                "-DUSE_ARC",
+            ],
+        },
+    },
+}
+
+cc_library_headers {
+    name: "libinstalld_headers",
+    export_include_dirs: ["."],
+}
+
+//
+// Unit tests
+//
+
+cc_test_host {
+    name: "run_dex2oat_test",
+    test_suites: ["general-tests"],
+    srcs: [
+        "run_dex2oat_test.cpp",
+        "run_dex2oat.cpp",
+        "unique_file.cpp",
+        "execv_helper.cpp",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    shared_libs: [
+        "libbase",
+        "server_configurable_flags",
+    ],
+    test_config: "run_dex2oat_test.xml",
+}
+
+//
+// Executable
+//
+
+cc_binary {
+    name: "installd",
+    defaults: ["installd_defaults"],
+    srcs: ["installd.cpp"],
+
+    static_libs: ["libdiskusage"],
+
+    init_rc: ["installd.rc"],
+
+    product_variables: {
+        arc: {
+            exclude_srcs: [
+                "QuotaUtils.cpp",
+            ],
+            static_libs: [
+                "libarcdiskquota",
+                "arc_services_aidl",
+            ],
+            cflags: [
+                "-DUSE_ARC",
+            ],
+        },
+    },
+
+    // Needs to be wherever installd is as it's execed by
+    // installd.
+    required: ["migrate_legacy_obb_data"],
+}
+
+// OTA chroot tool
+
+cc_binary {
+    name: "otapreopt_chroot",
+    defaults: ["libapexd-deps"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    srcs: [
+        "otapreopt_chroot.cpp",
+        "otapreopt_utils.cpp",
+    ],
+    shared_libs: [
+        "libbase",
+        "liblog",
+        "libutils",
+    ],
+    required: [
+        "apexd",
+    ],
+}
+
+filegroup {
+    name: "installd_aidl",
+    srcs: [
+        "binder/**/*.aidl",
+    ],
+    path: "binder",
+}
+
+//
+// Static library for otapreopt used in testing
+//
+cc_library_static {
+    name: "libotapreoptparameters",
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    srcs: ["otapreopt_parameters.cpp"],
+
+    export_include_dirs: ["."],
+
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "liblog",
+        "libprocessgroup",
+        "libutils",
+    ],
+}
+
+//
+//  OTA Executable
+//
+
+cc_binary {
+    name: "otapreopt",
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    srcs: [
+        "dexopt.cpp",
+        "execv_helper.cpp",
+        "globals.cpp",
+        "otapreopt.cpp",
+        "otapreopt_utils.cpp",
+        "restorable_file.cpp",
+        "run_dex2oat.cpp",
+        "unique_file.cpp",
+        "utils.cpp",
+        "utils_default.cpp",
+        "view_compiler.cpp",
+    ],
+
+    static_libs: [
+        "libasync_safe",
+        "libdiskusage",
+        "libotapreoptparameters",
+        "libext2_uuid",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libcrypto",
+        "libcutils",
+        "liblog",
+        "liblogwrap",
+        "libprocessgroup",
+        "libselinux",
+        "libutils",
+        "libziparchive",
+        "server_configurable_flags",
+    ],
+}
+
+// OTA slot script
+sh_binary {
+    name: "otapreopt_slot",
+    src: "otapreopt_slot.sh",
+    init_rc: ["otapreopt.rc"],
+}
+
+// OTA postinstall script
+sh_binary {
+    name: "otapreopt_script",
+    src: "otapreopt_script.sh",
+    // Let this depend on otapreopt, the chroot tool and the slot script,
+    // so we just have to mention one in a configuration.
+    required: [
+        "otapreopt",
+        "otapreopt_chroot",
+        "otapreopt_slot",
+    ],
+}
+
+// Script to migrate legacy obb data.
+sh_binary {
+    name: "migrate_legacy_obb_data",
+    src: "migrate_legacy_obb_data.sh",
+}

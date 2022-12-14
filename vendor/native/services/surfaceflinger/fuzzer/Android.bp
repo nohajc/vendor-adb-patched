@@ -1,0 +1,129 @@
+/*
+ * Copyright 2021 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_defaults {
+    name: "surfaceflinger_fuzz_defaults",
+    include_dirs: [
+        "frameworks/native/services/surfaceflinger/tests/unittests",
+    ],
+    static_libs: [
+        "android.hardware.graphics.composer@2.1-resources",
+        "libgmock",
+        "libgui_mocks",
+        "libgmock_ndk",
+        "libgmock_main",
+        "libgtest_ndk_c++",
+        "libgmock_main_ndk",
+        "librenderengine_mocks",
+        "perfetto_trace_protos",
+        "libcompositionengine_mocks",
+        "perfetto_trace_protos",
+    ],
+    shared_libs: [
+        "libprotoutil",
+        "libstatssocket",
+        "libstatspull",
+        "libtimestats",
+        "libtimestats_proto",
+        "libprotobuf-cpp-full",
+        "android.hardware.graphics.mapper@2.0",
+        "android.hardware.graphics.mapper@3.0",
+        "android.hardware.graphics.mapper@4.0",
+    ],
+    srcs: [
+        ":libsurfaceflinger_sources",
+        ":libsurfaceflinger_mock_sources",
+    ],
+    defaults: [
+        "libsurfaceflinger_defaults",
+    ],
+    header_libs: [
+        "libui_fuzzableDataspaces_headers",
+        "libsurfaceflinger_headers",
+        "libui_headers",
+    ],
+    cflags: [
+        "-Wno-unused-result",
+        "-Wno-conversion",
+        "-Wno-sign-compare",
+    ],
+    fuzz_config: {
+        cc: [
+            "android-media-fuzzing-reports@google.com",
+        ],
+        componentid: 155276,
+    },
+}
+
+cc_fuzz {
+    name: "surfaceflinger_fuzzer",
+    defaults: [
+        "surfaceflinger_fuzz_defaults",
+    ],
+    srcs: [
+        "surfaceflinger_fuzzer.cpp",
+    ],
+}
+
+cc_fuzz {
+    name: "surfaceflinger_displayhardware_fuzzer",
+    defaults: [
+        "surfaceflinger_fuzz_defaults",
+    ],
+    srcs: [
+        "surfaceflinger_displayhardware_fuzzer.cpp",
+    ],
+    header_libs: [
+        "android.hardware.graphics.composer@2.4-command-buffer",
+        "android.hardware.graphics.composer@2.4-hal",
+    ],
+}
+
+cc_fuzz {
+    name: "surfaceflinger_scheduler_fuzzer",
+    defaults: [
+        "surfaceflinger_fuzz_defaults",
+    ],
+    srcs: [
+        "surfaceflinger_scheduler_fuzzer.cpp",
+    ],
+}
+
+cc_fuzz {
+    name: "surfaceflinger_layer_fuzzer",
+    defaults: [
+        "surfaceflinger_fuzz_defaults",
+    ],
+    header_libs: [
+        "libgui_headers",
+    ],
+    static_libs: [
+        "librenderengine",
+    ],
+    srcs: [
+        "surfaceflinger_layer_fuzzer.cpp",
+    ],
+}

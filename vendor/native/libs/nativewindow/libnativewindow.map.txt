@@ -1,0 +1,76 @@
+LIBNATIVEWINDOW {
+  global:
+    AHardwareBuffer_acquire;
+    AHardwareBuffer_allocate;
+    AHardwareBuffer_createFromHandle; # llndk # systemapi
+    AHardwareBuffer_describe;
+    AHardwareBuffer_getId; # introduced=31
+    AHardwareBuffer_getNativeHandle; # llndk # systemapi
+    AHardwareBuffer_isSupported; # introduced=29
+    AHardwareBuffer_lock;
+    AHardwareBuffer_lockAndGetInfo; # introduced=29
+    AHardwareBuffer_lockPlanes; # introduced=29
+    AHardwareBuffer_recvHandleFromUnixSocket;
+    AHardwareBuffer_release;
+    AHardwareBuffer_sendHandleToUnixSocket;
+    AHardwareBuffer_unlock;
+    AHardwareBuffer_readFromParcel; # introduced=34
+    AHardwareBuffer_writeToParcel; # introduced=34
+    ANativeWindowBuffer_getHardwareBuffer; # llndk
+    ANativeWindow_OemStorageGet; # llndk
+    ANativeWindow_OemStorageSet; # llndk
+    ANativeWindow_acquire;
+    ANativeWindow_cancelBuffer; # llndk
+    ANativeWindow_dequeueBuffer; # llndk
+    ANativeWindow_getBuffersDataSpace; # introduced=28
+    ANativeWindow_getFormat;
+    ANativeWindow_getHeight;
+    ANativeWindow_getLastDequeueDuration; # systemapi # introduced=30
+    ANativeWindow_getLastDequeueStartTime; # systemapi # introduced=30
+    ANativeWindow_getLastQueueDuration; # systemapi # introduced=30
+    ANativeWindow_getWidth;
+    ANativeWindow_lock;
+    ANativeWindow_query; # llndk
+    ANativeWindow_queryf; # llndk
+    ANativeWindow_queueBuffer; # llndk
+    ANativeWindow_setCancelBufferInterceptor; # systemapi # introduced=30
+    ANativeWindow_setDequeueBufferInterceptor; # systemapi # introduced=30
+    ANativeWindow_setPerformInterceptor; # systemapi # introduced=30
+    ANativeWindow_setQueueBufferInterceptor; # systemapi # introduced=30
+    ANativeWindow_release;
+    ANativeWindow_setAutoPrerotation; # llndk
+    ANativeWindow_setAutoRefresh; # llndk
+    ANativeWindow_setBufferCount; # llndk
+    ANativeWindow_setBuffersDataSpace; # introduced=28
+    ANativeWindow_setBuffersDimensions; # llndk
+    ANativeWindow_setBuffersFormat; # llndk
+    ANativeWindow_setBuffersGeometry;
+    ANativeWindow_setBuffersTimestamp; # llndk
+    ANativeWindow_setBuffersTransform;
+    ANativeWindow_setDequeueTimeout; # systemapi # introduced=30
+    ANativeWindow_setFrameRate; # introduced=30
+    ANativeWindow_setFrameRateWithChangeStrategy; # introduced=31
+    ANativeWindow_setSharedBufferMode; # llndk
+    ANativeWindow_setSwapInterval; # llndk
+    ANativeWindow_setUsage; # llndk
+    ANativeWindow_tryAllocateBuffers; # introduced=30
+    ANativeWindow_unlockAndPost;
+    ANativeWindow_readFromParcel; # introduced=UpsideDownCake
+    ANativeWindow_writeToParcel; # introduced=UpsideDownCake
+  local:
+    *;
+};
+
+LIBNATIVEWINDOW_PLATFORM {
+  global:
+    extern "C++" {
+      android::AHardwareBuffer_isValidPixelFormat*;
+      android::AHardwareBuffer_convertFromPixelFormat*;
+      android::AHardwareBuffer_convertToPixelFormat*;
+      android::AHardwareBuffer_convertFromGrallocUsageBits*;
+      android::AHardwareBuffer_convertToGrallocUsageBits*;
+      android::AHardwareBuffer_to_GraphicBuffer*;
+      android::AHardwareBuffer_to_ANativeWindowBuffer*;
+      android::AHardwareBuffer_from_GraphicBuffer*;
+    };
+} LIBNATIVEWINDOW;

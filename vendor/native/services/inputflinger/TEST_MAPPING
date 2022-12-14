@@ -1,0 +1,84 @@
+{
+  "presubmit": [
+    {
+      "name": "CtsWindowManagerDeviceTestCases",
+      "options": [
+        {
+          "include-filter": "android.server.wm.WindowInputTests"
+        }
+      ]
+    },
+    {
+      "name": "libinput_tests"
+    },
+    {
+      "name": "inputflinger_tests"
+    },
+    {
+      "name": "libchrome-gestures_test"
+    },
+    {
+      "name": "libpalmrejection_test"
+    },
+    {
+      "name": "InputTests"
+    },
+    {
+      "name": "libinputservice_test"
+    },
+    {
+      "name": "CtsHardwareTestCases",
+      "options": [
+        {
+          "include-filter": "android.hardware.input.cts.tests"
+        }
+      ]
+    },
+    {
+      "name": "CtsInputTestCases"
+    },
+    {
+      "name": "CtsViewTestCases",
+      "options": [
+        {
+          "include-filter": "android.view.cts.MotionEventTest",
+          "include-filter": "android.view.cts.PointerCaptureTest",
+          "include-filter": "android.view.cts.VerifyInputEventTest"
+        }
+      ]
+    },
+    {
+      "name": "FrameworksCoreTests",
+      "options": [
+        {
+          "include-filter": "android.view.VerifiedKeyEventTest",
+          "include-filter": "android.view.VerifiedMotionEventTest"
+        }
+      ]
+    },
+    {
+      "name": "FrameworksServicesTests",
+      "options": [
+        {
+          "include-filter": "com.android.server.input"
+        }
+      ]
+    },
+    {
+      "name": "CtsSecurityTestCases",
+      "options": [
+        {
+          "include-filter": "android.security.cts.MotionEventTest"
+        }
+      ]
+    },
+    {
+      "name": "CtsSecurityBulletinHostTestCases",
+      "options": [
+        {
+          "include-filter": "android.security.cts.Poc19_03#testPocBug_115739809"
+        }
+      ]
+    }
+  ]
+}

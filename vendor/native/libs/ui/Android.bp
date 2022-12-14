@@ -1,0 +1,295 @@
+// Copyright (C) 2010 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package {
+    default_applicable_licenses: ["frameworks_native_libs_ui_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "frameworks_native_libs_ui_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_library_headers {
+    name: "libui_fuzzableDataspaces_headers",
+    export_include_dirs: ["include/ui/fuzzer/"],
+}
+
+cc_defaults {
+    name: "libui-defaults",
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    cppflags: [
+        "-Wextra",
+    ],
+
+    sanitize: {
+        integer_overflow: true,
+        misc_undefined: ["bounds"],
+    },
+
+}
+
+cc_library_static {
+    name: "libui-types",
+    vendor_available: true,
+    host_supported: true,
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+
+    defaults: [
+        "libui-defaults",
+    ],
+
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+    min_sdk_version: "apex_inherit",
+
+    shared_libs: [
+        "libbase",
+        "libutils",
+    ],
+
+    static_libs: [
+        "libarect",
+        "libmath",
+    ],
+
+    srcs: [
+        "ColorSpace.cpp",
+        "Rect.cpp",
+        "Region.cpp",
+        "Transform.cpp",
+    ],
+
+    export_include_dirs: [
+        "include",
+        "include_mock",
+        "include_private",
+        "include_types",
+    ],
+
+    export_static_lib_headers: [
+        "libarect",
+        "libmath",
+    ],
+
+}
+
+cc_library_shared {
+    name: "libui",
+    vendor_available: true,
+    vndk: {
+        enabled: true,
+    },
+    double_loadable: true,
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    cppflags: [
+        "-Wextra",
+    ],
+
+    sanitize: {
+        integer_overflow: true,
+        misc_undefined: ["bounds"],
+    },
+
+    srcs: [
+        "DebugUtils.cpp",
+        "DeviceProductInfo.cpp",
+        "DisplayIdentification.cpp",
+        "DisplayMode.cpp",
+        "DynamicDisplayInfo.cpp",
+        "Fence.cpp",
+        "FenceTime.cpp",
+        "FrameStats.cpp",
+        "Gralloc.cpp",
+        "Gralloc2.cpp",
+        "Gralloc3.cpp",
+        "Gralloc4.cpp",
+        "GraphicBuffer.cpp",
+        "GraphicBufferAllocator.cpp",
+        "GraphicBufferMapper.cpp",
+        "HdrCapabilities.cpp",
+        "PixelFormat.cpp",
+        "PublicFormat.cpp",
+        "StaticAsserts.cpp",
+        "StaticDisplayInfo.cpp",
+    ],
+
+    include_dirs: [
+        "frameworks/native/include",
+    ],
+    export_include_dirs: [
+        "include",
+        "include_private",
+    ],
+
+    defaults: [
+        "android.hardware.graphics.allocator-ndk_shared",
+        "android.hardware.graphics.common-ndk_shared",
+        "libui-defaults",
+        // Uncomment the following line to enable VALIDATE_REGIONS traces
+        //defaults: ["libui-validate-regions-defaults"],
+    ],
+
+    shared_libs: [
+        "android.hardware.graphics.allocator@2.0",
+        "android.hardware.graphics.allocator@3.0",
+        "android.hardware.graphics.allocator@4.0",
+        "android.hardware.graphics.common@1.2",
+        "android.hardware.graphics.mapper@2.0",
+        "android.hardware.graphics.mapper@2.1",
+        "android.hardware.graphics.mapper@3.0",
+        "android.hardware.graphics.mapper@4.0",
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libgralloctypes",
+        "libhidlbase",
+        "libsync",
+        "libutils",
+        "liblog",
+    ],
+
+    export_shared_lib_headers: [
+        "android.hardware.graphics.common@1.2",
+        "android.hardware.graphics.mapper@4.0",
+        "libgralloctypes",
+    ],
+
+    static_libs: [
+        "libaidlcommonsupport",
+        "libarect",
+        "libgrallocusage",
+        "libmath",
+    ],
+
+    whole_static_libs: [
+        "libui-types",
+    ],
+
+    // bufferhub is not used when building libgui for vendors
+    target: {
+        vendor: {
+            cflags: ["-DLIBUI_IN_VNDK"],
+            exclude_srcs: [
+            ],
+            exclude_header_libs: [
+            ],
+            exclude_shared_libs: [
+            ],
+        },
+    },
+
+    header_libs: [
+        "libbase_headers",
+        "libnativebase_headers",
+        "libnativewindow_headers",
+        "libhardware_headers",
+        "libui_headers",
+    ],
+
+    export_static_lib_headers: [
+        "libarect",
+        "libmath",
+    ],
+
+    export_header_lib_headers: [
+        "libbase_headers",
+        "libnativebase_headers",
+        "libnativewindow_headers",
+        "libhardware_headers",
+        "libui_headers",
+    ],
+    min_sdk_version: "29",
+    // TODO(b/214400477) to remove use of GraphicBuffer
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+        "test_com.android.media.swcodec",
+    ],
+
+    afdo: true,
+
+    header_abi_checker: {
+        diff_flags: ["-allow-adding-removing-weak-symbols"],
+    },
+}
+
+cc_library_headers {
+    name: "libui_headers",
+    export_include_dirs: ["include"],
+    vendor_available: true,
+    target: {
+        vendor: {
+            cflags: ["-DLIBUI_IN_VNDK"],
+            override_export_include_dirs: ["include_vndk"],
+        },
+    },
+    header_libs: [
+        "libnativewindow_headers",
+        "libmath_headers",
+    ],
+    export_header_lib_headers: [
+        "libnativewindow_headers",
+        "libmath_headers",
+    ],
+    min_sdk_version: "29",
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+        "test_com.android.media.swcodec",
+    ],
+}
+
+// defaults to enable VALIDATE_REGIONS traces
+cc_defaults {
+    name: "libui-validate-regions-defaults",
+    shared_libs: ["libutilscallstack"],
+    cflags: ["-DVALIDATE_REGIONS"],
+}
+
+subdirs = [
+    "tests",
+    "tools",
+]
+
+filegroup {
+    name: "libui_host_common",
+    srcs: [
+        "Rect.cpp",
+        "Region.cpp",
+        "PixelFormat.cpp",
+        "Transform.cpp",
+    ],
+}

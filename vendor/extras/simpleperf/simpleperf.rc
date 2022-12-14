@@ -1,0 +1,3 @@
+
+on zygote-start && property:ro.debuggable=1 && property:persist.simpleperf.boot_record=*
+  exec_background /system/bin/simpleperf boot-record --log-to-android-buffer --record "${persist.simpleperf.boot_record}"

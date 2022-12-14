@@ -1,0 +1,43 @@
+{
+  "presubmit": [
+    {
+      "name": "installd_cache_test"
+    },
+    {
+      "name": "installd_dexopt_test"
+    },
+    {
+      "name": "installd_otapreopt_test"
+    },
+    {
+      "name": "installd_service_test"
+    },
+    {
+      "name": "installd_utils_test"
+    },
+    {
+      "name": "run_dex2oat_test"
+    },
+    // AdoptableHostTest moves packages, part of which is handled by installd
+    {
+      "name": "AdoptableHostTest"
+    },
+    {
+      "name": "CtsUsesLibraryHostTestCases"
+    },
+    {
+      "name": "CtsClassloaderSplitsHostTestCases"
+    },
+    {
+      "name": "CtsCompilationTestCases"
+    },
+    {
+      "name": "SdkSandboxStorageHostTest",
+      "options": [
+        {
+          "exclude-annotation": "android.platform.test.annotations.LargeTest"
+        }
+      ]
+    }
+  ]
+}

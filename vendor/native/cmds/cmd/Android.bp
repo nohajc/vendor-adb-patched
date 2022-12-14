@@ -1,0 +1,60 @@
+package {
+    default_applicable_licenses: ["frameworks_native_cmds_cmd_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "frameworks_native_cmds_cmd_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_library_static {
+    name: "libcmd",
+
+    srcs: ["cmd.cpp"],
+    export_include_dirs: ["."],
+
+    shared_libs: [
+        "libutils",
+        "liblog",
+        "libselinux",
+        "libbinder",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-DXP_UNIX",
+    ],
+}
+
+cc_binary {
+    name: "cmd",
+
+    srcs: ["main.cpp"],
+
+    static_libs: [
+        "libcmd",
+    ],
+
+    shared_libs: [
+        "libutils",
+        "liblog",
+        "libselinux",
+        "libbinder",
+        "packagemanager_aidl-cpp",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-DXP_UNIX",
+    ],
+}

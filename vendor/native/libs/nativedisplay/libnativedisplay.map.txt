@@ -1,0 +1,79 @@
+LIBNATIVEDISPLAY {
+  global:
+    AChoreographer_getInstance; # apex # introduced=30
+    AChoreographer_postFrameCallback; # apex # introduced=30
+    AChoreographer_postFrameCallbackDelayed; # apex # introduced=30
+    AChoreographer_postFrameCallback64; # apex # introduced=30
+    AChoreographer_postFrameCallbackDelayed64; # apex # introduced=30
+    AChoreographer_registerRefreshRateCallback; # apex # introduced=30
+    AChoreographer_unregisterRefreshRateCallback; # apex # introduced=30
+    AChoreographer_postVsyncCallback; # apex # introduced=33
+    AChoreographerFrameCallbackData_getFrameTimeNanos; # apex # introduced=33
+    AChoreographerFrameCallbackData_getFrameTimelinesLength; # apex # introduced=33
+    AChoreographerFrameCallbackData_getPreferredFrameTimelineIndex; # apex # introduced=33
+    AChoreographerFrameCallbackData_getFrameTimelineVsyncId; # apex # introduced=33
+    AChoreographerFrameCallbackData_getFrameTimelineExpectedPresentationTimeNanos; # apex # introduced=33
+    AChoreographerFrameCallbackData_getFrameTimelineDeadlineNanos; # apex # introduced=33
+    AChoreographer_create; # apex # introduced=30
+    AChoreographer_destroy; # apex # introduced=30
+    AChoreographer_getFd; # apex # introduced=30
+    AChoreographer_handlePendingEvents; # apex # introduced=30
+    ASurfaceTexture_fromSurfaceTexture; # apex # introduced=30
+    ASurfaceTexture_release; # apex # introduced=30
+  local:
+    *;
+};
+
+LIBNATIVEDISPLAY_PLATFORM {
+  global:
+    extern "C++" {
+      android::AChoreographer_initJVM*;
+      android::AChoreographer_routeGetInstance*;
+      android::AChoreographer_routePostFrameCallback*;
+      android::AChoreographer_routePostFrameCallbackDelayed*;
+      android::AChoreographer_routePostFrameCallback64*;
+      android::AChoreographer_routePostFrameCallbackDelayed64*;
+      android::AChoreographer_routeRegisterRefreshRateCallback*;
+      android::AChoreographer_routeUnregisterRefreshRateCallback*;
+      android::AChoreographer_routePostVsyncCallback*;
+      android::AChoreographerFrameCallbackData_routeGetFrameTimeNanos*;
+      android::AChoreographerFrameCallbackData_routeGetFrameTimelinesLength*;
+      android::AChoreographerFrameCallbackData_routeGetPreferredFrameTimelineIndex*;
+      android::AChoreographerFrameCallbackData_routeGetFrameTimelineVsyncId*;
+      android::AChoreographerFrameCallbackData_routeGetFrameTimelineExpectedPresentationTimeNanos*;
+      android::AChoreographerFrameCallbackData_routeGetFrameTimelineDeadlineNanos*;
+      android::AChoreographer_getStartTimeNanosForVsyncId*;
+      android::AChoreographer_signalRefreshRateCallbacks*;
+      android::AChoreographer_getFrameInterval*;
+      android::ADisplay_acquirePhysicalDisplays*;
+      android::ADisplay_release*;
+      android::ADisplay_getMaxSupportedFps*;
+      android::ADisplay_getDisplayType*;
+      android::ADisplay_getPreferredWideColorFormat*;
+      android::ADisplay_getCurrentConfig*;
+      android::ADisplayConfig_getWidth*;
+      android::ADisplayConfig_getHeight*;
+      android::ADisplayConfig_getFps*;
+      android::ADisplayConfig_getCompositorOffsetNanos*;
+      android::ADisplayConfig_getAppVsyncOffsetNanos*;
+      android::ASurfaceTexture_getCurrentTextureTarget*;
+      android::ASurfaceTexture_takeConsumerOwnership*;
+      android::ASurfaceTexture_releaseConsumerOwnership*;
+      android::ASurfaceTexture_dequeueBuffer*;
+      android::ASurfaceTexture_routeAcquireANativeWindow*;
+      android::ASurfaceTexture_routeAttachToGLContext*;
+      android::ASurfaceTexture_routeDetachFromGLContext*;
+      android::ASurfaceTexture_routeGetTimestamp*;
+      android::ASurfaceTexture_routeGetTransformMatrix*;
+      android::ASurfaceTexture_routeUpdateTexImage*;
+      android::ASurfaceTexture_routeFromSurfaceTexture*;
+      android::ASurfaceTexture_routeRelease*;
+      android::SurfaceTexture*;
+    };
+    ASurfaceTexture_acquireANativeWindow;
+    ASurfaceTexture_attachToGLContext;
+    ASurfaceTexture_detachFromGLContext;
+    ASurfaceTexture_getTimestamp;
+    ASurfaceTexture_getTransformMatrix;
+    ASurfaceTexture_updateTexImage;
+} LIBNATIVEDISPLAY;

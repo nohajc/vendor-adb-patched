@@ -1,0 +1,53 @@
+// Copyright 2012 The Android Open Source Project
+
+package {
+    default_applicable_licenses: ["frameworks_native_cmds_atrace_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "frameworks_native_cmds_atrace_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_binary {
+    name: "atrace",
+    srcs: ["atrace.cpp"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    shared_libs: [
+        "libbinder",
+        "libhidlbase",
+        "liblog",
+        "libutils",
+        "libcutils",
+        "libz",
+        "libbase",
+        "libpdx_default_transport",
+        "android.hardware.atrace@1.0",
+    ],
+
+    init_rc: ["atrace.rc"],
+    required: ["ftrace_synthetic_events.conf"],
+
+    product_variables: {
+        debuggable: {
+            init_rc: ["atrace_userdebug.rc"],
+        },
+    },
+}
+
+prebuilt_etc {
+    name: "ftrace_synthetic_events.conf",
+    src: "ftrace_synthetic_events.conf",
+}

@@ -1,0 +1,151 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_defaults {
+    name: "renderengine_defaults",
+    cflags: [
+        "-DLOG_TAG=\"RenderEngine\"",
+        "-Wall",
+        "-Werror",
+        "-Wthread-safety",
+        "-Wunused",
+        "-Wunreachable-code",
+    ],
+}
+
+cc_defaults {
+    name: "librenderengine_defaults",
+    defaults: ["renderengine_defaults"],
+    cflags: [
+        "-DGL_GLEXT_PROTOTYPES",
+        "-DEGL_EGLEXT_PROTOTYPES",
+    ],
+    shared_libs: [
+        "android.hardware.graphics.composer3-V1-ndk",
+        "libbase",
+        "libcutils",
+        "libEGL",
+        "libGLESv1_CM",
+        "libGLESv2",
+        "libgui",
+        "liblog",
+        "libnativewindow",
+        "libprocessgroup",
+        "libsync",
+        "libui",
+        "libutils",
+    ],
+
+    static_libs: [
+        "libshaders",
+        "libtonemap",
+    ],
+    local_include_dirs: ["include"],
+    export_include_dirs: ["include"],
+}
+
+filegroup {
+    name: "librenderengine_sources",
+    srcs: [
+        "Description.cpp",
+        "ExternalTexture.cpp",
+        "Mesh.cpp",
+        "RenderEngine.cpp",
+        "Texture.cpp",
+    ],
+}
+
+filegroup {
+    name: "librenderengine_gl_sources",
+    srcs: [
+        "gl/GLESRenderEngine.cpp",
+        "gl/GLExtensions.cpp",
+        "gl/GLFramebuffer.cpp",
+        "gl/GLImage.cpp",
+        "gl/GLShadowTexture.cpp",
+        "gl/GLShadowVertexGenerator.cpp",
+        "gl/GLSkiaShadowPort.cpp",
+        "gl/GLVertexBuffer.cpp",
+        "gl/ImageManager.cpp",
+        "gl/Program.cpp",
+        "gl/ProgramCache.cpp",
+        "gl/filters/BlurFilter.cpp",
+        "gl/filters/GenericProgram.cpp",
+    ],
+}
+
+filegroup {
+    name: "librenderengine_threaded_sources",
+    srcs: [
+        "threaded/RenderEngineThreaded.cpp",
+    ],
+}
+
+filegroup {
+    name: "librenderengine_skia_sources",
+    srcs: [
+        "skia/AutoBackendTexture.cpp",
+        "skia/Cache.cpp",
+        "skia/ColorSpaces.cpp",
+        "skia/SkiaRenderEngine.cpp",
+        "skia/SkiaGLRenderEngine.cpp",
+        "skia/debug/CaptureTimer.cpp",
+        "skia/debug/CommonPool.cpp",
+        "skia/debug/SkiaCapture.cpp",
+        "skia/debug/SkiaMemoryReporter.cpp",
+        "skia/filters/BlurFilter.cpp",
+        "skia/filters/GaussianBlurFilter.cpp",
+        "skia/filters/KawaseBlurFilter.cpp",
+        "skia/filters/LinearEffect.cpp",
+        "skia/filters/StretchShaderFactory.cpp",
+    ],
+}
+
+cc_library_static {
+    name: "librenderengine",
+    defaults: ["librenderengine_defaults"],
+    double_loadable: true,
+    cflags: [
+        "-fvisibility=hidden",
+        "-Werror=format",
+        "-Wno-unused-parameter",
+    ],
+    srcs: [
+        ":librenderengine_sources",
+        ":librenderengine_gl_sources",
+        ":librenderengine_threaded_sources",
+        ":librenderengine_skia_sources",
+    ],
+    header_libs: [
+        "libtonemap_headers",
+    ],
+    include_dirs: [
+        "external/skia/src/gpu",
+    ],
+    whole_static_libs: ["libskia_renderengine"],
+    lto: {
+        thin: true,
+    },
+}
+
+cc_library_static {
+    name: "librenderengine_mocks",
+    defaults: ["librenderengine_defaults"],
+    srcs: [
+        "mock/Framebuffer.cpp",
+        "mock/Image.cpp",
+        "mock/RenderEngine.cpp",
+    ],
+    static_libs: [
+        "libgtest",
+        "libgmock",
+    ],
+    local_include_dirs: ["include"],
+    export_include_dirs: ["include"],
+}

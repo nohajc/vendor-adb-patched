@@ -1,0 +1,5 @@
+# b/190148312: Populate with correct list of ABI symbols
+LIBBINDER {
+  global:
+    *;
+};

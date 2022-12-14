@@ -1,0 +1,10 @@
+{
+  "presubmit": [
+    {
+      "name": "librenderengine_test"
+    },
+    {
+      "name": "libtonemap_test"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "presubmit": [
+    {
+      "name": "libvibratorservice_test"
+    }
+  ]
+}

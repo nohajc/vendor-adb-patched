@@ -1,0 +1,23 @@
+# This project was upgraded with external_updater.
+# Usage: tools/external_updater/updater.sh update f2fs-tools
+# For more info, check https://cs.android.com/android/platform/superproject/+/master:tools/external_updater/README.md
+
+name: "f2fs-tools"
+description: "F2FS filesystem tools"
+third_party {
+  url {
+    type: HOMEPAGE
+    value: "https://git.kernel.org/pub/scm/linux/kernel/git/jaegeuk/f2fs-tools.git/"
+  }
+  url {
+    type: GIT
+    value: "https://git.kernel.org/pub/scm/linux/kernel/git/jaegeuk/f2fs-tools.git"
+  }
+  version: "06c027abc6153c4a97cba5317844e8dcaaee3cf7"
+  license_type: RESTRICTED
+  last_upgrade_date {
+    year: 2023
+    month: 4
+    day: 11
+  }
+}

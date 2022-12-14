@@ -1,0 +1,41 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_shared {
+    name: "libsensorservicehidl",
+    srcs: [
+        "EventQueue.cpp",
+        "DirectReportChannel.cpp",
+        "SensorManager.cpp",
+        "utils.cpp",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    header_libs: ["jni_headers"],
+    shared_libs: [
+        "libbase",
+        "libhidlbase",
+        "libutils",
+        "libsensor",
+        "android.frameworks.sensorservice@1.0",
+        "android.hardware.sensors@1.0",
+    ],
+    static_libs: [
+        "android.hardware.sensors@1.0-convert",
+    ],
+    export_include_dirs: [
+        "include/"
+    ],
+    export_header_lib_headers: ["jni_headers"],
+    local_include_dirs: [
+        "include/sensorservicehidl/"
+    ]
+}

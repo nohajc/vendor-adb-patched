@@ -1,0 +1,43 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    //   SPDX-license-identifier-MIT
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_headers {
+    name: "media_plugin_headers",
+    vendor_available: true,
+    export_include_dirs: [
+        "media_plugin",
+        "media_plugin/media/openmax",
+    ],
+    header_libs: [
+        "libstagefright_headers",
+        "libcutils_headers",
+        "libutils_headers",
+        "libstagefright_foundation_headers",
+    ],
+    export_header_lib_headers: [
+        "libstagefright_headers",
+        "libcutils_headers",
+        "libutils_headers",
+        "libstagefright_foundation_headers",
+    ],
+    min_sdk_version: "29",
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media",
+        "com.android.media.swcodec",
+    ],
+
+    host_supported: true,
+    target: {
+        darwin: {
+            enabled: false,
+        },
+    },
+}

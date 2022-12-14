@@ -1,0 +1,51 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library {
+    name: "libtimeinstate",
+    srcs: ["cputimeinstate.cpp"],
+    shared_libs: [
+        "libbase",
+        "libbpf_bcc",
+        "libbpf_minimal",
+        "liblog",
+    ],
+    header_libs: [
+        "bpf_prog_headers",
+        "bpf_headers",
+    ],
+    cflags: [
+        "-Werror",
+        "-Wall",
+        "-Wextra",
+    ],
+    export_include_dirs: ["."],
+}
+
+cc_test {
+    name: "libtimeinstate_test",
+    srcs: ["testtimeinstate.cpp"],
+    shared_libs: [
+        "libbase",
+        "libbpf_bcc",
+        "libbpf_minimal",
+        "libtimeinstate",
+    ],
+    header_libs: [
+        "bpf_prog_headers",
+        "bpf_headers",
+    ],
+    cflags: [
+        "-Werror",
+        "-Wall",
+        "-Wextra",
+    ],
+    require_root: true,
+    test_suites: ["general-tests"],
+}

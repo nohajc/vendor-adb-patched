@@ -1,0 +1,174 @@
+LIBBINDER_NDK { # introduced=29
+  global:
+    AIBinder_associateClass;
+    AIBinder_Class_define;
+    AIBinder_Class_setOnDump;
+    AIBinder_DeathRecipient_delete;
+    AIBinder_DeathRecipient_new;
+    AIBinder_debugGetRefCount;
+    AIBinder_decStrong;
+    AIBinder_dump;
+    AIBinder_fromJavaBinder;
+    AIBinder_getCallingPid;
+    AIBinder_getCallingUid;
+    AIBinder_getClass;
+    AIBinder_getUserData;
+    AIBinder_incStrong;
+    AIBinder_isAlive;
+    AIBinder_isRemote;
+    AIBinder_linkToDeath;
+    AIBinder_new;
+    AIBinder_ping;
+    AIBinder_prepareTransaction;
+    AIBinder_toJavaBinder;
+    AIBinder_transact;
+    AIBinder_unlinkToDeath;
+    AIBinder_Weak_delete;
+    AIBinder_Weak_new;
+    AIBinder_Weak_promote;
+    AParcel_delete;
+    AParcel_getDataPosition;
+    AParcel_readBool;
+    AParcel_readBoolArray;
+    AParcel_readByte;
+    AParcel_readByteArray;
+    AParcel_readChar;
+    AParcel_readCharArray;
+    AParcel_readDouble;
+    AParcel_readDoubleArray;
+    AParcel_readFloat;
+    AParcel_readFloatArray;
+    AParcel_readInt32;
+    AParcel_readInt32Array;
+    AParcel_readInt64;
+    AParcel_readInt64Array;
+    AParcel_readParcelableArray;
+    AParcel_readParcelFileDescriptor;
+    AParcel_readStatusHeader;
+    AParcel_readString;
+    AParcel_readStringArray;
+    AParcel_readStrongBinder;
+    AParcel_readUint32;
+    AParcel_readUint32Array;
+    AParcel_readUint64;
+    AParcel_readUint64Array;
+    AParcel_setDataPosition;
+    AParcel_writeBool;
+    AParcel_writeBoolArray;
+    AParcel_writeByte;
+    AParcel_writeByteArray;
+    AParcel_writeChar;
+    AParcel_writeCharArray;
+    AParcel_writeDouble;
+    AParcel_writeDoubleArray;
+    AParcel_writeFloat;
+    AParcel_writeFloatArray;
+    AParcel_writeInt32;
+    AParcel_writeInt32Array;
+    AParcel_writeInt64;
+    AParcel_writeInt64Array;
+    AParcel_writeParcelableArray;
+    AParcel_writeParcelFileDescriptor;
+    AParcel_writeStatusHeader;
+    AParcel_writeString;
+    AParcel_writeStringArray;
+    AParcel_writeStrongBinder;
+    AParcel_writeUint32;
+    AParcel_writeUint32Array;
+    AParcel_writeUint64;
+    AParcel_writeUint64Array;
+    AStatus_delete;
+    AStatus_fromExceptionCode;
+    AStatus_fromExceptionCodeWithMessage;
+    AStatus_fromServiceSpecificError;
+    AStatus_fromServiceSpecificErrorWithMessage;
+    AStatus_fromStatus;
+    AStatus_getExceptionCode;
+    AStatus_getMessage;
+    AStatus_getServiceSpecificError;
+    AStatus_getStatus;
+    AStatus_isOk;
+    AStatus_newOk;
+    ABinderProcess_joinThreadPool; # systemapi llndk
+    ABinderProcess_setThreadPoolMaxThreadCount; # systemapi llndk
+    ABinderProcess_startThreadPool; # systemapi llndk
+    AServiceManager_addService; # systemapi llndk
+    AServiceManager_checkService; # systemapi llndk
+    AServiceManager_getService; # systemapi llndk
+};
+
+LIBBINDER_NDK30 { # introduced=30
+  global:
+    AIBinder_getExtension;
+    AIBinder_setExtension;
+    AStatus_getDescription;
+    AStatus_deleteDescription;
+    AParcel_fromJavaParcel;
+
+    AIBinder_markSystemStability; # systemapi
+    AIBinder_markVendorStability; # llndk
+    AIBinder_markVintfStability; # systemapi llndk
+    AIBinder_Class_setHandleShellCommand; # systemapi llndk
+};
+
+LIBBINDER_NDK31 { # introduced=31
+  global:
+    ABinderProcess_handlePolledCommands; # systemapi
+    ABinderProcess_setupPolling; # systemapi
+    AIBinder_getCallingSid; # systemapi
+    AIBinder_setRequestingSid; # systemapi
+    AParcel_markSensitive; # systemapi llndk
+    AServiceManager_forEachDeclaredInstance; # systemapi llndk
+    AServiceManager_forceLazyServicesPersist; # systemapi llndk
+    AServiceManager_isDeclared; # systemapi llndk
+    AServiceManager_isUpdatableViaApex; # systemapi
+    AServiceManager_reRegister; # llndk
+    AServiceManager_registerLazyService; # systemapi llndk
+    AServiceManager_setActiveServicesCallback; # llndk
+    AServiceManager_tryUnregister; # llndk
+    AServiceManager_waitForService; # systemapi llndk
+
+    AIBinder_forceDowngradeToSystemStability; # systemapi
+    AIBinder_forceDowngradeToVendorStability; # llndk
+
+    AIBinder_Class_getDescriptor;
+    AIBinder_Weak_clone;
+    AIBinder_Weak_lt;
+    AIBinder_lt;
+    AParcel_appendFrom;
+    AParcel_create;
+    AParcel_getDataSize;
+    AParcel_reset;
+};
+
+LIBBINDER_NDK33 { # introduced=33
+  global:
+    AIBinder_Class_disableInterfaceTokenHeader;
+    AIBinder_DeathRecipient_setOnUnlinked;
+    AIBinder_isHandlingTransaction;
+    AIBinder_setInheritRt; # systemapi llndk
+    AIBinder_setMinSchedulerPolicy; # systemapi llndk
+    AParcel_marshal;
+    AParcel_unmarshal;
+};
+
+LIBBINDER_NDK34 { # introduced=UpsideDownCake
+  global:
+    ABinderProcess_isThreadPoolStarted; # systemapi llndk
+    AServiceManager_getUpdatableApexName; # systemapi
+    AServiceManager_registerForServiceNotifications; # systemapi llndk
+    AServiceManager_NotificationRegistration_delete; # systemapi llndk
+    AServiceManager_addServiceWithFlags; # systemapi llndk
+};
+
+LIBBINDER_NDK_PLATFORM {
+  global:
+    AParcel_getAllowFds;
+    extern "C++" {
+        AIBinder_fromPlatformBinder*;
+        AIBinder_toPlatformBinder*;
+        AParcel_viewPlatformParcel*;
+    };
+  local:
+    *;
+};

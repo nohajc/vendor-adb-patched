@@ -1,0 +1,6 @@
+{
+    "uuid": "9dbe9fb8-60fd-4bdd-af86-03e95d7ad78b",
+    "app_name": "binderRpcTest",
+    "min_heap": 262144,
+    "min_stack": 16384
+}

@@ -1,0 +1,40 @@
+{
+  "presubmit": [
+    {
+      "name": "CtsInitTestCases"
+    },
+    {
+      "name": "init_kill_services_test"
+    },
+    {
+      "name": "MicrodroidHostTestCases"
+    },
+    {
+      "name": "CtsSecurityHostTestCases",
+      "options": [
+        {
+          "include-filter": "android.security.cts.SeamendcHostTest"
+        }
+      ]
+    }
+  ],
+  "hwasan-presubmit": [
+    {
+      "name": "CtsInitTestCases"
+    },
+    {
+      "name": "init_kill_services_test"
+    },
+    {
+      "name": "MicrodroidHostTestCases"
+    },
+    {
+      "name": "CtsSecurityHostTestCases",
+      "options": [
+        {
+          "include-filter": "android.security.cts.SeamendcHostTest"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+package {
+    // See: http://go/android-license-faq
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library {
+    name: "libbattery",
+    srcs: [
+        "LongArrayMultiStateCounter.cpp",
+    ],
+    shared_libs: [
+        "liblog",
+    ],
+    cflags: [
+        "-Werror",
+        "-Wall",
+        "-Wextra",
+    ],
+    export_include_dirs: ["."],
+}
+
+cc_test {
+    name: "libbattery_test",
+    srcs: [
+        "MultiStateCounterTest.cpp",
+        "LongArrayMultiStateCounterTest.cpp",
+    ],
+    static_libs: ["libbattery"],
+    shared_libs: [
+        "liblog",
+    ],
+    cflags: [
+        "-Werror",
+        "-Wall",
+        "-Wextra",
+    ],
+}

@@ -1,0 +1,7 @@
+{
+  "presubmit": [
+    {
+      "name": "libpowermanager_test"
+    }
+  ]
+}

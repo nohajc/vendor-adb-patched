@@ -1,0 +1,8 @@
+/build
+.idea
+.vscode
+
+/cmake-build-debug/
+
+/libtermuxadb/target
+/vendor/libtermuxadb.a

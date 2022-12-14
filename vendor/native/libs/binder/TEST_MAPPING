@@ -1,0 +1,137 @@
+{
+  "presubmit": [
+    {
+      "name": "binderSafeInterfaceTest"
+    },
+    {
+      "name": "binderVendorDoubleLoadTest"
+    },
+    {
+      "name": "binderAllocationLimits"
+    },
+    {
+      "name": "binderClearBufTest"
+    },
+    {
+      "name": "binderDriverInterfaceTest"
+    },
+    {
+      "name": "binderRecordReplayTest"
+    },
+    {
+      "name": "binderHostDeviceTest"
+    },
+    {
+      "name": "binderParcelBenchmark"
+    },
+    {
+      "name": "binderTextOutputTest"
+    },
+    {
+      "name": "binderUnitTest"
+    },
+    {
+      "name": "binderLibTest"
+    },
+    {
+      "name": "binderStabilityTest"
+    },
+    {
+      "name": "binderRpcWireProtocolTest"
+    },
+    {
+      "name": "binderUtilsHostTest"
+    },
+    {
+      "name": "libbinder_ndk_unit_test"
+    },
+    {
+      "name": "CtsNdkBinderTestCases"
+    },
+    {
+      "name": "aidl_lazy_test"
+    },
+    {
+      "name": "aidl_integration_test"
+    },
+    {
+      "name": "memunreachable_binder_test"
+    },
+    {
+      "name": "resolv_integration_test"
+    },
+    {
+      "name": "libbinderthreadstateutils_test"
+    },
+    {
+      "name": "fuzz_service_test"
+    },
+    {
+      "name": "CtsOsTestCases",
+      "options": [
+        {
+          "include-filter": "android.os.cts.BinderTest"
+        },
+        {
+          "include-filter": "android.os.cts.ParcelTest"
+        }
+      ]
+    },
+    {
+      "name": "libbinder_rs-internal_test"
+    },
+    {
+      "name": "rustBinderTest"
+    },
+    {
+      "name": "binderRustNdkInteropTest"
+    },
+    {
+      "name": "rustBinderSerializationTest"
+    },
+    {
+      "name": "libbinder_ndk_bindgen_test"
+    },
+    {
+      "name": "libbinder_rpc_unstable_bindgen_test"
+    }
+  ],
+  "presubmit-large": [
+    {
+      "name": "binderRpcTest"
+    },
+    {
+      "name": "binderRpcTestNoKernel"
+    },
+    {
+      "name": "binderRpcTestSingleThreaded"
+    },
+    {
+      "name": "binderRpcTestSingleThreadedNoKernel"
+    }
+  ],
+  "hwasan-presubmit": [
+    {
+      "name": "binderLibTest"
+    }
+  ],
+  "kernel-presubmit": [
+    {
+      "name": "binderDriverInterfaceTest"
+    },
+    {
+      "name": "binderLibTest"
+    },
+    {
+      "name": "binderSafeInterfaceTest"
+    },
+    {
+      "name": "memunreachable_binder_test"
+    }
+  ],
+  "imports": [
+    {
+      "path": "packages/modules/Virtualization"
+    }
+  ]
+}

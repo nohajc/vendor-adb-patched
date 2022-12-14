@@ -1,0 +1,44 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_shared {
+    name: "libstatshidl",
+    srcs: [
+        "StatsAidl.cpp",
+        "StatsHal.cpp",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    shared_libs: [
+        "android.frameworks.stats@1.0",
+        "android.frameworks.stats-V2-ndk",
+        "libbinder_ndk",
+        "libexpresslog",
+        "libhidlbase",
+        "liblog",
+        "libstatslog",
+        "libstatssocket",
+        "libutils",
+    ],
+    export_include_dirs: [
+        "include/",
+    ],
+    export_shared_lib_headers: [
+        "android.frameworks.stats@1.0",
+        "android.frameworks.stats-V2-ndk",
+    ],
+    local_include_dirs: [
+        "include/stats",
+    ],
+    vintf_fragments: [
+        "android.frameworks.stats-service.xml",
+    ],
+}

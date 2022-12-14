@@ -1,0 +1,53 @@
+// bugreportz
+// ==========
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_binary {
+    name: "bugreportz",
+
+    srcs: [
+        "bugreportz.cpp",
+        "main.cpp",
+    ],
+
+    cflags: [
+        "-Werror",
+        "-Wall",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libcutils",
+    ],
+}
+
+// bugreportz_test
+// ===============
+cc_test {
+    name: "bugreportz_test",
+    test_suites: ["device-tests"],
+
+    cflags: [
+        "-Werror",
+        "-Wall",
+    ],
+
+    srcs: [
+        "bugreportz.cpp",
+        "bugreportz_test.cpp",
+    ],
+
+    static_libs: ["libgmock"],
+
+    shared_libs: [
+        "libbase",
+        "libutils",
+    ],
+}

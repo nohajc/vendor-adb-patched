@@ -1,0 +1,389 @@
+// Copyright 2010 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_headers {
+    name: "libgui_headers",
+    vendor_available: true,
+    export_include_dirs: ["include"],
+
+    // we must build this module to get the required header as that is generated
+    export_shared_lib_headers: [
+        "android.hidl.token@1.0-utils",
+        "android.hardware.graphics.bufferqueue@1.0",
+        "android.hardware.graphics.bufferqueue@2.0",
+    ],
+    shared_libs: [
+        "android.hidl.token@1.0-utils",
+        "android.hardware.graphics.bufferqueue@1.0",
+        "android.hardware.graphics.bufferqueue@2.0",
+    ],
+    min_sdk_version: "29",
+    // TODO(b/218719284) can media use be constrained to libgui_bufferqueue_static?
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+        "test_com.android.media.swcodec",
+    ],
+}
+
+cc_library_headers {
+    name: "libgui_aidl_headers",
+    vendor_available: true,
+    static_libs: [
+        "libgui_aidl_static",
+    ],
+
+    export_static_lib_headers: [
+        "libgui_aidl_static",
+    ],
+}
+
+// AIDL files that should be exposed to java
+filegroup {
+    name: "guiconstants_aidl",
+    srcs: [
+        "android/gui/DropInputMode.aidl",
+        "android/**/TouchOcclusionMode.aidl",
+    ],
+}
+
+cc_library_static {
+    name: "libgui_window_info_static",
+    vendor_available: true,
+    host_supported: true,
+    srcs: [
+        ":guiconstants_aidl",
+        ":inputconstants_aidl",
+        "android/gui/DisplayInfo.aidl",
+        "android/gui/FocusRequest.aidl",
+        "android/gui/InputApplicationInfo.aidl",
+        "android/gui/IWindowInfosListener.aidl",
+        "android/gui/IWindowInfosReportedListener.aidl",
+        "android/gui/WindowInfo.aidl",
+        "DisplayInfo.cpp",
+        "WindowInfo.cpp",
+    ],
+
+    shared_libs: [
+        "libbinder",
+    ],
+
+    local_include_dirs: [
+        "include",
+    ],
+
+    export_shared_lib_headers: [
+        "libbinder",
+    ],
+
+    static_libs: [
+        "libui-types",
+    ],
+
+    aidl: {
+        export_aidl_headers: true,
+    },
+
+    include_dirs: [
+        "frameworks/native/include",
+    ],
+
+    target: {
+        darwin: {
+            enabled: false,
+        },
+    },
+}
+
+filegroup {
+    name: "libgui_aidl",
+    srcs: ["aidl/**/*.aidl"],
+    path: "aidl/",
+}
+
+cc_library_static {
+    name: "libgui_aidl_static",
+    vendor_available: true,
+    srcs: [
+        ":libgui_aidl",
+    ],
+
+    shared_libs: [
+        "libbinder",
+        "libui",
+    ],
+
+    local_include_dirs: [
+        "include",
+    ],
+
+    export_shared_lib_headers: [
+        "libbinder",
+    ],
+
+    static_libs: [
+        "libui-types",
+    ],
+
+    aidl: {
+        export_aidl_headers: true,
+    },
+}
+
+cc_library_shared {
+    name: "libgui",
+    vendor_available: true,
+    vndk: {
+        enabled: true,
+        private: true,
+    },
+    double_loadable: true,
+
+    defaults: ["libgui_bufferqueue-defaults"],
+
+    static_libs: [
+        "libgui_aidl_static",
+        "libgui_window_info_static",
+    ],
+    export_static_lib_headers: [
+        "libgui_aidl_static",
+        "libgui_window_info_static",
+    ],
+
+    srcs: [
+        ":framework_native_aidl_binder",
+        ":framework_native_aidl_gui",
+        ":inputconstants_aidl",
+        ":libgui_bufferqueue_sources",
+
+        "BitTube.cpp",
+        "BLASTBufferQueue.cpp",
+        "BufferItemConsumer.cpp",
+        "ConsumerBase.cpp",
+        "CpuConsumer.cpp",
+        "DebugEGLImageTracker.cpp",
+        "DisplayEventDispatcher.cpp",
+        "DisplayEventReceiver.cpp",
+        "FrameTimelineInfo.cpp",
+        "GLConsumer.cpp",
+        "IConsumerListener.cpp",
+        "IGraphicBufferConsumer.cpp",
+        "IGraphicBufferProducer.cpp",
+        "IProducerListener.cpp",
+        "ISurfaceComposer.cpp",
+        "ISurfaceComposerClient.cpp",
+        "ITransactionCompletedListener.cpp",
+        "LayerDebugInfo.cpp",
+        "LayerMetadata.cpp",
+        "LayerState.cpp",
+        "OccupancyTracker.cpp",
+        "StreamSplitter.cpp",
+        "ScreenCaptureResults.cpp",
+        "Surface.cpp",
+        "SurfaceControl.cpp",
+        "SurfaceComposerClient.cpp",
+        "SyncFeatures.cpp",
+        "TransactionTracing.cpp",
+        "VsyncEventData.cpp",
+        "view/Surface.cpp",
+        "WindowInfosListenerReporter.cpp",
+        "bufferqueue/1.0/B2HProducerListener.cpp",
+        "bufferqueue/1.0/H2BGraphicBufferProducer.cpp",
+        "bufferqueue/2.0/B2HProducerListener.cpp",
+        "bufferqueue/2.0/H2BGraphicBufferProducer.cpp",
+    ],
+
+    shared_libs: [
+        "libbinder",
+        "libGLESv2",
+    ],
+
+    export_shared_lib_headers: [
+        "libbinder",
+    ],
+
+    export_header_lib_headers: [
+        "libgui_aidl_headers",
+    ],
+
+    aidl: {
+        export_aidl_headers: true,
+    },
+
+    header_libs: [
+        "libdvr_headers",
+        "libgui_aidl_headers",
+        "libpdx_headers",
+    ],
+
+    afdo: true,
+
+    lto: {
+        thin: true,
+    },
+}
+
+// Used by media codec services exclusively as a static lib for
+// core bufferqueue support only.
+cc_library_static {
+    name: "libgui_bufferqueue_static",
+    vendor_available: true,
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+    ],
+    min_sdk_version: "29",
+
+    cflags: [
+        "-DNO_BINDER",
+    ],
+
+    defaults: ["libgui_bufferqueue-defaults"],
+
+    srcs: [
+        ":inputconstants_aidl",
+        ":libgui_bufferqueue_sources",
+        ":libgui_aidl",
+    ],
+}
+
+filegroup {
+    name: "libgui_bufferqueue_sources",
+    srcs: [
+        "BatchBufferOps.cpp",
+        "BufferItem.cpp",
+        "BufferQueue.cpp",
+        "BufferQueueConsumer.cpp",
+        "BufferQueueCore.cpp",
+        "BufferQueueProducer.cpp",
+        "BufferQueueThreadState.cpp",
+        "BufferSlot.cpp",
+        "FrameTimestamps.cpp",
+        "GLConsumerUtils.cpp",
+        "HdrMetadata.cpp",
+        "IGraphicBufferProducerFlattenables.cpp",
+        "bufferqueue/1.0/Conversion.cpp",
+        "bufferqueue/1.0/H2BProducerListener.cpp",
+        "bufferqueue/1.0/WProducerListener.cpp",
+        "bufferqueue/2.0/B2HGraphicBufferProducer.cpp",
+        "bufferqueue/2.0/H2BProducerListener.cpp",
+        "bufferqueue/2.0/types.cpp",
+    ],
+}
+
+// Common build config shared by libgui and libgui_bufferqueue_static.
+cc_defaults {
+    name: "libgui_bufferqueue-defaults",
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    cppflags: [
+        "-Wextra",
+        "-DDEBUG_ONLY_CODE=0",
+    ],
+
+    product_variables: {
+        eng: {
+            cppflags: [
+                "-UDEBUG_ONLY_CODE",
+                "-DDEBUG_ONLY_CODE=1",
+            ],
+        },
+    },
+
+    whole_static_libs: [
+        "libLibGuiProperties",
+    ],
+
+    shared_libs: [
+        "android.hardware.graphics.bufferqueue@1.0",
+        "android.hardware.graphics.bufferqueue@2.0",
+        "android.hardware.graphics.common@1.1",
+        "android.hardware.graphics.common@1.2",
+        "android.hardware.graphics.common-V4-ndk",
+        "android.hidl.token@1.0-utils",
+        "libbase",
+        "libcutils",
+        "libEGL",
+        "libhidlbase",
+        "liblog",
+        "libnativewindow",
+        "libsync",
+        "libui",
+        "libutils",
+        "libvndksupport",
+    ],
+
+    static_libs: [
+        "libbinderthreadstateutils",
+    ],
+
+    header_libs: [
+        "libgui_headers",
+        "libnativebase_headers",
+    ],
+
+    include_dirs: [
+        "frameworks/native/include",
+    ],
+
+    export_shared_lib_headers: [
+        "libEGL",
+        "libnativewindow",
+        "libui",
+        "android.hardware.graphics.bufferqueue@1.0",
+        "android.hardware.graphics.bufferqueue@2.0",
+        "android.hardware.graphics.common@1.1",
+        "android.hardware.graphics.common@1.2",
+        "android.hidl.token@1.0-utils",
+    ],
+
+    export_header_lib_headers: [
+        "libgui_headers",
+    ],
+
+    export_include_dirs: [
+        "include",
+    ],
+}
+
+// GMocks for use by external code
+cc_library_static {
+    name: "libgui_mocks",
+    vendor_available: false,
+
+    defaults: ["libgui_bufferqueue-defaults"],
+    static_libs: [
+        "libgtest",
+        "libgmock",
+    ],
+
+    srcs: [
+        "mock/GraphicBufferConsumer.cpp",
+        "mock/GraphicBufferProducer.cpp",
+    ],
+}
+
+subdirs = ["tests"]

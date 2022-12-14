@@ -1,0 +1,44 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library {
+    name: "libtimestats",
+    srcs: [
+        "TimeStats.cpp",
+    ],
+    header_libs: [
+        "libscheduler_headers",
+    ],
+    shared_libs: [
+        "android.hardware.graphics.composer@2.4",
+        "libbase",
+        "libcutils",
+        "liblog",
+        "libprotobuf-cpp-lite",
+        "libtimestats_atoms_proto",
+        "libtimestats_proto",
+        "libui",
+        "libutils",
+    ],
+    export_include_dirs: ["."],
+    export_header_lib_headers: [
+        "libscheduler_headers",
+    ],
+    export_shared_lib_headers: [
+        "libtimestats_proto",
+    ],
+    cppflags: [
+        "-Wall",
+        "-Werror",
+        "-Wformat",
+        "-Wthread-safety",
+        "-Wunused",
+        "-Wunreachable-code",
+    ],
+}

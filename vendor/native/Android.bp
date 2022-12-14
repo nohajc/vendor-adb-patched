@@ -1,0 +1,101 @@
+package {
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+// Added automatically by a large-scale-change that took the approach of
+// 'apply every license found to every target'. While this makes sure we respect
+// every license restriction, it may not be entirely correct.
+//
+// e.g. GPL in an MIT project might only apply to the contrib/ directory.
+//
+// Please consider splitting the single license below into multiple licenses,
+// taking care not to lose any license_kind information, and overriding the
+// default license using the 'licenses: [...]' property on targets as needed.
+//
+// For unused files, consider creating a 'fileGroup' with "//visibility:private"
+// to attach the license to, and including a comment whether the files may be
+// used in the current project.
+//
+// large-scale-change filtered out the below license kinds as false-positives:
+//   SPDX-license-identifier-LGPL
+//   SPDX-license-identifier-LGPL-2.1
+//   SPDX-license-identifier-LGPL-3.0
+// See: http://go/android-license-faq
+license {
+    name: "frameworks_native_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+        "SPDX-license-identifier-BSD",
+        "SPDX-license-identifier-MIT",
+        "SPDX-license-identifier-Unicode-DFS",
+        "legacy_notice",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+ndk_headers {
+    name: "libandroid_headers",
+    from: "include/android",
+    to: "android",
+    srcs: ["include/android/**/*.h"],
+    license: "NOTICE",
+}
+
+subdirs = [
+    "adbd_auth",
+    "cmds/*",
+    "headers",
+    "libs/*",
+    "opengl",
+    "services/*",
+    "vulkan",
+]
+
+cc_library_headers {
+    name: "libandroid_sensor_headers",
+    vendor_available: true,
+    host_supported: true,
+    export_include_dirs: ["include_sensor"],
+}
+
+filegroup {
+    name: "framework_native_aidl_binder",
+    srcs: ["aidl/binder/**/*.aidl"],
+    path: "aidl/binder",
+    visibility: [
+        "//frameworks/native",
+        "//frameworks/native/libs/gui",
+    ],
+}
+
+filegroup {
+    name: "framework_native_aidl_gui",
+    srcs: ["aidl/gui/**/*.aidl"],
+    path: "aidl/gui",
+    visibility: [
+        "//frameworks/native",
+        "//frameworks/native/libs/gui",
+    ],
+}
+
+filegroup {
+    name: "framework_native_aidl",
+    srcs: [
+        ":framework_native_aidl_binder",
+        ":framework_native_aidl_gui",
+    ],
+}
+
+cc_library_headers {
+    name: "libandroid_headers_private",
+    export_include_dirs: ["include/private"],
+}
+
+filegroup {
+    name: "deviceproductinfoconstants_aidl",
+    srcs: ["aidl/android/hardware/display/IDeviceProductInfoConstants.aidl"],
+    path: "aidl",
+}

@@ -1,0 +1,774 @@
+package {
+    default_applicable_licenses: ["frameworks_base_libs_hwui_license"],
+}
+
+// Added automatically by a large-scale-change that took the approach of
+// 'apply every license found to every target'. While this makes sure we respect
+// every license restriction, it may not be entirely correct.
+//
+// e.g. GPL in an MIT project might only apply to the contrib/ directory.
+//
+// Please consider splitting the single license below into multiple licenses,
+// taking care not to lose any license_kind information, and overriding the
+// default license using the 'licenses: [...]' property on targets as needed.
+//
+// For unused files, consider creating a 'fileGroup' with "//visibility:private"
+// to attach the license to, and including a comment whether the files may be
+// used in the current project.
+// See: http://go/android-license-faq
+license {
+    name: "frameworks_base_libs_hwui_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+        "SPDX-license-identifier-BSD",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_defaults {
+    name: "hwui_defaults",
+    defaults: [
+        "hwui_static_deps",
+        "skia_deps",
+        //"hwui_bugreport_font_cache_usage",
+        //"hwui_compile_for_perf",
+        "hwui_lto",
+    ],
+
+    cpp_std: "experimental",
+
+    cflags: [
+        "-DEGL_EGLEXT_PROTOTYPES",
+        "-DGL_GLEXT_PROTOTYPES",
+        "-DATRACE_TAG=ATRACE_TAG_VIEW",
+        "-DLOG_TAG=\"OpenGLRenderer\"",
+        "-Wall",
+        "-Wthread-safety",
+        "-Wno-unused-parameter",
+        "-Wunreachable-code",
+        "-Werror",
+        "-fvisibility=hidden",
+
+        // GCC false-positives on this warning, and since we -Werror that's
+        // a problem
+        "-Wno-free-nonheap-object",
+
+        // Do not de-optimise cold code paths in AFDO.
+        // Some code paths might be infrequently executed but critical to latency.
+        "-fno-profile-sample-accurate",
+    ],
+
+    include_dirs: [
+        "external/skia/include/private",
+        "external/skia/src/core",
+    ],
+
+    product_variables: {
+        eng: {
+            lto: {
+                never: true,
+            },
+        },
+    },
+
+    target: {
+        android: {
+            include_dirs: [
+                "external/skia/src/effects",
+                "external/skia/src/image",
+                "external/skia/src/utils",
+                "external/skia/src/gpu",
+                "external/skia/src/shaders",
+            ],
+        },
+        host: {
+            include_dirs: [
+                "external/vulkan-headers/include",
+            ],
+            cflags: [
+                "-Wno-unused-variable",
+            ],
+        },
+    },
+}
+
+cc_defaults {
+    name: "hwui_static_deps",
+    defaults: [
+        "android.hardware.graphics.common-ndk_shared",
+        "android.hardware.graphics.composer3-ndk_shared",
+    ],
+    shared_libs: [
+        "libbase",
+        "libharfbuzz_ng",
+        "libminikin",
+    ],
+
+    static_libs: [
+        "libui-types",
+    ],
+
+    target: {
+        android: {
+            shared_libs: [
+                "android.hardware.graphics.common@1.2",
+                "liblog",
+                "libcutils",
+                "libutils",
+                "libEGL",
+                "libGLESv1_CM",
+                "libGLESv2",
+                "libGLESv3",
+                "libvulkan",
+                "libnativedisplay",
+                "libnativewindow",
+                "libprotobuf-cpp-lite",
+                "libft2",
+                "libandroidfw",
+                "libcrypto",
+                "libsync",
+            ],
+            static_libs: [
+                "libEGL_blobCache",
+                "libprotoutil",
+                "libshaders",
+                "libstatslog_hwui",
+                "libstatspull_lazy",
+                "libstatssocket_lazy",
+                "libtonemap",
+            ],
+        },
+        host: {
+            static_libs: [
+                "libandroidfw",
+                "libutils",
+            ],
+        },
+    },
+}
+
+cc_defaults {
+    name: "hwui_bugreport_font_cache_usage",
+    cflags: ["-DBUGREPORT_FONT_CACHE_USAGE"],
+}
+
+cc_defaults {
+    name: "hwui_compile_for_perf",
+    // TODO: Non-arm?
+    cflags: [
+        "-fno-omit-frame-pointer",
+        "-marm",
+        "-mapcs",
+    ],
+}
+
+// Build hwui library with ThinLTO by default.
+cc_defaults {
+    name: "hwui_lto",
+    target: {
+        android: {
+            lto: {
+                thin: true,
+            },
+        },
+    },
+}
+
+// ------------------------
+// framework-graphics jar
+// ------------------------
+
+java_sdk_library {
+    name: "framework-graphics",
+    defaults: ["framework-module-defaults"],
+    visibility: [
+        "//frameworks/base", // Framework
+    ],
+
+    srcs: [
+        ":framework-graphics-srcs",
+    ],
+
+    permitted_packages: [
+        "android.graphics",
+    ],
+
+    // TODO: once framework-graphics is officially part of the
+    // UI-rendering module this line would no longer be
+    // needed.
+    installable: true,
+
+    // Disable api_lint that the defaults enable
+    // TODO: enable this
+    api_lint: {
+        enabled: false,
+    },
+    // TODO: remove this
+    unsafe_ignore_missing_latest_api: true,
+}
+
+filegroup {
+    name: "framework-graphics-srcs",
+    srcs: [
+        "apex/java/**/*.java",
+    ],
+    path: "apex/java",
+}
+
+java_api_contribution {
+    name: "framework-graphics-public-stubs",
+    api_surface: "public",
+    api_file: "api/current.txt",
+    visibility: [
+        "//build/orchestrator/apis",
+    ],
+}
+
+// ------------------------
+// APEX
+// ------------------------
+
+cc_library_headers {
+    name: "android_graphics_apex_headers",
+
+    host_supported: true,
+    export_include_dirs: [
+        "apex/include",
+    ],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+}
+
+cc_defaults {
+    name: "android_graphics_apex",
+    cflags: [
+        "-Wno-unused-parameter",
+        "-Wno-non-virtual-dtor",
+        "-Wno-maybe-uninitialized",
+        "-Wno-parentheses",
+        "-Wall",
+        "-Werror",
+        "-Wno-error=deprecated-declarations",
+        "-Wunused",
+        "-Wunreachable-code",
+    ],
+
+    cppflags: ["-Wno-conversion-null"],
+
+    srcs: [
+        "apex/android_matrix.cpp",
+        "apex/android_paint.cpp",
+        "apex/android_region.cpp",
+        "apex/properties.cpp",
+    ],
+
+    header_libs: ["android_graphics_apex_headers"],
+
+    target: {
+        android: {
+            srcs: [ // sources that depend on android only libraries
+                "apex/android_bitmap.cpp",
+                "apex/android_canvas.cpp",
+                "apex/jni_runtime.cpp",
+            ],
+        },
+        host: {
+            srcs: [
+                "apex/LayoutlibLoader.cpp",
+            ],
+        },
+    },
+}
+
+// ------------------------
+// Android Graphics JNI
+// ------------------------
+
+cc_library_headers {
+    name: "android_graphics_jni_headers",
+
+    host_supported: true,
+    export_include_dirs: [
+        "jni",
+    ],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+}
+
+cc_defaults {
+    name: "android_graphics_jni",
+    cflags: [
+        "-Wno-unused-parameter",
+        "-Wno-non-virtual-dtor",
+        "-Wno-maybe-uninitialized",
+        "-Wno-parentheses",
+
+        "-DGL_GLEXT_PROTOTYPES",
+        "-DEGL_EGLEXT_PROTOTYPES",
+
+        "-DU_USING_ICU_NAMESPACE=0",
+
+        "-Wall",
+        "-Werror",
+        "-Wno-error=deprecated-declarations",
+        "-Wunused",
+        "-Wunreachable-code",
+    ],
+
+    cppflags: ["-Wno-conversion-null"],
+
+    srcs: [
+        "jni/android_graphics_animation_NativeInterpolatorFactory.cpp",
+        "jni/android_graphics_animation_RenderNodeAnimator.cpp",
+        "jni/android_graphics_Canvas.cpp",
+        "jni/android_graphics_ColorSpace.cpp",
+        "jni/android_graphics_drawable_AnimatedVectorDrawable.cpp",
+        "jni/android_graphics_drawable_VectorDrawable.cpp",
+        "jni/android_graphics_HardwareRendererObserver.cpp",
+        "jni/android_graphics_Matrix.cpp",
+        "jni/android_graphics_Picture.cpp",
+        "jni/android_graphics_DisplayListCanvas.cpp",
+        "jni/android_graphics_RenderNode.cpp",
+        "jni/android_nio_utils.cpp",
+        "jni/android_util_PathParser.cpp",
+
+        "jni/Bitmap.cpp",
+        "jni/BitmapFactory.cpp",
+        "jni/ByteBufferStreamAdaptor.cpp",
+        "jni/Camera.cpp",
+        "jni/CanvasProperty.cpp",
+        "jni/ColorFilter.cpp",
+        "jni/CreateJavaOutputStreamAdaptor.cpp",
+        "jni/FontFamily.cpp",
+        "jni/FontUtils.cpp",
+        "jni/Graphics.cpp",
+        "jni/ImageDecoder.cpp",
+        "jni/Interpolator.cpp",
+        "jni/MaskFilter.cpp",
+        "jni/NinePatch.cpp",
+        "jni/NinePatchPeeker.cpp",
+        "jni/Paint.cpp",
+        "jni/PaintFilter.cpp",
+        "jni/Path.cpp",
+        "jni/PathEffect.cpp",
+        "jni/PathMeasure.cpp",
+        "jni/Picture.cpp",
+        "jni/Region.cpp",
+        "jni/Shader.cpp",
+        "jni/RenderEffect.cpp",
+        "jni/Typeface.cpp",
+        "jni/Utils.cpp",
+        "jni/YuvToJpegEncoder.cpp",
+        "jni/fonts/Font.cpp",
+        "jni/fonts/FontFamily.cpp",
+        "jni/text/LineBreaker.cpp",
+        "jni/text/MeasuredText.cpp",
+        "jni/text/TextShaper.cpp",
+    ],
+
+    header_libs: ["android_graphics_jni_headers"],
+
+    include_dirs: [
+        "external/skia/include/private",
+        "external/skia/src/codec",
+        "external/skia/src/core",
+        "external/skia/src/effects",
+        "external/skia/src/image",
+        "external/skia/src/images",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libharfbuzz_ng",
+        "liblog",
+        "libminikin",
+        "libz",
+        "libjpeg",
+    ],
+
+    static_libs: [
+        "libnativehelper_lazy",
+        "libziparchive_for_incfs",
+    ],
+
+    target: {
+        android: {
+            srcs: [ // sources that depend on android only libraries
+                "jni/AnimatedImageDrawable.cpp",
+                "jni/android_graphics_TextureLayer.cpp",
+                "jni/android_graphics_HardwareRenderer.cpp",
+                "jni/BitmapRegionDecoder.cpp",
+                "jni/GIFMovie.cpp",
+                "jni/GraphicsStatsService.cpp",
+                "jni/Movie.cpp",
+                "jni/MovieImpl.cpp",
+                "jni/pdf/PdfDocument.cpp",
+                "jni/pdf/PdfEditor.cpp",
+                "jni/pdf/PdfRenderer.cpp",
+                "jni/pdf/PdfUtils.cpp",
+            ],
+            shared_libs: [
+                "libandroidfw",
+                "libbinder",
+                "libbinder_ndk",
+                "libmediandk",
+                "libnativedisplay",
+                "libnativewindow",
+                "libpdfium",
+            ],
+            static_libs: [
+                "libgif",
+                "libstatslog_hwui",
+                "libstatspull_lazy",
+                "libstatssocket_lazy",
+            ],
+        },
+        host: {
+            cflags: [
+                "-Wno-unused-const-variable",
+                "-Wno-unused-function",
+            ],
+            static_libs: [
+                "libandroidfw",
+            ],
+        },
+    },
+}
+
+cc_library_static {
+    name: "libstatslog_hwui",
+    generated_sources: ["statslog_hwui.cpp"],
+    generated_headers: ["statslog_hwui.h"],
+    export_generated_headers: ["statslog_hwui.h"],
+    static_libs: [
+        "libstatssocket_lazy",
+        "libstatspull_lazy",
+    ],
+}
+
+genrule {
+    name: "statslog_hwui.h",
+    tools: ["stats-log-api-gen"],
+    cmd: "$(location stats-log-api-gen) --header $(genDir)/statslog_hwui.h --module hwui" +
+        " --namespace android,uirenderer,stats",
+    out: [
+        "statslog_hwui.h",
+    ],
+}
+
+genrule {
+    name: "statslog_hwui.cpp",
+    tools: ["stats-log-api-gen"],
+    cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_hwui.cpp --module hwui" +
+        " --namespace android,uirenderer,stats --importHeader statslog_hwui.h",
+    out: [
+        "statslog_hwui.cpp",
+    ],
+}
+
+// ------------------------
+// library
+// ------------------------
+
+cc_library_headers {
+    name: "libhwui_internal_headers",
+
+    host_supported: true,
+    export_include_dirs: [
+        ".",
+    ],
+    header_libs: ["android_graphics_jni_headers"],
+    export_header_lib_headers: ["android_graphics_jni_headers"],
+}
+
+cc_defaults {
+    name: "libhwui_defaults",
+    defaults: ["hwui_defaults"],
+
+    whole_static_libs: ["libskia"],
+
+    srcs: [
+        "canvas/CanvasFrontend.cpp",
+        "canvas/CanvasOpBuffer.cpp",
+        "canvas/CanvasOpRasterizer.cpp",
+        "effects/StretchEffect.cpp",
+        "pipeline/skia/HolePunch.cpp",
+        "pipeline/skia/SkiaDisplayList.cpp",
+        "pipeline/skia/SkiaRecordingCanvas.cpp",
+        "pipeline/skia/StretchMask.cpp",
+        "pipeline/skia/RenderNodeDrawable.cpp",
+        "pipeline/skia/ReorderBarrierDrawables.cpp",
+        "pipeline/skia/TransformCanvas.cpp",
+        "renderthread/Frame.cpp",
+        "renderthread/RenderTask.cpp",
+        "renderthread/TimeLord.cpp",
+        "hwui/AnimatedImageDrawable.cpp",
+        "hwui/Bitmap.cpp",
+        "hwui/BlurDrawLooper.cpp",
+        "hwui/Canvas.cpp",
+        "hwui/ImageDecoder.cpp",
+        "hwui/MinikinSkia.cpp",
+        "hwui/MinikinUtils.cpp",
+        "hwui/PaintImpl.cpp",
+        "hwui/Typeface.cpp",
+        "utils/Blur.cpp",
+        "utils/Color.cpp",
+        "utils/LinearAllocator.cpp",
+        "utils/VectorDrawableUtils.cpp",
+        "AnimationContext.cpp",
+        "Animator.cpp",
+        "AnimatorManager.cpp",
+        "CanvasTransform.cpp",
+        "DamageAccumulator.cpp",
+        "Interpolator.cpp",
+        "LightingInfo.cpp",
+        "Matrix.cpp",
+        "PathParser.cpp",
+        "Properties.cpp",
+        "PropertyValuesAnimatorSet.cpp",
+        "PropertyValuesHolder.cpp",
+        "RecordingCanvas.cpp",
+        "RenderNode.cpp",
+        "RenderProperties.cpp",
+        "RootRenderNode.cpp",
+        "SkiaCanvas.cpp",
+        "SkiaInterpolator.cpp",
+        "VectorDrawable.cpp",
+    ],
+
+    proto: {
+        export_proto_headers: true,
+    },
+
+    target: {
+        android: {
+            header_libs: [
+                "libandroid_headers_private",
+                "libtonemap_headers",
+            ],
+
+            srcs: [
+                "hwui/AnimatedImageThread.cpp",
+                "pipeline/skia/ATraceMemoryDump.cpp",
+                "pipeline/skia/GLFunctorDrawable.cpp",
+                "pipeline/skia/LayerDrawable.cpp",
+                "pipeline/skia/ShaderCache.cpp",
+                "pipeline/skia/SkiaMemoryTracer.cpp",
+                "pipeline/skia/SkiaOpenGLPipeline.cpp",
+                "pipeline/skia/SkiaPipeline.cpp",
+                "pipeline/skia/SkiaProfileRenderer.cpp",
+                "pipeline/skia/SkiaVulkanPipeline.cpp",
+                "pipeline/skia/VkFunctorDrawable.cpp",
+                "pipeline/skia/VkInteropFunctorDrawable.cpp",
+                "renderstate/RenderState.cpp",
+                "renderthread/CacheManager.cpp",
+                "renderthread/CanvasContext.cpp",
+                "renderthread/DrawFrameTask.cpp",
+                "renderthread/EglManager.cpp",
+                "renderthread/ReliableSurface.cpp",
+                "renderthread/RenderEffectCapabilityQuery.cpp",
+                "renderthread/VulkanManager.cpp",
+                "renderthread/VulkanSurface.cpp",
+                "renderthread/RenderProxy.cpp",
+                "renderthread/RenderThread.cpp",
+                "service/GraphicsStatsService.cpp",
+                "thread/CommonPool.cpp",
+                "utils/GLUtils.cpp",
+                "utils/NdkUtils.cpp",
+                "utils/StringUtils.cpp",
+                "AutoBackendTextureRelease.cpp",
+                "DeferredLayerUpdater.cpp",
+                "DeviceInfo.cpp",
+                "FrameInfo.cpp",
+                "FrameInfoVisualizer.cpp",
+                "HardwareBitmapUploader.cpp",
+                "HWUIProperties.sysprop",
+                "JankTracker.cpp",
+                "FrameMetricsReporter.cpp",
+                "Layer.cpp",
+                "LayerUpdateQueue.cpp",
+                "ProfileData.cpp",
+                "ProfileDataContainer.cpp",
+                "Readback.cpp",
+                "TreeInfo.cpp",
+                "WebViewFunctorManager.cpp",
+                "protos/graphicsstats.proto",
+            ],
+
+            // Allow implicit fallthroughs in HardwareBitmapUploader.cpp until they are fixed.
+            cflags: ["-Wno-implicit-fallthrough"],
+        },
+        host: {
+            srcs: [
+                "utils/HostColorSpace.cpp",
+            ],
+            export_static_lib_headers: [
+                "libarect",
+            ],
+        },
+    },
+}
+
+cc_library {
+    name: "libhwui",
+    host_supported: true,
+    defaults: [
+        "libhwui_defaults",
+        "android_graphics_apex",
+        "android_graphics_jni",
+        "linker_hugepage_aligned",
+    ],
+    export_header_lib_headers: ["android_graphics_apex_headers"],
+    target: {
+        android: {
+            version_script: "libhwui.map.txt",
+        },
+    },
+    afdo: true,
+}
+
+cc_library_static {
+    name: "libhwui_static",
+    defaults: [
+        "libhwui_defaults",
+    ],
+}
+
+cc_defaults {
+    name: "hwui_test_defaults",
+    defaults: ["hwui_defaults"],
+    test_suites: ["general-tests"],
+    header_libs: ["libandroid_headers_private"],
+    target: {
+        android: {
+            shared_libs: [
+                "libgui",
+                "libui",
+            ],
+        },
+    },
+    srcs: [
+        "tests/common/scenes/*.cpp",
+        "tests/common/LeakChecker.cpp",
+        "tests/common/TestListViewSceneBase.cpp",
+        "tests/common/TestContext.cpp",
+        "tests/common/TestScene.cpp",
+        "tests/common/TestUtils.cpp",
+    ],
+}
+
+// ------------------------
+// unit tests
+// ------------------------
+
+cc_test {
+    name: "hwui_unit_tests",
+    defaults: [
+        "hwui_test_defaults",
+        "android_graphics_apex",
+        "android_graphics_jni",
+    ],
+
+    static_libs: [
+        "libgmock",
+        "libhwui_static",
+    ],
+    shared_libs: [
+        "libmemunreachable",
+    ],
+    srcs: [
+        "tests/unit/main.cpp",
+        "tests/unit/ABitmapTests.cpp",
+        "tests/unit/AutoBackendTextureReleaseTests.cpp",
+        "tests/unit/CacheManagerTests.cpp",
+        "tests/unit/CanvasContextTests.cpp",
+        "tests/unit/CanvasOpTests.cpp",
+        "tests/unit/CanvasFrontendTests.cpp",
+        "tests/unit/CommonPoolTests.cpp",
+        "tests/unit/DamageAccumulatorTests.cpp",
+        "tests/unit/DeferredLayerUpdaterTests.cpp",
+        "tests/unit/EglManagerTests.cpp",
+        "tests/unit/FatVectorTests.cpp",
+        "tests/unit/GraphicsStatsServiceTests.cpp",
+        "tests/unit/JankTrackerTests.cpp",
+        "tests/unit/FrameMetricsReporterTests.cpp",
+        "tests/unit/LayerUpdateQueueTests.cpp",
+        "tests/unit/LinearAllocatorTests.cpp",
+        "tests/unit/MatrixTests.cpp",
+        "tests/unit/OpBufferTests.cpp",
+        "tests/unit/PathInterpolatorTests.cpp",
+        "tests/unit/RenderEffectCapabilityQueryTests.cpp",
+        "tests/unit/RenderNodeDrawableTests.cpp",
+        "tests/unit/RenderNodeTests.cpp",
+        "tests/unit/RenderPropertiesTests.cpp",
+        "tests/unit/RenderThreadTests.cpp",
+        "tests/unit/ShaderCacheTests.cpp",
+        "tests/unit/SkiaBehaviorTests.cpp",
+        "tests/unit/SkiaDisplayListTests.cpp",
+        "tests/unit/SkiaPipelineTests.cpp",
+        "tests/unit/SkiaRenderPropertiesTests.cpp",
+        "tests/unit/SkiaCanvasTests.cpp",
+        "tests/unit/StretchEffectTests.cpp",
+        "tests/unit/StringUtilsTests.cpp",
+        "tests/unit/TestUtilsTests.cpp",
+        "tests/unit/ThreadBaseTests.cpp",
+        "tests/unit/TypefaceTests.cpp",
+        "tests/unit/VectorDrawableTests.cpp",
+        "tests/unit/WebViewFunctorManagerTests.cpp",
+    ],
+    data: [
+        ":hwuimicro",
+    ],
+}
+
+// ------------------------
+// Macro-bench app
+// ------------------------
+
+cc_benchmark {
+    name: "hwuimacro",
+    defaults: ["hwui_test_defaults"],
+
+    static_libs: ["libhwui"],
+    shared_libs: [
+        "libmemunreachable",
+    ],
+
+    srcs: [
+        "tests/macrobench/TestSceneRunner.cpp",
+        "tests/macrobench/main.cpp",
+    ],
+}
+
+// ------------------------
+// Micro-bench app
+// ---------------------
+
+cc_benchmark {
+    name: "hwuimicro",
+    defaults: ["hwui_test_defaults"],
+
+    static_libs: ["libhwui_static"],
+    shared_libs: [
+        "libmemunreachable",
+    ],
+
+    srcs: [
+        "tests/microbench/main.cpp",
+        "tests/microbench/CanvasOpBench.cpp",
+        "tests/microbench/DisplayListCanvasBench.cpp",
+        "tests/microbench/LinearAllocatorBench.cpp",
+        "tests/microbench/PathParserBench.cpp",
+        "tests/microbench/RenderNodeBench.cpp",
+    ],
+}

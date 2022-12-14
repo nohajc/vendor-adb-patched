@@ -1,0 +1,112 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+rust_library {
+    name: "librpcbinder_rs",
+    crate_name: "rpcbinder",
+    srcs: ["src/lib.rs"],
+    shared_libs: [
+        "libutils",
+    ],
+    rustlibs: [
+        "libbinder_ndk_sys",
+        "libbinder_rpc_unstable_bindgen_sys",
+        "libbinder_rs",
+        "libdowncast_rs",
+        "libforeign_types",
+        "liblibc",
+        "liblog_rust",
+    ],
+    visibility: [
+        "//device/google/cuttlefish/shared/minidroid/sample",
+        "//packages/modules/Virtualization:__subpackages__",
+        "//system/software_defined_vehicle:__subpackages__",
+    ],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.compos",
+        "com.android.uwb",
+        "com.android.virt",
+    ],
+    min_sdk_version: "Tiramisu",
+}
+
+// Build a separate rust_library rather than depending directly on libbinder_rpc_unstable_bindgen,
+// to work around the fact that rust_bindgen targets only produce rlibs and not dylibs, which would
+// result in duplicate conflicting versions of libbinder_ndk_sys. This will hopefully be fixed in
+// the build system, at which point we can delete this target and go back to using
+// libbinder_rpc_unstable_bindgen directly.
+rust_library {
+    name: "libbinder_rpc_unstable_bindgen_sys",
+    crate_name: "binder_rpc_unstable_bindgen",
+    srcs: [
+        ":libbinder_rpc_unstable_bindgen",
+    ],
+    visibility: [":__subpackages__"],
+    rustlibs: [
+        "libbinder_ndk_sys",
+    ],
+    shared_libs: [
+        "libbinder_rpc_unstable",
+        "libutils",
+    ],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.compos",
+        "com.android.uwb",
+        "com.android.virt",
+    ],
+    min_sdk_version: "Tiramisu",
+    lints: "none",
+    clippy_lints: "none",
+}
+
+// TODO(b/184872979): remove once the RPC Binder API is stabilised.
+rust_bindgen {
+    name: "libbinder_rpc_unstable_bindgen",
+    wrapper_src: ":libbinder_rpc_unstable_header",
+    crate_name: "binder_rpc_unstable_bindgen",
+    visibility: [":__subpackages__"],
+    source_stem: "bindings",
+    bindgen_flags: [
+        "--blocklist-type",
+        "AIBinder",
+        "--raw-line",
+        "use binder_ndk_sys::AIBinder;",
+        "--rustified-enum",
+        "ARpcSession_FileDescriptorTransportMode",
+    ],
+    rustlibs: [
+        "libbinder_ndk_sys",
+    ],
+    shared_libs: [
+        "libbinder_rpc_unstable",
+        "libutils",
+    ],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.compos",
+        "com.android.uwb",
+        "com.android.virt",
+    ],
+    min_sdk_version: "Tiramisu",
+}
+
+rust_test {
+    name: "libbinder_rpc_unstable_bindgen_test",
+    srcs: [":libbinder_rpc_unstable_bindgen"],
+    crate_name: "binder_rpc_unstable_bindgen",
+    rustlibs: [
+        "libbinder_ndk_sys",
+    ],
+    test_suites: ["general-tests"],
+    auto_gen_config: true,
+    clippy_lints: "none",
+    lints: "none",
+}

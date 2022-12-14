@@ -1,0 +1,18 @@
+{
+  "presubmit": [
+    {
+      "name": "CtsGraphicsTestCases"
+    },
+    {
+      "name": "CtsAccelerationTestCases"
+    },
+    {
+      "name": "hwui_unit_tests"
+    }
+  ],
+  "imports": [
+    {
+      "path": "cts/tests/tests/uirendering"
+    }
+  ]
+}

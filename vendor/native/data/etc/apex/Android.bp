@@ -1,0 +1,34 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+apex_key {
+    name: "com.android.hardware.core_permissions.key",
+    public_key: "com.android.hardware.core_permissions.avbpubkey",
+    private_key: "com.android.hardware.core_permissions.pem",
+}
+
+android_app_certificate {
+    name: "com.android.hardware.core_permissions.certificate",
+    certificate: "com.android.hardware.core_permissions",
+}
+
+apex {
+    name: "com.android.hardware.core_permissions",
+    manifest: "apex_manifest.json",
+    key: "com.android.hardware.core_permissions.key",
+    certificate: ":com.android.hardware.core_permissions.certificate",
+    file_contexts: "file_contexts",
+    updatable: false,
+    // Install the apex in /vendor/apex
+    soc_specific: true,
+    prebuilts: [
+        "handheld_core_hardware.prebuilt.xml",
+        "aosp_excluded_hardware.prebuilt.xml",
+    ],
+}

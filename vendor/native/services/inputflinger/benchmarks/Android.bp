@@ -1,0 +1,36 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_benchmark {
+    name: "inputflinger_benchmarks",
+    srcs: [
+        "InputDispatcher_benchmarks.cpp",
+    ],
+    defaults: [
+        "inputflinger_defaults",
+        "libinputdispatcher_defaults",
+    ],
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libcrypto",
+        "libcutils",
+        "libinput",
+        "libinputflinger_base",
+        "libinputreporter",
+        "liblog",
+        "libstatslog",
+        "libui",
+        "libutils",
+    ],
+    static_libs: [
+        "libattestation",
+        "libinputdispatcher",
+    ],
+}

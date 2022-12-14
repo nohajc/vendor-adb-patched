@@ -1,0 +1,36 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library {
+    name: "libtimestats_atoms_proto",
+    export_include_dirs: ["include"],
+
+    srcs: [
+        "timestats_atoms.proto",
+    ],
+
+    proto: {
+        type: "lite",
+        export_proto_headers: true,
+    },
+
+    cppflags: [
+        "-Werror",
+        "-Wno-c++98-compat-pedantic",
+        "-Wno-disabled-macro-expansion",
+        "-Wno-float-conversion",
+        "-Wno-float-equal",
+        "-Wno-format",
+        "-Wno-old-style-cast",
+        "-Wno-padded",
+        "-Wno-sign-conversion",
+        "-Wno-undef",
+        "-Wno-unused-parameter",
+    ],
+}

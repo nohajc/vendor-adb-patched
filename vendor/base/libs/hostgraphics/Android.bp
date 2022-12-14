@@ -1,0 +1,47 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_base_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_base_license"],
+}
+
+cc_library_host_static {
+    name: "libhostgraphics",
+
+    cflags: [
+        "-Wno-unused-parameter",
+    ],
+
+    static_libs: [
+        "libbase",
+        "libmath",
+        "libutils",
+    ],
+
+    srcs: [
+        ":libui_host_common",
+        "Fence.cpp",
+        "HostBufferQueue.cpp",
+        "PublicFormat.cpp",
+    ],
+
+    include_dirs: [
+        // Here we override all the headers automatically included with frameworks/native/include.
+        // When frameworks/native/include will be removed from the list of automatic includes.
+        // We will have to copy necessary headers with a pre-build step (generated headers).
+        ".",
+        "frameworks/native/libs/nativebase/include",
+        "frameworks/native/libs/nativewindow/include",
+        "frameworks/native/libs/arect/include",
+        "frameworks/native/libs/ui/include_private",
+    ],
+    export_include_dirs: ["."],
+
+    target: {
+        windows: {
+            enabled: true,
+        }
+    },
+}

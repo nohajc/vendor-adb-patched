@@ -1,0 +1,53 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_fuzz {
+    name: "libsensorserviceaidl_fuzzer",
+    defaults: [
+        "service_fuzzer_defaults",
+        "fuzzer_disable_leaks",
+    ],
+    host_supported: true,
+    static_libs: [
+        "libsensorserviceaidl",
+        "libpermission",
+        "android.frameworks.sensorservice-V1-ndk",
+        "android.hardware.sensors-V1-convert",
+        "android.hardware.sensors-V1-ndk",
+        "android.hardware.common-V2-ndk",
+        "libsensor",
+        "libfakeservicemanager",
+        "libcutils",
+        "liblog",
+    ],
+    srcs: [
+        "fuzzer.cpp",
+    ],
+    fuzz_config: {
+        cc: [
+            "android-sensors@google.com",
+            "devinmoore@google.com",
+        ],
+    },
+    sanitize: {
+        misc_undefined: [
+            "signed-integer-overflow",
+            "unsigned-integer-overflow",
+        ],
+        diag: {
+            misc_undefined: [
+                "signed-integer-overflow",
+                "unsigned-integer-overflow",
+            ],
+        },
+        address: true,
+        integer_overflow: true,
+    },
+
+}

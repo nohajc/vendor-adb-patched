@@ -1,0 +1,111 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_shared {
+    name: "libsensorservice",
+
+    srcs: [
+        "AidlSensorHalWrapper.cpp",
+        "BatteryService.cpp",
+        "CorrectedGyroSensor.cpp",
+        "Fusion.cpp",
+        "GravitySensor.cpp",
+        "HidlSensorHalWrapper.cpp",
+        "LimitedAxesImuSensor.cpp",
+        "LinearAccelerationSensor.cpp",
+        "OrientationSensor.cpp",
+        "RecentEventLogger.cpp",
+        "RotationVectorSensor.cpp",
+        "SensorDevice.cpp",
+        "SensorDeviceUtils.cpp",
+        "SensorDirectConnection.cpp",
+        "SensorEventConnection.cpp",
+        "SensorFusion.cpp",
+        "SensorInterface.cpp",
+        "SensorList.cpp",
+        "SensorRecord.cpp",
+        "SensorService.cpp",
+        "SensorServiceUtils.cpp",
+    ],
+
+    cflags: [
+        "-DLOG_TAG=\"SensorService\"",
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+        "-fvisibility=hidden",
+    ],
+
+    header_libs: [
+        "android.hardware.sensors@2.X-shared-utils",
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libhardware",
+        "libhardware_legacy",
+        "libutils",
+        "liblog",
+        "libactivitymanager_aidl",
+        "libbatterystats_aidl",
+        "libbinder",
+        "libsensor",
+        "libsensorprivacy",
+        "libpermission",
+        "libprotoutil",
+        "libcrypto",
+        "libbase",
+        "libhidlbase",
+        "libfmq",
+        "libbinder_ndk",
+        "packagemanager_aidl-cpp",
+        "android.hardware.sensors@1.0",
+        "android.hardware.sensors@2.0",
+        "android.hardware.sensors@2.1",
+        "android.hardware.common-V2-ndk",
+        "android.hardware.common.fmq-V1-ndk",
+    ],
+
+    static_libs: [
+        "libaidlcommonsupport",
+        "android.hardware.sensors@1.0-convert",
+        "android.hardware.sensors-V1-convert",
+        "android.hardware.sensors-V1-ndk",
+    ],
+
+    generated_headers: ["framework-cppstream-protos"],
+
+    export_shared_lib_headers: [
+        "libactivitymanager_aidl",
+        "libsensor",
+        "libsensorprivacy",
+        "libpermission",
+    ],
+
+    afdo: true,
+}
+
+cc_binary {
+    name: "sensorservice",
+
+    srcs: ["main_sensorservice.cpp"],
+
+    shared_libs: [
+        "libsensorservice",
+        "libsensorprivacy",
+        "libbinder",
+        "libutils",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+    ],
+}

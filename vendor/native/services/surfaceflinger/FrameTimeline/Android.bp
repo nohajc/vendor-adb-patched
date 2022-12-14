@@ -1,0 +1,33 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_static {
+    name: "libframetimeline",
+    defaults: ["surfaceflinger_defaults"],
+    srcs: [
+        "FrameTimeline.cpp",
+    ],
+    header_libs: [
+        "libscheduler_headers",
+    ],
+    shared_libs: [
+        "android.hardware.graphics.composer@2.4",
+        "libbase",
+        "libcutils",
+        "liblog",
+        "libgui",
+        "libtimestats",
+        "libui",
+        "libutils",
+    ],
+    static_libs: [
+        "libperfetto_client_experimental",
+    ],
+    export_include_dirs: ["."],
+}
