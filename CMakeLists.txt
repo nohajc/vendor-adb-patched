@@ -14,7 +14,7 @@ option(ANDROID_TOOLS_USE_BUNDLED_LIBUSB "Use bundled libusb library instead of s
 option(ANDROID_TOOLS_LIBUSB_ENABLE_UDEV "Enable udev for device enumeration and hotplug support" OFF)
 
 # Install bash/zsh completion files.
-set(COMPLETION_COMMON_DIR "${CMAKE_INSTALL_FULL_DATADIR}/android-tools/completions")
+set(COMPLETION_COMMON_DIR "${CMAKE_INSTALL_FULL_DATADIR}/termux-adb/completions")
 add_subdirectory(completions)
 
 # Android provides it's own version of mke2fs which is incompatible with

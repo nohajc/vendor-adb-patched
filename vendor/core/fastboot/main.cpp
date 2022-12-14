@@ -27,8 +27,13 @@
  */
 
 #include "fastboot.h"
+#include "termux_adb.h"
 
 int main(int argc, char* argv[]) {
+    if (termuxadb::sendfd()) {
+        return 0;
+    }
+
     FastBootTool fb;
     return fb.Main(argc, argv);
 }
