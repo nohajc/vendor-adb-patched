@@ -20,7 +20,6 @@
 #include <compositionengine/Output.h>
 #include <compositionengine/impl/ClientCompositionRequestCache.h>
 #include <compositionengine/impl/OutputCompositionState.h>
-#include <compositionengine/impl/planner/Planner.h>
 #include <renderengine/DisplaySettings.h>
 #include <renderengine/LayerSettings.h>
 #include <memory>
@@ -33,27 +32,22 @@ namespace android::compositionengine::impl {
 // actually contain the final output state.
 class Output : public virtual compositionengine::Output {
 public:
-    Output() = default;
     ~Output() override;
 
     // compositionengine::Output overrides
     bool isValid() const override;
     std::optional<DisplayId> getDisplayId() const override;
     void setCompositionEnabled(bool) override;
-    void setLayerCachingEnabled(bool) override;
-    void setLayerCachingTexturePoolEnabled(bool) override;
-    void setProjection(ui::Rotation orientation, const Rect& layerStackSpaceRect,
-                       const Rect& orientedDisplaySpaceRect) override;
-    void setDisplaySize(const ui::Size&) override;
+    void setProjection(const ui::Transform&, uint32_t orientation, const Rect& frame,
+                       const Rect& viewport, const Rect& sourceClip, const Rect& destinationClip,
+                       bool needsFiltering) override;
+    void setBounds(const ui::Size&) override;
     void setLayerStackFilter(uint32_t layerStackId, bool isInternal) override;
-    ui::Transform::RotationFlags getTransformHint() const override;
 
     void setColorTransform(const compositionengine::CompositionRefreshArgs&) override;
     void setColorProfile(const ColorProfile&) override;
-    void setDisplayBrightness(float sdrWhitePointNits, float displayBrightnessNits) override;
 
     void dump(std::string&) const override;
-    void dumpPlannerInfo(const Vector<String16>& args, std::string&) const override;
 
     const std::string& getName() const override;
     void setName(const std::string&) override;
@@ -83,9 +77,7 @@ public:
     void setReleasedLayers(const compositionengine::CompositionRefreshArgs&) override;
 
     void updateLayerStateFromFE(const CompositionRefreshArgs&) const override;
-    void updateCompositionState(const compositionengine::CompositionRefreshArgs&) override;
-    void planComposition() override;
-    void writeCompositionState(const compositionengine::CompositionRefreshArgs&) override;
+    void updateAndWriteCompositionState(const compositionengine::CompositionRefreshArgs&) override;
     void updateColorProfile(const compositionengine::CompositionRefreshArgs&) override;
     void beginFrame() override;
     void prepareFrame() override;
@@ -94,14 +86,12 @@ public:
     std::optional<base::unique_fd> composeSurfaces(
             const Region&, const compositionengine::CompositionRefreshArgs& refreshArgs) override;
     void postFramebuffer() override;
-    void renderCachedSets(const CompositionRefreshArgs&) override;
     void cacheClientCompositionRequests(uint32_t) override;
 
     // Testing
     const ReleasedLayers& getReleasedLayersForTest() const;
     void setDisplayColorProfileForTest(std::unique_ptr<compositionengine::DisplayColorProfile>);
     void setRenderSurfaceForTest(std::unique_ptr<compositionengine::RenderSurface>);
-    bool plannerEnabled() const { return mPlanner != nullptr; }
 
 protected:
     std::unique_ptr<compositionengine::OutputLayer> createOutputLayer(const sp<LayerFE>&) const;
@@ -140,7 +130,6 @@ private:
     ReleasedLayers mReleasedLayers;
     OutputLayer* mLayerRequestingBackgroundBlur = nullptr;
     std::unique_ptr<ClientCompositionRequestCache> mClientCompositionRequestCache;
-    std::unique_ptr<planner::Planner> mPlanner;
 };
 
 // This template factory function standardizes the implementation details of the

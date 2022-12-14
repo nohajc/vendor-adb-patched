@@ -343,7 +343,6 @@ inline const OptionFormatMap& GetStatCmdOptionFormats() {
       {"-p", {OptionValueType::STRING, OptionType::MULTIPLE, AppRunnerType::ALLOWED}},
       {"--per-core", {OptionValueType::NONE, OptionType::SINGLE, AppRunnerType::ALLOWED}},
       {"--per-thread", {OptionValueType::NONE, OptionType::SINGLE, AppRunnerType::ALLOWED}},
-      {"--print-hw-counter", {OptionValueType::NONE, OptionType::SINGLE, AppRunnerType::ALLOWED}},
       {"--sort", {OptionValueType::STRING, OptionType::SINGLE, AppRunnerType::ALLOWED}},
       {"--stop-signal-fd", {OptionValueType::UINT, OptionType::SINGLE, AppRunnerType::CHECK_FD}},
       {"-t", {OptionValueType::STRING, OptionType::MULTIPLE, AppRunnerType::ALLOWED}},

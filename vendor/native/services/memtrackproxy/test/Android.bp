@@ -29,7 +29,7 @@ cc_test {
     shared_libs: [
         "libbinder_ndk",
         "libmemtrackproxy",
-        "android.hardware.memtrack-V1-ndk",
+        "android.hardware.memtrack-V1-ndk_platform",
     ],
     test_suites: ["general-tests"],
     require_root: true,

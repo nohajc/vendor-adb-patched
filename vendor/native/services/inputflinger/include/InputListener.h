@@ -20,7 +20,6 @@
 #include <vector>
 
 #include <input/Input.h>
-#include <input/InputDevice.h>
 #include <input/TouchVideoFrame.h>
 #include <utils/RefBase.h>
 
@@ -73,14 +72,12 @@ struct NotifyKeyArgs : public NotifyArgs {
     int32_t scanCode;
     int32_t metaState;
     nsecs_t downTime;
-    nsecs_t readTime;
 
     inline NotifyKeyArgs() { }
 
-    NotifyKeyArgs(int32_t id, nsecs_t eventTime, nsecs_t readTime, int32_t deviceId,
-                  uint32_t source, int32_t displayId, uint32_t policyFlags, int32_t action,
-                  int32_t flags, int32_t keyCode, int32_t scanCode, int32_t metaState,
-                  nsecs_t downTime);
+    NotifyKeyArgs(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32_t source,
+                  int32_t displayId, uint32_t policyFlags, int32_t action, int32_t flags,
+                  int32_t keyCode, int32_t scanCode, int32_t metaState, nsecs_t downTime);
 
     bool operator==(const NotifyKeyArgs& rhs) const;
 
@@ -122,14 +119,13 @@ struct NotifyMotionArgs : public NotifyArgs {
     float xCursorPosition;
     float yCursorPosition;
     nsecs_t downTime;
-    nsecs_t readTime;
     std::vector<TouchVideoFrame> videoFrames;
 
     inline NotifyMotionArgs() { }
 
-    NotifyMotionArgs(int32_t id, nsecs_t eventTime, nsecs_t readTime, int32_t deviceId,
-                     uint32_t source, int32_t displayId, uint32_t policyFlags, int32_t action,
-                     int32_t actionButton, int32_t flags, int32_t metaState, int32_t buttonState,
+    NotifyMotionArgs(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32_t source,
+                     int32_t displayId, uint32_t policyFlags, int32_t action, int32_t actionButton,
+                     int32_t flags, int32_t metaState, int32_t buttonState,
                      MotionClassification classification, int32_t edgeFlags, uint32_t pointerCount,
                      const PointerProperties* pointerProperties, const PointerCoords* pointerCoords,
                      float xPrecision, float yPrecision, float xCursorPosition,
@@ -145,30 +141,6 @@ struct NotifyMotionArgs : public NotifyArgs {
     virtual void notify(const sp<InputListenerInterface>& listener) const;
 };
 
-/* Describes a sensor event. */
-struct NotifySensorArgs : public NotifyArgs {
-    int32_t deviceId;
-    uint32_t source;
-    InputDeviceSensorType sensorType;
-    InputDeviceSensorAccuracy accuracy;
-    bool accuracyChanged;
-    nsecs_t hwTimestamp;
-    std::vector<float> values;
-
-    inline NotifySensorArgs() {}
-
-    NotifySensorArgs(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32_t source,
-                     InputDeviceSensorType sensorType, InputDeviceSensorAccuracy accuracy,
-                     bool accuracyChanged, nsecs_t hwTimestamp, std::vector<float> values);
-
-    NotifySensorArgs(const NotifySensorArgs& other);
-
-    bool operator==(const NotifySensorArgs rhs) const;
-
-    ~NotifySensorArgs() override {}
-
-    void notify(const sp<InputListenerInterface>& listener) const override;
-};
 
 /* Describes a switch event. */
 struct NotifySwitchArgs : public NotifyArgs {
@@ -209,41 +181,6 @@ struct NotifyDeviceResetArgs : public NotifyArgs {
     virtual void notify(const sp<InputListenerInterface>& listener) const;
 };
 
-/* Describes a change in the state of Pointer Capture. */
-struct NotifyPointerCaptureChangedArgs : public NotifyArgs {
-    // The sequence number of the Pointer Capture request, if enabled.
-    PointerCaptureRequest request;
-
-    inline NotifyPointerCaptureChangedArgs() {}
-
-    NotifyPointerCaptureChangedArgs(int32_t id, nsecs_t eventTime, const PointerCaptureRequest&);
-
-    NotifyPointerCaptureChangedArgs(const NotifyPointerCaptureChangedArgs& other);
-
-    bool operator==(const NotifyPointerCaptureChangedArgs& rhs) const;
-
-    virtual ~NotifyPointerCaptureChangedArgs() {}
-
-    virtual void notify(const sp<InputListenerInterface>& listener) const;
-};
-
-/* Describes a vibrator state event. */
-struct NotifyVibratorStateArgs : public NotifyArgs {
-    int32_t deviceId;
-    bool isOn;
-
-    inline NotifyVibratorStateArgs() {}
-
-    NotifyVibratorStateArgs(int32_t id, nsecs_t eventTIme, int32_t deviceId, bool isOn);
-
-    NotifyVibratorStateArgs(const NotifyVibratorStateArgs& other);
-
-    bool operator==(const NotifyVibratorStateArgs rhs) const;
-
-    virtual ~NotifyVibratorStateArgs() {}
-
-    virtual void notify(const sp<InputListenerInterface>& listener) const;
-};
 
 /*
  * The interface used by the InputReader to notify the InputListener about input events.
@@ -258,10 +195,7 @@ public:
     virtual void notifyKey(const NotifyKeyArgs* args) = 0;
     virtual void notifyMotion(const NotifyMotionArgs* args) = 0;
     virtual void notifySwitch(const NotifySwitchArgs* args) = 0;
-    virtual void notifySensor(const NotifySensorArgs* args) = 0;
-    virtual void notifyVibratorState(const NotifyVibratorStateArgs* args) = 0;
     virtual void notifyDeviceReset(const NotifyDeviceResetArgs* args) = 0;
-    virtual void notifyPointerCaptureChanged(const NotifyPointerCaptureChangedArgs* args) = 0;
 };
 
 
@@ -276,14 +210,11 @@ protected:
 public:
     explicit QueuedInputListener(const sp<InputListenerInterface>& innerListener);
 
-    virtual void notifyConfigurationChanged(const NotifyConfigurationChangedArgs* args) override;
-    virtual void notifyKey(const NotifyKeyArgs* args) override;
-    virtual void notifyMotion(const NotifyMotionArgs* args) override;
-    virtual void notifySwitch(const NotifySwitchArgs* args) override;
-    virtual void notifySensor(const NotifySensorArgs* args) override;
-    virtual void notifyDeviceReset(const NotifyDeviceResetArgs* args) override;
-    void notifyVibratorState(const NotifyVibratorStateArgs* args) override;
-    void notifyPointerCaptureChanged(const NotifyPointerCaptureChangedArgs* args) override;
+    virtual void notifyConfigurationChanged(const NotifyConfigurationChangedArgs* args);
+    virtual void notifyKey(const NotifyKeyArgs* args);
+    virtual void notifyMotion(const NotifyMotionArgs* args);
+    virtual void notifySwitch(const NotifySwitchArgs* args);
+    virtual void notifyDeviceReset(const NotifyDeviceResetArgs* args);
 
     void flush();
 

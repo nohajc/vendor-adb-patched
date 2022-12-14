@@ -7,7 +7,7 @@ package {
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
-cc_library {
+cc_library_shared {
     name: "libtimestats",
     srcs: [
         "TimeStats.cpp",
@@ -18,13 +18,20 @@ cc_library {
         "libcutils",
         "liblog",
         "libprotobuf-cpp-lite",
-        "libtimestats_atoms_proto",
+        "libprotoutil",
+        "libstatslog",
+        "libstatspull",
+        "libstatssocket",
         "libtimestats_proto",
         "libui",
         "libutils",
     ],
     export_include_dirs: ["."],
     export_shared_lib_headers: [
+        "libprotoutil",
+        "libstatslog",
+        "libstatspull",
+        "libstatssocket",
         "libtimestats_proto",
     ],
     cppflags: [

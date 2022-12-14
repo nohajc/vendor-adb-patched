@@ -25,10 +25,8 @@ message Transaction {
     repeated SurfaceChange surface_change = 1;
     repeated DisplayChange display_change = 2;
 
-    required bool   synchronous      = 3;
-    required bool   animation        = 4;
-    optional Origin origin           = 5;
-    optional uint64 id               = 6;
+    required bool synchronous = 3;
+    required bool animation   = 4;
 }
 
 message SurfaceChange {
@@ -41,18 +39,20 @@ message SurfaceChange {
         LayerChange                 layer                   = 5;
         CropChange                  crop                    = 6;
         MatrixChange                matrix                  = 8;
+        OverrideScalingModeChange   override_scaling_mode   = 9;
         TransparentRegionHintChange transparent_region_hint = 10;
         LayerStackChange            layer_stack             = 11;
         HiddenFlagChange            hidden_flag             = 12;
         OpaqueFlagChange            opaque_flag             = 13;
         SecureFlagChange            secure_flag             = 14;
+        DeferredTransactionChange   deferred_transaction    = 15;
         CornerRadiusChange          corner_radius           = 16;
         ReparentChange              reparent                = 17;
         RelativeParentChange        relative_parent         = 18;
-        BackgroundBlurRadiusChange  background_blur_radius  = 20;
-        ShadowRadiusChange          shadow_radius           = 21;
-        BlurRegionsChange           blur_regions            = 22;
-        TrustedOverlayChange        trusted_overlay         = 23;
+        DetachChildrenChange        detach_children         = 19;
+        ReparentChildrenChange      reparent_children       = 20;
+        BackgroundBlurRadiusChange  background_blur_radius  = 21;
+        ShadowRadiusChange          shadow_radius           = 22;
     }
 }
 
@@ -93,16 +93,16 @@ message MatrixChange {
     required float dtdy = 4;
 }
 
+message OverrideScalingModeChange {
+    required int32 override_scaling_mode = 1;
+}
+
 message TransparentRegionHintChange {
     repeated Rectangle region = 1;
 }
 
 message LayerStackChange {
     required uint32 layer_stack = 1;
-}
-
-message DisplayFlagsChange {
-    required uint32 flags = 1;
 }
 
 message HiddenFlagChange {
@@ -117,6 +117,11 @@ message SecureFlagChange {
     required bool secure_flag = 1;
 }
 
+message DeferredTransactionChange {
+    required int32  layer_id     = 1;
+    required uint64 frame_number = 2;
+}
+
 message DisplayChange {
     required int32 id = 1;
 
@@ -125,7 +130,6 @@ message DisplayChange {
         LayerStackChange  layer_stack = 3;
         SizeChange        size        = 4;
         ProjectionChange  projection  = 5;
-        DisplayFlagsChange flags      = 6;
     }
 }
 
@@ -189,37 +193,19 @@ message ReparentChange {
     required int32 parent_id = 1;
 }
 
+message ReparentChildrenChange {
+    required int32 parent_id = 1;
+}
+
 message RelativeParentChange {
     required int32 relative_parent_id = 1;
     required int32 z = 2;
 }
 
+message DetachChildrenChange {
+    required bool detach_children = 1;
+}
+
 message ShadowRadiusChange {
     required float radius = 1;
-}
-
-message TrustedOverlayChange {
-    required float is_trusted_overlay = 1;
-}
-
-message BlurRegionsChange {
-    repeated BlurRegionChange blur_regions = 1;
-}
-
-message BlurRegionChange {
-    required uint32 blur_radius = 1;
-    required float corner_radius_tl = 2;
-    required float corner_radius_tr = 3;
-    required float corner_radius_bl = 4;
-    required float corner_radius_br = 5;
-    required float alpha = 6;
-    required int32 left = 7;
-    required int32 top = 8;
-    required int32 right = 9;
-    required int32 bottom = 10;
-}
-
-message Origin {
-    required int32 pid = 1;
-    required int32 uid = 2;
 }

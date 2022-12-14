@@ -1,14 +1,9 @@
 project(android-tools)
-cmake_minimum_required(VERSION 3.12.0)
+cmake_minimum_required(VERSION 3.1.0)
 
 # To ease installation of utility files such as bash completions, etc.
 # See: https://cmake.org/cmake/help/latest/module/GNUInstallDirs.html
 include(GNUInstallDirs)
-
-# Option to enable or disable patching vendor projects using patches directory.
-# This helps to build vendor projects with or without any patching. Also if any
-# files are changed in vendor projects those can be retained with this option.
-option(ANDROID_TOOLS_PATCH_VENDOR "Patch vendor projects using patches directory" ON)
 
 # Install bash/zsh completion files.
 set(COMPLETION_COMMON_DIR "${CMAKE_INSTALL_FULL_DATADIR}/android-tools/completions")
@@ -24,14 +19,11 @@ set(ANDROID_MKE2FS_NAME "mke2fs.android")
 
 # Version of android-tools and the version of boringssl being used.
 # See: https://android.googlesource.com/platform/external/boringssl/+/platform-tools-${ANDROID_VERSION}/BORINGSSL_REVISION
-set(ANDROID_VERSION 33.0.3p2)
-set(BORINGSSL_VERSION 1530333b25589ee4d4d52b10e78ee55dd82f6dcd)
+set(ANDROID_VERSION 31.0.3p1)
+set(BORINGSSL_VERSION ae2bb641735447496bed334c495e4868b981fe32)
 
 # Vendor string used in version outputs.
 set(ANDROID_VENDOR android-tools)
-
-configure_file(version.h.in vendor/build/version.h @ONLY)
-configure_file(platform_tools_version.h.in vendor/platform_tools_version.h @ONLY)
 
 # The CMakeLists.txt in the vendor subdirectory is responsible for
 # patching, building and installing the software.

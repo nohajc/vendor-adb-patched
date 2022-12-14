@@ -18,9 +18,10 @@
 
 #include <binder/IBinder.h>
 #include <utils/KeyedVector.h>
-#include <utils/Mutex.h>
 #include <utils/String16.h>
 #include <utils/String8.h>
+
+#include <utils/threads.h>
 
 #include <pthread.h>
 
@@ -29,10 +30,6 @@ namespace android {
 
 class IPCThreadState;
 
-/**
- * Kernel binder process state. All operations here refer to kernel binder. This
- * object is allocated per process.
- */
 class ProcessState : public virtual RefBase {
 public:
     static sp<ProcessState> self();
@@ -88,25 +85,14 @@ public:
     void setCallRestriction(CallRestriction restriction);
 
     /**
-     * Get the max number of threads that have joined the thread pool.
-     * This includes kernel started threads, user joined threads and polling
-     * threads if used.
+     * Get the max number of threads that the kernel can start.
+     *
+     * Note: this is the lower bound. Additional threads may be started.
      */
-    size_t getThreadPoolMaxTotalThreadCount() const;
-
-    enum class DriverFeature {
-        ONEWAY_SPAM_DETECTION,
-        EXTENDED_ERROR,
-    };
-    // Determine whether a feature is supported by the binder driver.
-    static bool isDriverFeatureEnabled(const DriverFeature feature);
+    size_t getThreadPoolMaxThreadCount() const;
 
 private:
     static sp<ProcessState> init(const char* defaultDriver, bool requireDefault);
-
-    static void onFork();
-    static void parentPostFork();
-    static void childPostFork();
 
     friend class IPCThreadState;
     friend class sp<ProcessState>;
@@ -130,19 +116,15 @@ private:
     void* mVMStart;
 
     // Protects thread count and wait variables below.
-    mutable pthread_mutex_t mThreadCountLock;
+    pthread_mutex_t mThreadCountLock;
     // Broadcast whenever mWaitingForThreads > 0
     pthread_cond_t mThreadCountDecrement;
     // Number of binder threads current executing a command.
     size_t mExecutingThreadsCount;
     // Number of threads calling IPCThreadState::blockUntilThreadAvailable()
     size_t mWaitingForThreads;
-    // Maximum number of lazy threads to be started in the threadpool by the kernel.
+    // Maximum number for binder threads allowed for this process.
     size_t mMaxThreads;
-    // Current number of threads inside the thread pool.
-    size_t mCurrentThreads;
-    // Current number of pooled threads inside the thread pool.
-    size_t mKernelStartedThreads;
     // Time when thread pool was emptied
     int64_t mStarvationStartTimeMs;
 
@@ -150,7 +132,6 @@ private:
 
     Vector<handle_entry> mHandleToObject;
 
-    bool mForked;
     bool mThreadPoolStarted;
     volatile int32_t mThreadPoolSeq;
 

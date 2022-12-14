@@ -39,16 +39,9 @@ ndk_headers {
 
 cc_library_headers {
     name: "libarect_headers",
-    vendor_available: true,
-    min_sdk_version: "29",
     // TODO(b/153609531): remove when no longer needed.
     native_bridge_supported: true,
     export_include_dirs: ["include"],
-    apex_available: [
-        "//apex_available:platform",
-        "com.android.media",
-        "com.android.media.swcodec",
-    ],
 }
 
 cc_library_static {

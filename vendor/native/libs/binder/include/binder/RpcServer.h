@@ -17,19 +17,20 @@
 
 #include <android-base/unique_fd.h>
 #include <binder/IBinder.h>
+#include <binder/RpcAddress.h>
 #include <binder/RpcSession.h>
-#include <binder/RpcThreads.h>
-#include <binder/RpcTransport.h>
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 
 #include <mutex>
 #include <thread>
 
+// WARNING: This is a feature which is still in development, and it is subject
+// to radical change. Any production use of this may subject your code to any
+// number of problems.
+
 namespace android {
 
-class FdTrigger;
-class RpcServerTrusty;
 class RpcSocketAddress;
 
 /**
@@ -46,8 +47,7 @@ class RpcSocketAddress;
  */
 class RpcServer final : public virtual RefBase, private RpcSession::EventListener {
 public:
-    static sp<RpcServer> make(
-            std::unique_ptr<RpcTransportCtxFactory> rpcTransportCtxFactory = nullptr);
+    static sp<RpcServer> make();
 
     /**
      * This represents a session for responses, e.g.:
@@ -57,12 +57,12 @@ public:
      *     process B makes binder b and sends it to A
      *     A uses this 'back session' to send things back to B
      */
-    [[nodiscard]] status_t setupUnixDomainServer(const char* path);
+    [[nodiscard]] bool setupUnixDomainServer(const char* path);
 
     /**
      * Creates an RPC server at the current port.
      */
-    [[nodiscard]] status_t setupVsockServer(unsigned int port);
+    [[nodiscard]] bool setupVsockServer(unsigned int port);
 
     /**
      * Creates an RPC server at the current port using IPv4.
@@ -72,14 +72,8 @@ public:
      * Set |port| to 0 to pick an ephemeral port; see discussion of
      * /proc/sys/net/ipv4/ip_local_port_range in ip(7). In this case, |assignedPort|
      * will be set to the picked port number, if it is not null.
-     *
-     * Set the IPv4 address for the socket to be listening on.
-     * "127.0.0.1" allows for local connections from the same device.
-     * "0.0.0.0" allows for connections on any IP address that the device may
-     * have
      */
-    [[nodiscard]] status_t setupInetServer(const char* address, unsigned int port,
-                                           unsigned int* assignedPort = nullptr);
+    [[nodiscard]] bool setupInetServer(unsigned int port, unsigned int* assignedPort);
 
     /**
      * If setup*Server has been successful, return true. Otherwise return false.
@@ -95,7 +89,9 @@ public:
      * Set up server using an external FD previously set up by releaseServer().
      * Return false if there's already a server.
      */
-    [[nodiscard]] status_t setupExternalServer(base::unique_fd serverFd);
+    bool setupExternalServer(base::unique_fd serverFd);
+
+    void iUnderstandThisCodeIsExperimentalAndIWillNotUseItInProduction();
 
     /**
      * This must be called before adding a client session.
@@ -109,22 +105,6 @@ public:
     size_t getMaxThreads();
 
     /**
-     * By default, the latest protocol version which is supported by a client is
-     * used. However, this can be used in order to prevent newer protocol
-     * versions from ever being used. This is expected to be useful for testing.
-     */
-    void setProtocolVersion(uint32_t version);
-
-    /**
-     * Set the supported transports for sending and receiving file descriptors.
-     *
-     * Clients will propose a mode when connecting. If the mode is not in the
-     * provided list, the connection will be rejected.
-     */
-    void setSupportedFileDescriptorTransportModes(
-            const std::vector<RpcSession::FileDescriptorTransportMode>& modes);
-
-    /**
      * The root object can be retrieved by any client, without any
      * authentication. TODO(b/183988761)
      *
@@ -135,24 +115,7 @@ public:
      * Holds a weak reference to the root object.
      */
     void setRootObjectWeak(const wp<IBinder>& binder);
-    /**
-     * Allows a root object to be created for each session.
-     *
-     * Takes one argument: a callable that is invoked once per new session.
-     * The callable takes two arguments: a type-erased pointer to an OS- and
-     * transport-specific address structure, e.g., sockaddr_vm for vsock, and
-     * an integer representing the size in bytes of that structure. The
-     * callable should validate the size, then cast the type-erased pointer
-     * to a pointer to the actual type of the address, e.g., const void* to
-     * const sockaddr_vm*.
-     */
-    void setPerSessionRootObject(std::function<sp<IBinder>(const void*, size_t)>&& object);
     sp<IBinder> getRootObject();
-
-    /**
-     * See RpcTransportCtx::getCertificate
-     */
-    std::vector<uint8_t> getCertificate(RpcCertificateFormat);
 
     /**
      * Runs join() in a background thread. Immediately returns.
@@ -190,39 +153,28 @@ public:
     ~RpcServer();
 
 private:
-    friend RpcServerTrusty;
     friend sp<RpcServer>;
-    explicit RpcServer(std::unique_ptr<RpcTransportCtx> ctx);
+    RpcServer();
 
-    void onSessionAllIncomingThreadsEnded(const sp<RpcSession>& session) override;
+    void onSessionLockedAllIncomingThreadsEnded(const sp<RpcSession>& session) override;
     void onSessionIncomingThreadEnded() override;
 
-    static constexpr size_t kRpcAddressSize = 128;
-    static void establishConnection(
-            sp<RpcServer>&& server, base::unique_fd clientFd,
-            std::array<uint8_t, kRpcAddressSize> addr, size_t addrLen,
-            std::function<void(sp<RpcSession>&&, RpcSession::PreJoinSetupResult&&)>&& joinFn);
-    [[nodiscard]] status_t setupSocketServer(const RpcSocketAddress& address);
+    static void establishConnection(sp<RpcServer>&& server, base::unique_fd clientFd);
+    bool setupSocketServer(const RpcSocketAddress& address);
 
-    const std::unique_ptr<RpcTransportCtx> mCtx;
+    bool mAgreedExperimental = false;
     size_t mMaxThreads = 1;
-    std::optional<uint32_t> mProtocolVersion;
-    // A mode is supported if the N'th bit is on, where N is the mode enum's value.
-    std::bitset<8> mSupportedFileDescriptorTransportModes = std::bitset<8>().set(
-            static_cast<size_t>(RpcSession::FileDescriptorTransportMode::NONE));
     base::unique_fd mServer; // socket we are accepting sessions on
 
-    RpcMutex mLock; // for below
-    std::unique_ptr<RpcMaybeThread> mJoinThread;
+    std::mutex mLock; // for below
+    std::unique_ptr<std::thread> mJoinThread;
     bool mJoinThreadRunning = false;
-    std::map<RpcMaybeThread::id, RpcMaybeThread> mConnectingThreads;
-
+    std::map<std::thread::id, std::thread> mConnectingThreads;
     sp<IBinder> mRootObject;
     wp<IBinder> mRootObjectWeak;
-    std::function<sp<IBinder>(const void*, size_t)> mRootObjectFactory;
-    std::map<std::vector<uint8_t>, sp<RpcSession>> mSessions;
-    std::unique_ptr<FdTrigger> mShutdownTrigger;
-    RpcConditionVariable mShutdownCv;
+    std::map<RpcAddress, sp<RpcSession>> mSessions;
+    std::unique_ptr<RpcSession::FdTrigger> mShutdownTrigger;
+    std::condition_variable mShutdownCv;
 };
 
 } // namespace android

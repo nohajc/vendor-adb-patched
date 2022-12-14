@@ -17,13 +17,11 @@
 #ifndef _LIBINPUT_KEY_LAYOUT_MAP_H
 #define _LIBINPUT_KEY_LAYOUT_MAP_H
 
-#include <android-base/result.h>
 #include <stdint.h>
 #include <utils/Errors.h>
+#include <utils/KeyedVector.h>
 #include <utils/Tokenizer.h>
-#include <set>
-
-#include <input/InputDevice.h>
+#include <utils/RefBase.h>
 
 namespace android {
 
@@ -62,29 +60,22 @@ struct AxisInfo {
  *
  * This object is immutable after it has been loaded.
  */
-class KeyLayoutMap {
+class KeyLayoutMap : public RefBase {
 public:
-    static base::Result<std::shared_ptr<KeyLayoutMap>> load(const std::string& filename,
-                                                            const char* contents = nullptr);
-    static base::Result<std::shared_ptr<KeyLayoutMap>> loadContents(const std::string& filename,
-                                                                    const char* contents);
+    static status_t load(const std::string& filename, sp<KeyLayoutMap>* outMap);
 
     status_t mapKey(int32_t scanCode, int32_t usageCode,
             int32_t* outKeyCode, uint32_t* outFlags) const;
-    std::vector<int32_t> findScanCodesForKey(int32_t keyCode) const;
-    std::optional<int32_t> findScanCodeForLed(int32_t ledCode) const;
-    std::optional<int32_t> findUsageCodeForLed(int32_t ledCode) const;
+    status_t findScanCodesForKey(int32_t keyCode, std::vector<int32_t>* outScanCodes) const;
+    status_t findScanCodeForLed(int32_t ledCode, int32_t* outScanCode) const;
+    status_t findUsageCodeForLed(int32_t ledCode, int32_t* outUsageCode) const;
 
-    std::optional<AxisInfo> mapAxis(int32_t scanCode) const;
-    const std::string getLoadFileName() const;
-    // Return pair of sensor type and sensor data index, for the input device abs code
-    base::Result<std::pair<InputDeviceSensorType, int32_t>> mapSensor(int32_t absCode);
+    status_t mapAxis(int32_t scanCode, AxisInfo* outAxisInfo) const;
 
+protected:
     virtual ~KeyLayoutMap();
 
 private:
-    static base::Result<std::shared_ptr<KeyLayoutMap>> load(Tokenizer* tokenizer);
-
     struct Key {
         int32_t keyCode;
         uint32_t flags;
@@ -94,19 +85,12 @@ private:
         int32_t ledCode;
     };
 
-    struct Sensor {
-        InputDeviceSensorType sensorType;
-        int32_t sensorDataIndex;
-    };
 
-    std::unordered_map<int32_t, Key> mKeysByScanCode;
-    std::unordered_map<int32_t, Key> mKeysByUsageCode;
-    std::unordered_map<int32_t, AxisInfo> mAxes;
-    std::unordered_map<int32_t, Led> mLedsByScanCode;
-    std::unordered_map<int32_t, Led> mLedsByUsageCode;
-    std::unordered_map<int32_t, Sensor> mSensorsByAbsCode;
-    std::set<std::string> mRequiredKernelConfigs;
-    std::string mLoadFileName;
+    KeyedVector<int32_t, Key> mKeysByScanCode;
+    KeyedVector<int32_t, Key> mKeysByUsageCode;
+    KeyedVector<int32_t, AxisInfo> mAxes;
+    KeyedVector<int32_t, Led> mLedsByScanCode;
+    KeyedVector<int32_t, Led> mLedsByUsageCode;
 
     KeyLayoutMap();
 
@@ -125,8 +109,6 @@ private:
         status_t parseKey();
         status_t parseAxis();
         status_t parseLed();
-        status_t parseSensor();
-        status_t parseRequiredKernelConfig();
     };
 };
 

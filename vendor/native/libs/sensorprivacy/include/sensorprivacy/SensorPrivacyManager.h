@@ -22,31 +22,17 @@
 
 #include <utils/threads.h>
 
-#include <unordered_map>
-
 // ---------------------------------------------------------------------------
 namespace android {
 
 class SensorPrivacyManager
 {
 public:
-    enum {
-        INDIVIDUAL_SENSOR_MICROPHONE = 1,
-        INDIVIDUAL_SENSOR_CAMERA = 2
-    };
-
     SensorPrivacyManager();
 
-    bool supportsSensorToggle(int sensor);
     void addSensorPrivacyListener(const sp<hardware::ISensorPrivacyListener>& listener);
-    status_t addIndividualSensorPrivacyListener(int userId, int sensor,
-            const sp<hardware::ISensorPrivacyListener>& listener);
     void removeSensorPrivacyListener(const sp<hardware::ISensorPrivacyListener>& listener);
-    void removeIndividualSensorPrivacyListener(int sensor,
-            const sp<hardware::ISensorPrivacyListener>& listener);
     bool isSensorPrivacyEnabled();
-    bool isIndividualSensorPrivacyEnabled(int userId, int sensor);
-    status_t isIndividualSensorPrivacyEnabled(int userId, int sensor, bool &result);
 
     status_t linkToDeath(const sp<IBinder::DeathRecipient>& recipient);
     status_t unlinkToDeath(const sp<IBinder::DeathRecipient>& recipient);
@@ -55,8 +41,6 @@ private:
     Mutex mLock;
     sp<hardware::ISensorPrivacyManager> mService;
     sp<hardware::ISensorPrivacyManager> getService();
-
-    std::unordered_map<int, bool> mSupportedCache;
 };
 
 

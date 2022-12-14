@@ -35,6 +35,7 @@ import yaml
 
 from datetime import datetime, date
 
+
 TIME_DMESG = r"\[\s*(\d+\.\d+)\]"
 TIME_LOGCAT = r"[0-9]+\.?[0-9]*"
 KERNEL_TIME_KEY = "kernel"
@@ -45,7 +46,6 @@ LAUNCHER_START = "LauncherStart"
 BOOT_TIME_TOO_BIG = 200.0
 MAX_RETRIES = 5
 DEBUG = False
-DEBUG_PATTERN = False
 ADB_CMD = "adb"
 TIMING_THRESHOLD = 5.0
 BOOT_PROP = r"\[ro\.boottime\.([^\]]+)\]:\s+\[(\d+)\]"
@@ -99,8 +99,6 @@ def main():
                    for key, pattern in cfg['timings'].items()}
   shutdown_events_pattern = {key: re.compile(pattern)
                    for key, pattern in cfg['shutdown_events'].items()}
-  if DEBUG_PATTERN:
-    print("search event:{} timing event:{}".format(search_events_pattern, timing_events_pattern))
 
   data_points = {}
   kernel_timing_points = collections.OrderedDict()
@@ -303,13 +301,6 @@ def handle_reboot_log(capture_log_on_error, shutdown_events_pattern, components_
     print('{0:30}: {1:<7.5}'.format(item[0], item[1]))
   return shutdown_events, shutdown_timing_events
 
-def collect_dmesg_events(search_events_pattern, timings_pattern, results):
-  dmesg_events, kernel_timing_events = collect_events(search_events_pattern, ADB_CMD +\
-                                                      ' shell su root dmesg -w', timings_pattern,\
-                                                      [KERNEL_BOOT_COMPLETE], True)
-  results.append(dmesg_events)
-  results.append(kernel_timing_events)
-
 def iterate(args, search_events_pattern, timings_pattern, shutdown_events_pattern, cfg, error_time,\
     components_to_monitor):
   shutdown_events = None
@@ -324,22 +315,16 @@ def iterate(args, search_events_pattern, timings_pattern, shutdown_events_patter
         components_to_monitor)
     t.join()
 
-  results = []
-  t = threading.Thread(target=collect_dmesg_events, args=(search_events_pattern,\
-    timings_pattern, results))
-  t.start()
+  dmesg_events, kernel_timing_events = collect_events(search_events_pattern, ADB_CMD +\
+                                                      ' shell su root dmesg -w', timings_pattern,\
+                                                      [KERNEL_BOOT_COMPLETE], True)
 
-  logcat_stop_events = [LOGCAT_BOOT_COMPLETE, LAUNCHER_START]
+  logcat_stop_events = [LOGCAT_BOOT_COMPLETE, KERNEL_BOOT_COMPLETE, LAUNCHER_START]
   if args.fs_check:
     logcat_stop_events.append("FsStat")
   logcat_events, logcat_timing_events = collect_events(
     search_events_pattern, ADB_CMD + ' logcat -b all -v epoch', timings_pattern,\
     logcat_stop_events, False)
-
-  t.join()
-  dmesg_events = results[0]
-  kernel_timing_events = results[1]
-
   logcat_event_time = extract_time(logcat_events, TIME_LOGCAT, float)
   logcat_original_time = extract_time(logcat_events, TIME_LOGCAT, str);
   dmesg_event_time = extract_time(dmesg_events, TIME_DMESG, float);
@@ -367,12 +352,11 @@ def iterate(args, search_events_pattern, timings_pattern, shutdown_events_patter
       v = v + time_correction_delta
       debug("correcting event to event[{0}, {1}]".format(k, v))
 
-  diffs = []
   if logcat_event_time.get(KERNEL_TIME_KEY) is None:
-    print("kernel time not captured in logcat")
-  else:
-    diffs.append((logcat_event_time[KERNEL_TIME_KEY], logcat_event_time[KERNEL_TIME_KEY]))
-
+    print("kernel time not captured in logcat, cannot get time diff")
+    return None, None, None, None, None, None
+  diffs = []
+  diffs.append((logcat_event_time[KERNEL_TIME_KEY], logcat_event_time[KERNEL_TIME_KEY]))
   if logcat_event_time.get(BOOT_ANIM_END_TIME_KEY) and dmesg_event_time.get(BOOT_ANIM_END_TIME_KEY):
       diffs.append((logcat_event_time[BOOT_ANIM_END_TIME_KEY],\
                     logcat_event_time[BOOT_ANIM_END_TIME_KEY] -\
@@ -380,7 +364,6 @@ def iterate(args, search_events_pattern, timings_pattern, shutdown_events_patter
   if not dmesg_event_time.get(KERNEL_BOOT_COMPLETE):
       print("BootAnimEnd time or BootComplete-kernel not captured in both log" +\
         ", cannot get time diff")
-      print("dmesg {} logcat {}".format(dmesg_event_time, logcat_event_time))
       return None, None, None, None, None, None
   diffs.append((logcat_event_time[LOGCAT_BOOT_COMPLETE],\
                 logcat_event_time[LOGCAT_BOOT_COMPLETE] - dmesg_event_time[KERNEL_BOOT_COMPLETE]))
@@ -648,79 +631,56 @@ def collect_logcat_for_shutdown(capture_log_on_error, shutdown_events_pattern,\
       f.write('\n'.join(lines))
   return events, timing_events
 
-def log_timeout(time_left, stop_events, events, timing_events):
-  print("timeout waiting for event, continue", time_left)
-  print(" remaininig events {}, event {} timing events {}".\
-    format(stop_events, events, timing_events))
 
 def collect_events(search_events, command, timings, stop_events, disable_timing_after_zygote):
   events = collections.OrderedDict()
   timing_events = {}
-
+  process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
   data_available = stop_events is None
   zygote_pids = []
   start_time = time.time()
   zygote_found = False
+
   line = None
-  print("remaining stop_events:", stop_events)
-  init = True
+  read_poll = select.poll()
+  read_poll.register(process.stdout, select.POLLIN)
   while True:
-    if init:
-      process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
-      read_poll = select.poll()
-      read_poll.register(process.stdout, select.POLLIN)
-      init = False
-    if len(stop_events) == 0:
-      break
     time_left = start_time + max_wait_time - time.time()
     if time_left <= 0:
-      log_timeout(time_left, stop_events, events, timing_events)
+      print("timeout waiting for event, continue", time_left)
       break
-    polled_events = read_poll.poll(time_left * 1000.0)
-    if len(polled_events) == 0:
-      log_timeout(time_left, stop_events, events, timing_events)
+    read_r = read_poll.poll(time_left * 1000.0)
+    if len(read_r) > 0 and read_r[0][1] == select.POLLIN:
+      line = process.stdout.readline().decode('utf-8', 'ignore')
+    else:
+      print("poll timeout waiting for event, continue", time_left)
       break
-    for polled_event in polled_events:
-      if polled_event[1] == select.POLLIN:
-        line = process.stdout.readline().decode('utf-8', 'ignore')
+    if not data_available:
+      print("Collecting data samples from '%s'. Please wait...\n" % command)
+      data_available = True
+    event = get_boot_event(line, search_events)
+    if event:
+      debug("event[{0}] captured: {1}".format(event, line))
+      if event == "starting_zygote":
+        events[event] = line
+        zygote_found = True
+      elif event.startswith("zygote"):
+        handle_zygote_event(zygote_pids, events, event, line)
       else:
-        if polled_event[1] == select.POLLHUP:
-          if len(stop_events) == 0:
-            break;
-        # adb connection lost
-        print("poll error waiting for event, adb lost?")
-        if time_left > 0:
-          print("retry adb")
-          run_adb_cmd('wait-for-device')
-          print(" reconnected")
-          init = True
-          continue
-        else:
+        new_event = update_name_if_already_exist(events, event)
+        events[new_event] = line
+      if event in stop_events:
+        stop_events.remove(event)
+        print("remaining stop_events:", stop_events)
+        if len(stop_events) == 0:
           break
-      if not data_available:
-        print("Collecting data samples from '%s'. Please wait...\n" % command)
-        data_available = True
-      event = get_boot_event(line, search_events)
-      if event:
-        debug("event[{0}] captured: {1}".format(event, line))
-        if event == "starting_zygote":
-          events[event] = line
-          zygote_found = True
-        elif event.startswith("zygote"):
-          handle_zygote_event(zygote_pids, events, event, line)
-        else:
-          new_event = update_name_if_already_exist(events, event)
-          events[new_event] = line
-        if event in stop_events:
-          stop_events.remove(event)
-          print("remaining stop_events:", stop_events)
 
-      timing_event = get_boot_event(line, timings)
-      if timing_event and (not disable_timing_after_zygote or not zygote_found):
-        if timing_event not in timing_events:
-          timing_events[timing_event] = []
-        timing_events[timing_event].append(line)
-        debug("timing_event[{0}] captured: {1}".format(timing_event, line))
+    timing_event = get_boot_event(line, timings)
+    if timing_event and (not disable_timing_after_zygote or not zygote_found):
+      if timing_event not in timing_events:
+        timing_events[timing_event] = []
+      timing_events[timing_event].append(line)
+      debug("timing_event[{0}] captured: {1}".format(timing_event, line))
 
   process.terminate()
   return events, timing_events
@@ -783,10 +743,7 @@ def extract_time(events, pattern, date_transform_function):
 
 
 def do_reboot(serial, use_adb_reboot):
-  # do not update time
-  run_adb_cmd('shell settings put global auto_time 0')
-  run_adb_cmd('shell settings put global auto_time_zone 0')
-  original_devices = subprocess.check_output("adb devices", shell=True).decode('utf-8', 'ignore')
+  original_devices = subprocess.check_output("adb devices", shell=True)
   if use_adb_reboot:
     print('Rebooting the device using adb reboot')
     run_adb_cmd('reboot')
@@ -823,7 +780,6 @@ def reboot(serial, use_stressfs, permissive, use_adb_reboot, adb_buffersize=None
 
   print('Waiting the device')
   run_adb_cmd('wait-for-device')
-  print(' found a device')
 
   if adb_buffersize is not None:
     # increase the buffer size

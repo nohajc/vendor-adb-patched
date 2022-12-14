@@ -25,7 +25,6 @@
 #include <sepol/policydb/conditional.h>
 
 #include "private.h"
-#include "debug.h"
 
 /* move all type rules to top of t/f lists to help kernel on evaluation */
 static void cond_optimize(cond_av_list_t ** l)
@@ -315,7 +314,8 @@ static int evaluate_cond_node(policydb_t * p, cond_node_t * node)
 	if (new_state != node->cur_state) {
 		node->cur_state = new_state;
 		if (new_state == -1)
-			WARN(NULL, "expression result was undefined - disabling all rules.");
+			printf
+			    ("expression result was undefined - disabling all rules.\n");
 		/* turn the rules on or off */
 		for (cur = node->true_list; cur != NULL; cur = cur->next) {
 			if (new_state <= 0) {
@@ -368,7 +368,8 @@ int cond_normalize_expr(policydb_t * p, cond_node_t * cn)
 		if (ne) {
 			ne->next = NULL;
 		} else {	/* ne should never be NULL */
-			ERR(NULL, "Found expr with no bools and only a ! - this should never happen.");
+			printf
+			    ("Found expr with no bools and only a ! - this should never happen.\n");
 			return -1;
 		}
 		/* swap the true and false lists */
@@ -387,6 +388,7 @@ int cond_normalize_expr(policydb_t * p, cond_node_t * cn)
 	for (e = cn->expr; e != NULL; e = e->next) {
 		switch (e->expr_type) {
 		case COND_BOOL:
+			i = 0;
 			/* see if we've already seen this bool */
 			if (!bool_present(e->bool, cn->bool_ids, cn->nbools)) {
 				/* count em all but only record up to COND_MAX_BOOLS */
@@ -410,23 +412,24 @@ int cond_normalize_expr(policydb_t * p, cond_node_t * cn)
 		}
 
 		/* loop through all possible combinations of values for bools in expression */
-		for (test = 0x0; test < (UINT32_C(1) << cn->nbools); test++) {
+		for (test = 0x0; test < (0x1U << cn->nbools); test++) {
 			/* temporarily set the value for all the bools in the
 			 * expression using the corr.  bit in test */
 			for (j = 0; j < cn->nbools; j++) {
 				p->bool_val_to_struct[cn->bool_ids[j] -
 						      1]->state =
-				    (test & (UINT32_C(1) << j)) ? 1 : 0;
+				    (test & (0x1 << j)) ? 1 : 0;
 			}
 			k = cond_evaluate_expr(p, cn->expr);
 			if (k == -1) {
-				ERR(NULL, "While testing expression, expression result "
-				     "was undefined - this should never happen.");
+				printf
+				    ("While testing expression, expression result "
+				     "was undefined - this should never happen.\n");
 				return -1;
 			}
 			/* set the bit if expression evaluates true */
 			if (k)
-				cn->expr_pre_comp |= UINT32_C(1) << test;
+				cn->expr_pre_comp |= 0x1 << test;
 		}
 
 		/* restore bool default values */
@@ -522,7 +525,7 @@ int cond_init_bool_indexes(policydb_t * p)
 	if (p->bool_val_to_struct)
 		free(p->bool_val_to_struct);
 	p->bool_val_to_struct = (cond_bool_datum_t **)
-	    mallocarray(p->p_bools.nprim, sizeof(cond_bool_datum_t *));
+	    malloc(p->p_bools.nprim * sizeof(cond_bool_datum_t *));
 	if (!p->bool_val_to_struct)
 		return -1;
 	return 0;
@@ -633,8 +636,9 @@ static int cond_insertf(avtab_t * a
 	 */
 	if (k->specified & AVTAB_TYPE) {
 		if (avtab_search(&p->te_avtab, k)) {
-			WARN(NULL, "security: type rule already exists outside of a conditional.");
-			return -1;
+			printf
+			    ("security: type rule already exists outside of a conditional.");
+			goto err;
 		}
 		/*
 		 * If we are reading the false list other will be a pointer to
@@ -649,8 +653,9 @@ static int cond_insertf(avtab_t * a
 			if (node_ptr) {
 				if (avtab_search_node_next
 				    (node_ptr, k->specified)) {
-					ERR(NULL, "security: too many conflicting type rules.");
-					return -1;
+					printf
+					    ("security: too many conflicting type rules.");
+					goto err;
 				}
 				found = 0;
 				for (cur = other; cur != NULL; cur = cur->next) {
@@ -660,28 +665,30 @@ static int cond_insertf(avtab_t * a
 					}
 				}
 				if (!found) {
-					ERR(NULL, "security: conflicting type rules.");
-					return -1;
+					printf
+					    ("security: conflicting type rules.\n");
+					goto err;
 				}
 			}
 		} else {
 			if (avtab_search(&p->te_cond_avtab, k)) {
-				ERR(NULL, "security: conflicting type rules when adding type rule for true.");
-				return -1;
+				printf
+				    ("security: conflicting type rules when adding type rule for true.\n");
+				goto err;
 			}
 		}
 	}
 
 	node_ptr = avtab_insert_nonunique(&p->te_cond_avtab, k, d);
 	if (!node_ptr) {
-		ERR(NULL, "security: could not insert rule.");
-		return -1;
+		printf("security: could not insert rule.");
+		goto err;
 	}
 	node_ptr->parse_context = (void *)1;
 
 	list = malloc(sizeof(cond_av_list_t));
 	if (!list)
-		return -1;
+		goto err;
 	memset(list, 0, sizeof(cond_av_list_t));
 
 	list->node = node_ptr;
@@ -691,6 +698,11 @@ static int cond_insertf(avtab_t * a
 		data->tail->next = list;
 	data->tail = list;
 	return 0;
+
+      err:
+	cond_av_list_destroy(data->head);
+	data->head = NULL;
+	return -1;
 }
 
 static int cond_read_av_list(policydb_t * p, void *fp,
@@ -703,6 +715,7 @@ static int cond_read_av_list(policydb_t * p, void *fp,
 
 	*ret_list = NULL;
 
+	len = 0;
 	rc = next_entry(buf, fp, sizeof(uint32_t));
 	if (rc < 0)
 		return -1;
@@ -719,10 +732,8 @@ static int cond_read_av_list(policydb_t * p, void *fp,
 	for (i = 0; i < len; i++) {
 		rc = avtab_read_item(fp, p->policyvers, &p->te_cond_avtab,
 				     cond_insertf, &data);
-		if (rc) {
-			cond_av_list_destroy(data.head);
+		if (rc)
 			return rc;
-		}
 
 	}
 
@@ -733,12 +744,14 @@ static int cond_read_av_list(policydb_t * p, void *fp,
 static int expr_isvalid(policydb_t * p, cond_expr_t * expr)
 {
 	if (expr->expr_type <= 0 || expr->expr_type > COND_LAST) {
-		WARN(NULL, "security: conditional expressions uses unknown operator.");
+		printf
+		    ("security: conditional expressions uses unknown operator.\n");
 		return 0;
 	}
 
 	if (expr->bool > p->p_bools.nprim) {
-		WARN(NULL, "security: conditional expressions uses unknown bool.");
+		printf
+		    ("security: conditional expressions uses unknown bool.\n");
 		return 0;
 	}
 	return 1;
@@ -756,6 +769,7 @@ static int cond_read_node(policydb_t * p, cond_node_t * node, void *fp)
 
 	node->cur_state = le32_to_cpu(buf[0]);
 
+	len = 0;
 	rc = next_entry(buf, fp, sizeof(uint32_t));
 	if (rc < 0)
 		goto err;

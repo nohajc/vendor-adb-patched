@@ -13,13 +13,8 @@
  * limitations under the License.
  */
 
-#include <thread>
-
 #include "utils.h"
 #include "vibrator.h"
-
-using std::chrono::milliseconds;
-using std::this_thread::sleep_for;
 
 namespace android {
 namespace idlcli {
@@ -56,17 +51,16 @@ static_assert(static_cast<uint8_t>(V1_3::Effect::RINGTONE_15) ==
 static_assert(static_cast<uint8_t>(V1_3::Effect::TEXTURE_TICK) ==
               static_cast<uint8_t>(aidl::Effect::TEXTURE_TICK));
 
-using aidl::Effect;
-using aidl::EffectStrength;
+using V1_0::EffectStrength;
+using V1_3::Effect;
 
 class CommandPerform : public Command {
     std::string getDescription() const override { return "Perform vibration effect."; }
 
-    std::string getUsageSummary() const override { return "[options] <effect> <strength>"; }
+    std::string getUsageSummary() const override { return "<effect> <strength>"; }
 
     UsageDetails getUsageDetails() const override {
         UsageDetails details{
-                {"-b", {"Block for duration of vibration."}},
                 {"<effect>", {"Effect ID."}},
                 {"<strength>", {"0-2."}},
         };
@@ -74,17 +68,6 @@ class CommandPerform : public Command {
     }
 
     Status doArgs(Args &args) override {
-        while (args.get<std::string>().value_or("").find("-") == 0) {
-            auto opt = *args.pop<std::string>();
-            if (opt == "--") {
-                break;
-            } else if (opt == "-b") {
-                mBlocking = true;
-            } else {
-                std::cerr << "Invalid Option '" << opt << "'!" << std::endl;
-                return USAGE;
-            }
-        }
         if (auto effect = args.pop<decltype(mEffect)>()) {
             mEffect = *effect;
             std::cout << "Effect: " << toString(mEffect) << std::endl;
@@ -110,23 +93,12 @@ class CommandPerform : public Command {
         std::string statusStr;
         uint32_t lengthMs;
         Status ret;
-        std::shared_ptr<VibratorCallback> callback;
 
         if (auto hal = getHal<aidl::IVibrator>()) {
-            ABinderProcess_setThreadPoolMaxThreadCount(1);
-            ABinderProcess_startThreadPool();
-
-            int32_t cap;
-            hal->call(&aidl::IVibrator::getCapabilities, &cap);
-
-            if (mBlocking && (cap & aidl::IVibrator::CAP_PERFORM_CALLBACK)) {
-                callback = ndk::SharedRefBase::make<VibratorCallback>();
-            }
-
             int32_t aidlLengthMs;
-            auto status = hal->call(&aidl::IVibrator::perform, mEffect, mStrength, callback,
-                                    &aidlLengthMs);
-
+            auto status =
+                    hal->call(&aidl::IVibrator::perform, static_cast<aidl::Effect>(mEffect),
+                              static_cast<aidl::EffectStrength>(mStrength), nullptr, &aidlLengthMs);
             statusStr = status.getDescription();
             lengthMs = static_cast<uint32_t>(aidlLengthMs);
             ret = status.isOk() ? OK : ERROR;
@@ -139,20 +111,17 @@ class CommandPerform : public Command {
             };
 
             if (auto hal = getHal<V1_3::IVibrator>()) {
-                hidlRet =
-                        hal->call(&V1_3::IVibrator::perform_1_3, static_cast<V1_3::Effect>(mEffect),
-                                  static_cast<V1_0::EffectStrength>(mStrength), callback);
+                hidlRet = hal->call(&V1_3::IVibrator::perform_1_3,
+                                    static_cast<V1_3::Effect>(mEffect), mStrength, callback);
             } else if (auto hal = getHal<V1_2::IVibrator>()) {
-                hidlRet =
-                        hal->call(&V1_2::IVibrator::perform_1_2, static_cast<V1_2::Effect>(mEffect),
-                                  static_cast<V1_0::EffectStrength>(mStrength), callback);
+                hidlRet = hal->call(&V1_2::IVibrator::perform_1_2,
+                                    static_cast<V1_2::Effect>(mEffect), mStrength, callback);
             } else if (auto hal = getHal<V1_1::IVibrator>()) {
                 hidlRet = hal->call(&V1_1::IVibrator::perform_1_1,
-                                    static_cast<V1_1::Effect_1_1>(mEffect),
-                                    static_cast<V1_0::EffectStrength>(mStrength), callback);
+                                    static_cast<V1_1::Effect_1_1>(mEffect), mStrength, callback);
             } else if (auto hal = getHal<V1_0::IVibrator>()) {
                 hidlRet = hal->call(&V1_0::IVibrator::perform, static_cast<V1_0::Effect>(mEffect),
-                                    static_cast<V1_0::EffectStrength>(mStrength), callback);
+                                    mStrength, callback);
             } else {
                 return UNAVAILABLE;
             }
@@ -161,21 +130,12 @@ class CommandPerform : public Command {
             ret = hidlRet.isOk() && status == V1_0::Status::OK ? OK : ERROR;
         }
 
-        if (ret == OK && mBlocking) {
-            if (callback) {
-                callback->waitForComplete();
-            } else {
-                sleep_for(milliseconds(lengthMs));
-            }
-        }
-
         std::cout << "Status: " << statusStr << std::endl;
         std::cout << "Length: " << lengthMs << std::endl;
 
         return ret;
     }
 
-    bool mBlocking;
     Effect mEffect;
     EffectStrength mStrength;
 };

@@ -20,48 +20,27 @@ namespace android {
 #pragma clang diagnostic push
 #pragma clang diagnostic error "-Wpadded"
 
-constexpr uint8_t RPC_CONNECTION_OPTION_INCOMING = 0x1; // default is outgoing
+enum : uint8_t {
+    RPC_CONNECTION_OPTION_INCOMING = 0x1, // default is outgoing
+};
 
-constexpr uint32_t RPC_WIRE_ADDRESS_OPTION_CREATED = 1 << 0; // distinguish from '0' address
-constexpr uint32_t RPC_WIRE_ADDRESS_OPTION_FOR_SERVER = 1 << 1;
+constexpr uint64_t RPC_WIRE_ADDRESS_OPTION_CREATED = 1 << 0; // distinguish from '0' address
+constexpr uint64_t RPC_WIRE_ADDRESS_OPTION_FOR_SERVER = 1 << 1;
 
 struct RpcWireAddress {
-    uint32_t options;
-    uint32_t address;
-
-    static inline RpcWireAddress fromRaw(uint64_t raw) {
-        return *reinterpret_cast<RpcWireAddress*>(&raw);
-    }
-    static inline uint64_t toRaw(RpcWireAddress addr) {
-        return *reinterpret_cast<uint64_t*>(&addr);
-    }
+    uint64_t options;
+    uint8_t address[32];
 };
-static_assert(sizeof(RpcWireAddress) == sizeof(uint64_t));
 
 /**
  * This is sent to an RpcServer in order to request a new connection is created,
  * either as part of a new session or an existing session
  */
 struct RpcConnectionHeader {
-    uint32_t version; // maximum supported by caller
+    RpcWireAddress sessionId;
     uint8_t options;
-    uint8_t fileDescriptorTransportMode;
-    uint8_t reservered[8];
-    // Follows is sessionIdSize bytes.
-    // if size is 0, this is requesting a new session.
-    uint16_t sessionIdSize;
+    uint8_t reserved[7];
 };
-static_assert(sizeof(RpcConnectionHeader) == 16);
-
-/**
- * In response to an RpcConnectionHeader which corresponds to a new session,
- * this returns information to the server.
- */
-struct RpcNewSessionResponse {
-    uint32_t version; // maximum supported by callee <= maximum supported by caller
-    uint8_t reserved[4];
-};
-static_assert(sizeof(RpcNewSessionResponse) == 8);
 
 #define RPC_CONNECTION_INIT_OKAY "cci"
 
@@ -74,7 +53,6 @@ struct RpcOutgoingConnectionInit {
     char msg[4];
     uint8_t reserved[4];
 };
-static_assert(sizeof(RpcOutgoingConnectionInit) == 8);
 
 enum : uint32_t {
     /**
@@ -86,7 +64,7 @@ enum : uint32_t {
      */
     RPC_COMMAND_REPLY,
     /**
-     * follows is RpcDecStrong
+     * follows is RpcWireAddress
      *
      * note - this in the protocol directly instead of as a 'special
      * transaction' in order to keep it as lightweight as possible (we don't
@@ -109,10 +87,6 @@ enum : uint32_t {
 
 // serialization is like:
 // |RpcWireHeader|struct desginated by 'command'| (over and over again)
-//
-// When file descriptors are included in out-of-band data (e.g. in unix domain
-// sockets), they are always paired with the RpcWireHeader bytes of the
-// transaction or reply the file descriptors belong to.
 
 struct RpcWireHeader {
     uint32_t command; // RPC_COMMAND_*
@@ -120,14 +94,6 @@ struct RpcWireHeader {
 
     uint32_t reserved[2];
 };
-static_assert(sizeof(RpcWireHeader) == 16);
-
-struct RpcDecStrong {
-    RpcWireAddress address;
-    uint32_t amount;
-    uint32_t reserved;
-};
-static_assert(sizeof(RpcDecStrong) == 16);
 
 struct RpcWireTransaction {
     RpcWireAddress address;
@@ -136,34 +102,15 @@ struct RpcWireTransaction {
 
     uint64_t asyncNumber;
 
-    // The size of the Parcel data directly following RpcWireTransaction.
-    uint32_t parcelDataSize;
+    uint32_t reserved[4];
 
-    uint32_t reserved[3];
-
-    uint8_t data[];
+    uint8_t data[0];
 };
-static_assert(sizeof(RpcWireTransaction) == 40);
 
 struct RpcWireReply {
     int32_t status; // transact return
-
-    // -- Fields below only transmitted starting at protocol version 1 --
-
-    // The size of the Parcel data directly following RpcWireReply.
-    uint32_t parcelDataSize;
-
-    uint32_t reserved[3];
-
-    // Byte size of RpcWireReply in the wire protocol.
-    static size_t wireSize(uint32_t protocolVersion) {
-        if (protocolVersion == 0) {
-            return sizeof(int32_t);
-        }
-        return sizeof(RpcWireReply);
-    }
+    uint8_t data[0];
 };
-static_assert(sizeof(RpcWireReply) == 20);
 
 #pragma clang diagnostic pop
 

@@ -262,8 +262,12 @@ public class GpsNavigationMessage implements Parcelable {
             parcel.readByteArray(data);
             navigationMessage.setData(data);
 
-            int status = parcel.readInt();
-            navigationMessage.setStatus((short) status);
+            if (parcel.dataAvail() >= Integer.SIZE) {
+                int status = parcel.readInt();
+                navigationMessage.setStatus((short) status);
+            } else {
+                navigationMessage.setStatus(STATUS_UNKNOWN);
+            }
 
             return navigationMessage;
         }

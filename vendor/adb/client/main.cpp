@@ -79,10 +79,7 @@ static void intentionally_leak() {
     LOG(INFO) << "leaking pointer " << p;
 }
 
-// one_device: if null, server owns all devices, else server owns only
-//     device where atransport::MatchesTarget(one_device) is true.
-int adb_server_main(int is_daemon, const std::string& socket_spec, const char* one_device,
-                    int ack_reply_fd) {
+int adb_server_main(int is_daemon, const std::string& socket_spec, int ack_reply_fd) {
 #if defined(_WIN32)
     // adb start-server starts us up with stdout and stderr hooked up to
     // anonymous pipes. When the C Runtime sees this, it makes stderr and
@@ -108,10 +105,6 @@ int adb_server_main(int is_daemon, const std::string& socket_spec, const char* o
     signal(SIGINT, [](int) {
         fdevent_run_on_main_thread([]() { exit(0); });
     });
-
-    if (one_device) {
-        transport_set_one_device(one_device);
-    }
 
     const char* reject_kill_server = getenv("ADB_REJECT_KILL_SERVER");
     if (reject_kill_server && strcmp(reject_kill_server, "1") == 0) {

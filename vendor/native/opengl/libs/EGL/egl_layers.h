@@ -17,17 +17,18 @@
 #ifndef ANDROID_EGL_LAYERS_H
 #define ANDROID_EGL_LAYERS_H
 
-#include <EGL/egldefs.h>
-#include <android/dlext.h>
-#include <dlfcn.h>
-#include <nativebridge/native_bridge.h>
-#include <nativeloader/native_loader.h>
-
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include <android/dlext.h>
+#include <dlfcn.h>
+
+#include <EGL/egldefs.h>
 #include "egl_platform_entries.h"
+
+#include <nativebridge/native_bridge.h>
+#include <nativeloader/native_loader.h>
 
 typedef __eglMustCastToProperFunctionPointerType EGLFuncPointer;
 
@@ -45,8 +46,8 @@ public:
 
     void LoadLayers();
     void InitLayers(egl_connection_t*);
-    void LayerPlatformEntries(layer_setup_func layer_setup, EGLFuncPointer*, const char* const*);
-    void LayerDriverEntries(layer_setup_func layer_setup, EGLFuncPointer*, const char* const*);
+    void LayerPlatformEntries(layer_setup_func layer_setup, EGLFuncPointer*, char const* const*);
+    void LayerDriverEntries(layer_setup_func layer_setup, EGLFuncPointer*, char const* const*);
     bool Initialized();
     std::string GetDebugLayers();
 
@@ -58,23 +59,18 @@ public:
     std::vector<layer_setup_func> layer_setup_;
 
 private:
-    LayerLoader()
-          : layers_loaded_(false),
-            initialized_(false),
-            current_layer_(0),
-            dlhandle_(nullptr),
-            native_bridge_(false){};
+    LayerLoader() : layers_loaded_(false), initialized_(false), current_layer_(0), dlhandle_(nullptr), native_bridge_(false){};
     bool layers_loaded_;
     bool initialized_;
     unsigned current_layer_;
     void* dlhandle_;
     bool native_bridge_;
 
-    template <typename Func = void*>
+    template<typename Func = void*>
     Func GetTrampoline(const char* name) const {
         if (native_bridge_) {
-            return reinterpret_cast<Func>(
-                    android::NativeBridgeGetTrampoline(dlhandle_, name, nullptr, 0));
+            return reinterpret_cast<Func>(android::NativeBridgeGetTrampoline(
+                dlhandle_, name, nullptr, 0));
         }
         return reinterpret_cast<Func>(dlsym(dlhandle_, name));
     }

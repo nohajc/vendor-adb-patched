@@ -98,7 +98,7 @@ cc_binary {
     init_rc: ["gpuservice.rc"],
     required: [
         "bpfloader",
-        "gpuMem.o",
+        "gpu_mem.o",
     ],
     srcs: [":gpuservice_binary_sources"],
     shared_libs: [

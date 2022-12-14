@@ -51,10 +51,6 @@ bool IsBranchSamplingSupported() {
 }
 
 bool IsDwarfCallChainSamplingSupported() {
-  if (auto version = GetKernelVersion(); version && version.value() >= std::make_pair(3, 18)) {
-    // Skip test on kernel >= 3.18, which has all patches needed to support dwarf callchain.
-    return true;
-  }
   const EventType* type = FindEventTypeByName("cpu-clock");
   if (type == nullptr) {
     return false;
@@ -62,7 +58,7 @@ bool IsDwarfCallChainSamplingSupported() {
   perf_event_attr attr = CreateDefaultPerfEventAttr(*type);
   attr.sample_type |= PERF_SAMPLE_CALLCHAIN | PERF_SAMPLE_REGS_USER | PERF_SAMPLE_STACK_USER;
   attr.exclude_callchain_user = 1;
-  attr.sample_regs_user = GetSupportedRegMask(GetTargetArch());
+  attr.sample_regs_user = GetSupportedRegMask(GetBuildArch());
   attr.sample_stack_user = 8192;
   return IsEventAttrSupported(attr, type->name);
 }
@@ -124,11 +120,10 @@ bool IsSettingClockIdSupported() {
   // Do the real check only once and keep the result in a static variable.
   static int is_supported = -1;
   if (is_supported == -1) {
-    is_supported = 0;
-    if (auto version = GetKernelVersion(); version && version.value() >= std::make_pair(4, 1)) {
-      // Kernel >= 4.1 has patch "34f43927 perf: Add per event clockid support". So no need to test.
-      is_supported = 1;
-    } else if (const EventType* type = FindEventTypeByName("cpu-clock"); type != nullptr) {
+    const EventType* type = FindEventTypeByName("cpu-clock");
+    if (type == nullptr) {
+      is_supported = 0;
+    } else {
       // Check if the kernel supports setting clockid, which was added in kernel 4.0. Just check
       // with one clockid is enough. Because all needed clockids were supported before kernel 4.0.
       perf_event_attr attr = CreateDefaultPerfEventAttr(*type);
@@ -141,11 +136,6 @@ bool IsSettingClockIdSupported() {
 }
 
 bool IsMmap2Supported() {
-  if (auto version = GetKernelVersion(); version && version.value() >= std::make_pair(3, 12)) {
-    // Kernel >= 3.12 has patch "13d7a2410 perf: Add attr->mmap2 attribute to an event". So no need
-    // to test.
-    return true;
-  }
   const EventType* type = FindEventTypeByName("cpu-clock");
   if (type == nullptr) {
     return false;
@@ -153,21 +143,6 @@ bool IsMmap2Supported() {
   perf_event_attr attr = CreateDefaultPerfEventAttr(*type);
   attr.mmap2 = 1;
   return IsEventAttrSupported(attr, type->name);
-}
-
-bool IsHardwareEventSupported() {
-  const EventType* type = FindEventTypeByName("cpu-cycles");
-  if (type == nullptr) {
-    return false;
-  }
-  perf_event_attr attr = CreateDefaultPerfEventAttr(*type);
-  return IsEventAttrSupported(attr, type->name);
-}
-
-bool IsSwitchRecordSupported() {
-  // Kernel >= 4.3 has patch "45ac1403f perf: Add PERF_RECORD_SWITCH to indicate context switches".
-  auto version = GetKernelVersion();
-  return version && version.value() >= std::make_pair(4, 3);
 }
 
 std::string AddrFilter::ToString() const {
@@ -217,8 +192,7 @@ bool EventSelectionSet::BuildAndCheckEventSelection(const std::string& event_nam
   selection->event_attr.precise_ip = event_type->precise_ip;
   if (IsEtmEventType(event_type->event_type.type)) {
     auto& etm_recorder = ETMRecorder::GetInstance();
-    if (auto result = etm_recorder.CheckEtmSupport(); !result.ok()) {
-      LOG(ERROR) << result.error();
+    if (!etm_recorder.CheckEtmSupport()) {
       return false;
     }
     ETMRecorder::GetInstance().SetEtmPerfEventAttr(&selection->event_attr);
@@ -305,31 +279,6 @@ bool EventSelectionSet::AddEventGroup(const std::vector<std::string>& event_name
   UnionSampleType();
   if (group_id != nullptr) {
     *group_id = groups_.size() - 1;
-  }
-  return true;
-}
-
-bool EventSelectionSet::AddCounters(const std::vector<std::string>& event_names) {
-  CHECK(!groups_.empty());
-  if (groups_.size() > 1) {
-    LOG(ERROR) << "Failed to add counters. Only one event group is allowed.";
-    return false;
-  }
-  for (const auto& event_name : event_names) {
-    EventSelection selection;
-    if (!BuildAndCheckEventSelection(event_name, false, &selection)) {
-      return false;
-    }
-    // Use a big sample_period to avoid getting samples for added counters.
-    selection.event_attr.freq = 0;
-    selection.event_attr.sample_period = INFINITE_SAMPLE_PERIOD;
-    selection.event_attr.inherit = 0;
-    groups_[0].emplace_back(std::move(selection));
-  }
-  // Add counters in each sample.
-  for (auto& selection : groups_[0]) {
-    selection.event_attr.sample_type |= PERF_SAMPLE_READ;
-    selection.event_attr.read_format |= PERF_FORMAT_GROUP;
   }
   return true;
 }
@@ -539,10 +488,6 @@ void EventSelectionSet::SetRecordNotExecutableMaps(bool record) {
 
 bool EventSelectionSet::RecordNotExecutableMaps() const {
   return groups_[0][0].event_attr.mmap_data == 1;
-}
-
-void EventSelectionSet::EnableSwitchRecord() {
-  groups_[0][0].event_attr.context_switch = 1;
 }
 
 void EventSelectionSet::WakeupPerSample() {
@@ -840,7 +785,14 @@ bool EventSelectionSet::ReadMmapEventData(bool with_time_limit) {
 }
 
 bool EventSelectionSet::FinishReadMmapEventData() {
-  return ReadMmapEventData(false);
+  // Stop the read thread, so we don't get more records beyond current time.
+  if (!SyncKernelBuffer() || !record_read_thread_->StopReadThread()) {
+    return false;
+  }
+  if (!ReadMmapEventData(false)) {
+    return false;
+  }
+  return true;
 }
 
 void EventSelectionSet::CloseEventFiles() {

@@ -3,18 +3,18 @@ service profcollectd /system/bin/profcollectd
     disabled
     oneshot
     user root
-    group root shell wakelock
+    group root wakelock
     task_profiles ServiceCapacityLow
+
+on property:persist.device_config.profcollect_native_boot.enabled=true
+    start profcollectd
+
+on property:persist.profcollectd.enabled_override=true
+    start profcollectd
 
 on post-fs-data
     # Create directory for profcollectd.
-    mkdir /data/misc/profcollectd 0770 shell shell
-    mkdir /data/misc/profcollectd/trace 0770 shell shell
-    mkdir /data/misc/profcollectd/output 0770 shell shell
-    mkdir /data/misc/profcollectd/report 0770 shell shell
-
-on boot && property:persist.device_config.profcollect_native_boot.enabled=true
-    start profcollectd
-
-on boot && property:persist.device_config.profcollect_native_boot.enabled=
-    exec_background - root shell -- /system/bin/profcollectctl reset
+    mkdir /data/misc/profcollectd 0770 root system
+    mkdir /data/misc/profcollectd/trace 0770 root system
+    mkdir /data/misc/profcollectd/output 0770 root system
+    mkdir /data/misc/profcollectd/report 0770 root system

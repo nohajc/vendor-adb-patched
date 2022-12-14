@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/strings.h>
 #include <binder/Binder.h>
@@ -110,62 +109,6 @@ status_t getBinderPidInfo(BinderDebugContext context, pid_t pid, BinderPidInfo* 
             }
 
             pidInfo->threadCount++;
-            return;
-        }
-        return;
-    });
-    return ret;
-}
-
-status_t getBinderClientPids(BinderDebugContext context, pid_t pid, pid_t servicePid,
-                             int32_t handle, std::vector<pid_t>* pids) {
-    std::smatch match;
-    static const std::regex kNodeNumber("^\\s+ref \\d+:\\s+desc\\s+(\\d+)\\s+node\\s+(\\d+).*");
-    std::string contextStr = contextToString(context);
-    int32_t node;
-    status_t ret = scanBinderContext(pid, contextStr, [&](const std::string& line) {
-        if (std::regex_search(line, match, kNodeNumber)) {
-            const std::string& descString = match.str(1);
-            int32_t desc;
-            if (!::android::base::ParseInt(descString.c_str(), &desc)) {
-                LOG(ERROR) << "Failed to parse desc int: " << descString;
-                return;
-            }
-            if (handle != desc) {
-                return;
-            }
-            const std::string& nodeString = match.str(2);
-            if (!::android::base::ParseInt(nodeString.c_str(), &node)) {
-                LOG(ERROR) << "Failed to parse node int: " << nodeString;
-                return;
-            }
-            return;
-        }
-        return;
-    });
-    if (ret != OK) {
-        return ret;
-    }
-    static const std::regex kClients("^\\s+node\\s+(\\d+).*proc\\s+([\\d+\\s*]*)");
-    ret = scanBinderContext(servicePid, contextStr, [&](const std::string& line) {
-        if (std::regex_search(line, match, kClients)) {
-            const std::string nodeString = match.str(1);
-            int32_t matchedNode;
-            if (!::android::base::ParseInt(nodeString.c_str(), &matchedNode)) {
-                LOG(ERROR) << "Failed to parse node int: " << nodeString;
-                return;
-            }
-            if (node != matchedNode) {
-                return;
-            }
-            const std::string clients = match.str(2);
-            for (const std::string& pidStr : base::Split(clients, " ")) {
-                int32_t pid;
-                if (!::android::base::ParseInt(pidStr, &pid)) {
-                    return;
-                }
-                pids->push_back(pid);
-            }
             return;
         }
         return;

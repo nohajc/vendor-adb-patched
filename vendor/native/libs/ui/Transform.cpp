@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#undef LOG_TAG
-#define LOG_TAG "Transform"
-
 #include <math.h>
 
 #include <android-base/stringprintf.h>
@@ -25,7 +22,8 @@
 #include <ui/Transform.h>
 #include <utils/String8.h>
 
-namespace android::ui {
+namespace android {
+namespace ui {
 
 Transform::Transform() {
     reset();
@@ -57,9 +55,11 @@ bool Transform::operator==(const Transform& other) const {
             mMatrix[1][1] == other.mMatrix[1][1] && mMatrix[1][2] == other.mMatrix[1][2] &&
             mMatrix[2][0] == other.mMatrix[2][0] && mMatrix[2][1] == other.mMatrix[2][1] &&
             mMatrix[2][2] == other.mMatrix[2][2];
+    ;
 }
 
-Transform Transform::operator*(const Transform& rhs) const {
+Transform Transform::operator * (const Transform& rhs) const
+{
     if (CC_LIKELY(mType == IDENTITY))
         return rhs;
 
@@ -87,19 +87,6 @@ Transform Transform::operator*(const Transform& rhs) const {
     return r;
 }
 
-Transform Transform::operator * (float value) const {
-    Transform r(*this);
-    const mat33& M(mMatrix);
-    mat33& R(r.mMatrix);
-    for (size_t i = 0; i < 3; i++) {
-        for (size_t j = 0; j < 2; j++) {
-            R[i][j] = M[i][j] * value;
-        }
-    }
-    r.type();
-    return r;
-}
-
 Transform& Transform::operator=(const Transform& other) {
     mMatrix = other.mMatrix;
     mType = other.mType;
@@ -118,28 +105,12 @@ float Transform::ty() const {
     return mMatrix[2][1];
 }
 
-float Transform::dsdx() const {
+float Transform::sx() const {
     return mMatrix[0][0];
 }
 
-float Transform::dtdx() const {
-    return mMatrix[1][0];
-}
-
-float Transform::dtdy() const {
-    return mMatrix[0][1];
-}
-
-float Transform::dsdy() const {
+float Transform::sy() const {
     return mMatrix[1][1];
-}
-
-float Transform::getScaleX() const {
-    return sqrt((dsdx() * dsdx()) + (dtdx() * dtdx()));
-}
-
-float Transform::getScaleY() const {
-    return sqrt((dtdy() * dtdy()) + (dsdy() * dsdy()));
 }
 
 void Transform::reset() {
@@ -151,7 +122,8 @@ void Transform::reset() {
     }
 }
 
-void Transform::set(float tx, float ty) {
+void Transform::set(float tx, float ty)
+{
     mMatrix[2][0] = tx;
     mMatrix[2][1] = ty;
     mMatrix[2][2] = 1.0f;
@@ -163,7 +135,8 @@ void Transform::set(float tx, float ty) {
     }
 }
 
-void Transform::set(float a, float b, float c, float d) {
+void Transform::set(float a, float b, float c, float d)
+{
     mat33& M(mMatrix);
     M[0][0] = a;    M[1][0] = b;
     M[0][1] = c;    M[1][1] = d;
@@ -171,7 +144,8 @@ void Transform::set(float a, float b, float c, float d) {
     mType = UNKNOWN_TYPE;
 }
 
-status_t Transform::set(uint32_t flags, float w, float h) {
+status_t Transform::set(uint32_t flags, float w, float h)
+{
     if (flags & ROT_INVALID) {
         // that's not allowed!
         reset();
@@ -213,15 +187,6 @@ status_t Transform::set(uint32_t flags, float w, float h) {
     return NO_ERROR;
 }
 
-void Transform::set(const std::array<float, 9>& matrix) {
-    mat33& M(mMatrix);
-    M[0][0] = matrix[0];  M[1][0] = matrix[1];  M[2][0] = matrix[2];
-    M[0][1] = matrix[3];  M[1][1] = matrix[4];  M[2][1] = matrix[5];
-    M[0][2] = matrix[6];  M[1][2] = matrix[7];  M[2][2] = matrix[8];
-    mType = UNKNOWN_TYPE;
-    type();
-}
-
 vec2 Transform::transform(const vec2& v) const {
     vec2 r;
     const mat33& M(mMatrix);
@@ -239,15 +204,18 @@ vec3 Transform::transform(const vec3& v) const {
     return r;
 }
 
-vec2 Transform::transform(float x, float y) const {
-    return transform(vec2(x, y));
+vec2 Transform::transform(int x, int y) const
+{
+    return transform(vec2(x,y));
 }
 
-Rect Transform::makeBounds(int w, int h) const {
+Rect Transform::makeBounds(int w, int h) const
+{
     return transform( Rect(w, h) );
 }
 
-Rect Transform::transform(const Rect& bounds, bool roundOutwards) const {
+Rect Transform::transform(const Rect& bounds, bool roundOutwards) const
+{
     Rect r;
     vec2 lt( bounds.left,  bounds.top    );
     vec2 rt( bounds.right, bounds.top    );
@@ -274,7 +242,8 @@ Rect Transform::transform(const Rect& bounds, bool roundOutwards) const {
     return r;
 }
 
-FloatRect Transform::transform(const FloatRect& bounds) const {
+FloatRect Transform::transform(const FloatRect& bounds) const
+{
     vec2 lt(bounds.left, bounds.top);
     vec2 rt(bounds.right, bounds.top);
     vec2 lb(bounds.left, bounds.bottom);
@@ -294,7 +263,8 @@ FloatRect Transform::transform(const FloatRect& bounds) const {
     return r;
 }
 
-Region Transform::transform(const Region& reg) const {
+Region Transform::transform(const Region& reg) const
+{
     Region out;
     if (CC_UNLIKELY(type() > TRANSLATE)) {
         if (CC_LIKELY(preserveRects())) {
@@ -314,7 +284,8 @@ Region Transform::transform(const Region& reg) const {
     return out;
 }
 
-uint32_t Transform::type() const {
+uint32_t Transform::type() const
+{
     if (mType & UNKNOWN_TYPE) {
         // recompute what this transform is
 
@@ -409,16 +380,14 @@ uint32_t Transform::getType() const {
     return type() & 0xFF;
 }
 
-uint32_t Transform::getOrientation() const {
+uint32_t Transform::getOrientation() const
+{
     return (type() >> 8) & 0xFF;
 }
 
-bool Transform::preserveRects() const {
+bool Transform::preserveRects() const
+{
     return (getOrientation() & ROT_INVALID) ? false : true;
-}
-
-bool Transform::needsBilinearFiltering() const {
-    return (!preserveRects() || getType() >= ui::Transform::SCALE);
 }
 
 mat4 Transform::asMatrix4() const {
@@ -452,43 +421,7 @@ mat4 Transform::asMatrix4() const {
     return m;
 }
 
-static std::string rotationToString(const uint32_t rotationFlags) {
-    switch (rotationFlags) {
-        case Transform::ROT_0:
-            return "ROT_0";
-        case Transform::FLIP_H:
-            return "FLIP_H";
-        case Transform::FLIP_V:
-            return "FLIP_V";
-        case Transform::ROT_90:
-            return "ROT_90";
-        case Transform::ROT_180:
-            return "ROT_180";
-        case Transform::ROT_270:
-            return "ROT_270";
-        case Transform::ROT_INVALID:
-        default:
-            return "ROT_INVALID";
-    }
-}
-
-static std::string transformToString(const uint32_t transform) {
-    if (transform == Transform::IDENTITY) {
-        return "IDENTITY";
-    }
-
-    if (transform == Transform::UNKNOWN) {
-        return "UNKNOWN";
-    }
-
-    std::string out;
-    if (transform & Transform::SCALE) out.append("SCALE ");
-    if (transform & Transform::ROTATE) out.append("ROTATE ");
-    if (transform & Transform::TRANSLATE) out.append("TRANSLATE");
-    return out;
-}
-
-void Transform::dump(std::string& out, const char* name, const char* prefix) const {
+void Transform::dump(std::string& out, const char* name) const {
     using android::base::StringAppendF;
 
     type(); // Ensure the information in mType is up to date
@@ -496,34 +429,40 @@ void Transform::dump(std::string& out, const char* name, const char* prefix) con
     const uint32_t type = mType;
     const uint32_t orient = type >> 8;
 
-    out += prefix;
-    out += name;
-    out += " ";
+    StringAppendF(&out, "%s 0x%08x (", name, orient);
 
     if (orient & ROT_INVALID) {
-        StringAppendF(&out, "0x%08x ", orient);
+        out.append("ROT_INVALID ");
+    } else {
+        if (orient & ROT_90) {
+            out.append("ROT_90 ");
+        } else {
+            out.append("ROT_0 ");
+        }
+        if (orient & FLIP_V) out.append("FLIP_V ");
+        if (orient & FLIP_H) out.append("FLIP_H ");
     }
-    out += "(" + rotationToString(orient) + ") ";
 
-    if (type & UNKNOWN) {
-        StringAppendF(&out, "0x%02x ", type);
-    }
-    out += "(" + transformToString(type) + ")\n";
+    StringAppendF(&out, ") 0x%02x (", type);
 
-    if (type == IDENTITY) {
-        return;
-    }
+    if (!(type & (SCALE | ROTATE | TRANSLATE))) out.append("IDENTITY ");
+    if (type & SCALE) out.append("SCALE ");
+    if (type & ROTATE) out.append("ROTATE ");
+    if (type & TRANSLATE) out.append("TRANSLATE ");
+
+    out.append(")\n");
 
     for (size_t i = 0; i < 3; i++) {
-        StringAppendF(&out, "%s    %.4f  %.4f  %.4f\n", prefix, static_cast<double>(mMatrix[0][i]),
+        StringAppendF(&out, "    %.4f  %.4f  %.4f\n", static_cast<double>(mMatrix[0][i]),
                       static_cast<double>(mMatrix[1][i]), static_cast<double>(mMatrix[2][i]));
     }
 }
 
-void Transform::dump(const char* name, const char* prefix) const {
+void Transform::dump(const char* name) const {
     std::string out;
-    dump(out, name, prefix);
+    dump(out, name);
     ALOGD("%s", out.c_str());
 }
 
-} // namespace android::ui
+}  // namespace ui
+}  // namespace android

@@ -16,30 +16,25 @@
 
 #pragma once
 
-#include <android/gui/DisplayBrightness.h>
-#include <android/gui/IFpsListener.h>
-#include <android/gui/IHdrLayerInfoListener.h>
-#include <android/gui/IScreenCaptureListener.h>
-#include <android/gui/ITransactionTraceListener.h>
-#include <android/gui/ITunnelModeEnabledListener.h>
-#include <android/gui/IWindowInfosListener.h>
-#include <binder/IBinder.h>
-#include <binder/IInterface.h>
-#include <ftl/Flags.h>
-#include <gui/FrameTimelineInfo.h>
-#include <gui/ITransactionCompletedListener.h>
-#include <math/vec4.h>
 #include <stdint.h>
 #include <sys/types.h>
+
+#include <binder/IBinder.h>
+#include <binder/IInterface.h>
+
+#include <gui/ITransactionCompletedListener.h>
+
+#include <math/vec4.h>
+
 #include <ui/ConfigStoreTypes.h>
-#include <ui/DisplayId.h>
-#include <ui/DisplayMode.h>
 #include <ui/DisplayedFrameStats.h>
 #include <ui/FrameStats.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicTypes.h>
+#include <ui/PhysicalDisplayId.h>
 #include <ui/PixelFormat.h>
 #include <ui/Rotation.h>
+
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 #include <utils/Timers.h>
@@ -53,11 +48,11 @@ namespace android {
 
 struct client_cache_t;
 struct ComposerState;
-struct DisplayCaptureArgs;
+struct DisplayConfig;
+struct DisplayInfo;
 struct DisplayStatInfo;
 struct DisplayState;
 struct InputWindowCommands;
-struct LayerCaptureArgs;
 class LayerDebugInfo;
 class HdrCapabilities;
 class IDisplayEventConnection;
@@ -67,14 +62,9 @@ class IRegionSamplingListener;
 class Rect;
 enum class FrameEvent;
 
-using gui::IScreenCaptureListener;
-
 namespace ui {
 
-struct DisplayMode;
 struct DisplayState;
-struct DynamicDisplayInfo;
-struct StaticDisplayInfo;
 
 } // namespace ui
 
@@ -93,15 +83,18 @@ public:
         eSynchronous = 0x01,
         eAnimation = 0x02,
 
+        // DEPRECATED - use eExplicitEarlyWakeup[Start|End]
+        eEarlyWakeup = 0x04,
+
         // Explicit indication that this transaction and others to follow will likely result in a
         // lot of layers being composed, and thus, SurfaceFlinger should wake-up earlier to avoid
         // missing frame deadlines. In this case SurfaceFlinger will wake up at
         // (sf vsync offset - debug.sf.early_phase_offset_ns). SurfaceFlinger will continue to be
-        // in the early configuration until it receives eEarlyWakeupEnd. These flags are
+        // in the early configuration until it receives eExplicitEarlyWakeupEnd. These flags are
         // expected to be used by WindowManager only and are guarded by
         // android.permission.ACCESS_SURFACE_FLINGER
-        eEarlyWakeupStart = 0x08,
-        eEarlyWakeupEnd = 0x10,
+        eExplicitEarlyWakeupStart = 0x08,
+        eExplicitEarlyWakeupEnd = 0x10,
     };
 
     enum VsyncSource {
@@ -109,12 +102,7 @@ public:
         eVsyncSourceSurfaceFlinger = 1
     };
 
-    enum class EventRegistration {
-        modeChanged = 1 << 0,
-        frameRateOverride = 1 << 1,
-    };
-
-    using EventRegistrationFlags = Flags<EventRegistration>;
+    enum ConfigChanged { eConfigChangedSuppress = 0, eConfigChangedDispatch = 1 };
 
     /*
      * Create a connection with SurfaceFlinger.
@@ -124,7 +112,7 @@ public:
     /* return an IDisplayEventConnection */
     virtual sp<IDisplayEventConnection> createDisplayEventConnection(
             VsyncSource vsyncSource = eVsyncSourceApp,
-            EventRegistrationFlags eventRegistration = {}) = 0;
+            ConfigChanged configChanged = eConfigChangedSuppress) = 0;
 
     /* create a virtual display
      * requires ACCESS_SURFACE_FLINGER permission.
@@ -140,8 +128,6 @@ public:
     /* get stable IDs for connected physical displays.
      */
     virtual std::vector<PhysicalDisplayId> getPhysicalDisplayIds() const = 0;
-
-    virtual status_t getPrimaryPhysicalDisplayId(PhysicalDisplayId*) const = 0;
 
     // TODO(b/74619554): Remove this stopgap once the framework is display-agnostic.
     std::optional<PhysicalDisplayId> getInternalDisplayId() const {
@@ -161,12 +147,13 @@ public:
     }
 
     /* open/close transactions. requires ACCESS_SURFACE_FLINGER permission */
-    virtual status_t setTransactionState(
-            const FrameTimelineInfo& frameTimelineInfo, const Vector<ComposerState>& state,
-            const Vector<DisplayState>& displays, uint32_t flags, const sp<IBinder>& applyToken,
-            const InputWindowCommands& inputWindowCommands, int64_t desiredPresentTime,
-            bool isAutoTimestamp, const client_cache_t& uncacheBuffer, bool hasListenerCallbacks,
-            const std::vector<ListenerCallbacks>& listenerCallbacks, uint64_t transactionId) = 0;
+    virtual void setTransactionState(const Vector<ComposerState>& state,
+                                     const Vector<DisplayState>& displays, uint32_t flags,
+                                     const sp<IBinder>& applyToken,
+                                     const InputWindowCommands& inputWindowCommands,
+                                     int64_t desiredPresentTime,
+                                     const client_cache_t& uncacheBuffer, bool hasListenerCallbacks,
+                                     const std::vector<ListenerCallbacks>& listenerCallbacks) = 0;
 
     /* signal that we're done booting.
      * Requires ACCESS_SURFACE_FLINGER permission
@@ -202,32 +189,56 @@ public:
     virtual status_t getDisplayState(const sp<IBinder>& display, ui::DisplayState*) = 0;
 
     /**
-     * Gets immutable information about given physical display.
+     * Get immutable information about given physical display.
      */
-    virtual status_t getStaticDisplayInfo(const sp<IBinder>& display, ui::StaticDisplayInfo*) = 0;
+    virtual status_t getDisplayInfo(const sp<IBinder>& display, DisplayInfo*) = 0;
 
     /**
-     * Gets dynamic information about given physical display.
+     * Get configurations supported by given physical display.
      */
-    virtual status_t getDynamicDisplayInfo(const sp<IBinder>& display, ui::DynamicDisplayInfo*) = 0;
+    virtual status_t getDisplayConfigs(const sp<IBinder>& display, Vector<DisplayConfig>*) = 0;
 
+    /**
+     * Get the index into configurations returned by getDisplayConfigs,
+     * corresponding to the active configuration.
+     */
+    virtual int getActiveConfig(const sp<IBinder>& display) = 0;
+
+    virtual status_t getDisplayColorModes(const sp<IBinder>& display,
+            Vector<ui::ColorMode>* outColorModes) = 0;
     virtual status_t getDisplayNativePrimaries(const sp<IBinder>& display,
             ui::DisplayPrimaries& primaries) = 0;
+    virtual ui::ColorMode getActiveColorMode(const sp<IBinder>& display) = 0;
     virtual status_t setActiveColorMode(const sp<IBinder>& display,
             ui::ColorMode colorMode) = 0;
 
     /**
+     * Returns true if the connected display reports support for HDMI 2.1 Auto
+     * Low Latency Mode.
+     * For more information, see the HDMI 2.1 specification.
+     */
+    virtual status_t getAutoLowLatencyModeSupport(const sp<IBinder>& display,
+                                                  bool* outSupport) const = 0;
+
+    /**
      * Switches Auto Low Latency Mode on/off on the connected display, if it is
-     * available. This should only be called if the display supports Auto Low
-     * Latency Mode as reported in #getDynamicDisplayInfo.
+     * available. This should only be called if #getAutoLowLatencyMode returns
+     * true.
      * For more information, see the HDMI 2.1 specification.
      */
     virtual void setAutoLowLatencyMode(const sp<IBinder>& display, bool on) = 0;
 
     /**
+     * Returns true if the connected display reports support for Game Content Type.
+     * For more information, see the HDMI 1.4 specification.
+     */
+    virtual status_t getGameContentTypeSupport(const sp<IBinder>& display,
+                                               bool* outSupport) const = 0;
+
+    /**
      * This will start sending infoframes to the connected display with
-     * ContentType=Game (if on=true). This should only be called if the display
-     * Game Content Type as reported in #getDynamicDisplayInfo.
+     * ContentType=Game (if on=true). This will switch the disply to Game mode.
+     * This should only be called if #getGameContentTypeSupport returns true.
      * For more information, see the HDMI 1.4 specification.
      */
     virtual void setGameContentType(const sp<IBinder>& display, bool on) = 0;
@@ -235,17 +246,65 @@ public:
     /**
      * Capture the specified screen. This requires READ_FRAME_BUFFER
      * permission.  This function will fail if there is a secure window on
-     * screen and DisplayCaptureArgs.captureSecureLayers is false.
+     * screen.
      *
      * This function can capture a subregion (the source crop) of the screen.
      * The subregion can be optionally rotated.  It will also be scaled to
      * match the size of the output buffer.
+     *
+     * reqDataspace and reqPixelFormat specify the data space and pixel format
+     * of the buffer. The caller should pick the data space and pixel format
+     * that it can consume.
+     *
+     * sourceCrop is the crop on the logical display.
+     *
+     * reqWidth and reqHeight specifies the size of the buffer.  When either
+     * of them is 0, they are set to the size of the logical display viewport.
+     *
+     * When useIdentityTransform is true, layer transformations are disabled.
+     *
+     * rotation specifies the rotation of the source crop (and the pixels in
+     * it) around its center.
      */
-    virtual status_t captureDisplay(const DisplayCaptureArgs& args,
-                                    const sp<IScreenCaptureListener>& captureListener) = 0;
+    virtual status_t captureScreen(const sp<IBinder>& display, sp<GraphicBuffer>* outBuffer,
+                                   bool& outCapturedSecureLayers, ui::Dataspace reqDataspace,
+                                   ui::PixelFormat reqPixelFormat, const Rect& sourceCrop,
+                                   uint32_t reqWidth, uint32_t reqHeight, bool useIdentityTransform,
+                                   ui::Rotation rotation = ui::ROTATION_0,
+                                   bool captureSecureLayers = false) = 0;
+    /**
+     * Capture the specified screen. This requires READ_FRAME_BUFFER
+     * permission.  This function will fail if there is a secure window on
+     * screen.
+     *
+     * This function can capture a subregion (the source crop) of the screen
+     * into an sRGB buffer with RGBA_8888 pixel format.
+     * The subregion can be optionally rotated.  It will also be scaled to
+     * match the size of the output buffer.
+     *
+     * At the moment, sourceCrop is ignored and is always set to the visible
+     * region (projected display viewport) of the screen.
+     *
+     * reqWidth and reqHeight specifies the size of the buffer.  When either
+     * of them is 0, they are set to the size of the logical display viewport.
+     *
+     * When useIdentityTransform is true, layer transformations are disabled.
+     *
+     * rotation specifies the rotation of the source crop (and the pixels in
+     * it) around its center.
+     */
+    virtual status_t captureScreen(const sp<IBinder>& display, sp<GraphicBuffer>* outBuffer,
+                                   const Rect& sourceCrop, uint32_t reqWidth, uint32_t reqHeight,
+                                   bool useIdentityTransform,
+                                   ui::Rotation rotation = ui::ROTATION_0) {
+        bool outIgnored;
+        return captureScreen(display, outBuffer, outIgnored, ui::Dataspace::V0_SRGB,
+                             ui::PixelFormat::RGBA_8888, sourceCrop, reqWidth, reqHeight,
+                             useIdentityTransform, rotation);
+    }
 
-    virtual status_t captureDisplay(uint64_t displayOrLayerStack,
-                                    const sp<IScreenCaptureListener>& captureListener) = 0;
+    virtual status_t captureScreen(uint64_t displayOrLayerStack, ui::Dataspace* outDataspace,
+                                   sp<GraphicBuffer>* outBuffer) = 0;
 
     template <class AA>
     struct SpHash {
@@ -254,11 +313,27 @@ public:
 
     /**
      * Capture a subtree of the layer hierarchy, potentially ignoring the root node.
-     * This requires READ_FRAME_BUFFER permission. This function will fail if there
-     * is a secure window on screen
+     *
+     * reqDataspace and reqPixelFormat specify the data space and pixel format
+     * of the buffer. The caller should pick the data space and pixel format
+     * that it can consume.
      */
-    virtual status_t captureLayers(const LayerCaptureArgs& args,
-                                   const sp<IScreenCaptureListener>& captureListener) = 0;
+    virtual status_t captureLayers(
+            const sp<IBinder>& layerHandleBinder, sp<GraphicBuffer>* outBuffer,
+            ui::Dataspace reqDataspace, ui::PixelFormat reqPixelFormat, const Rect& sourceCrop,
+            const std::unordered_set<sp<IBinder>, SpHash<IBinder>>& excludeHandles,
+            float frameScale = 1.0, bool childrenOnly = false) = 0;
+
+    /**
+     * Capture a subtree of the layer hierarchy into an sRGB buffer with RGBA_8888 pixel format,
+     * potentially ignoring the root node.
+     */
+    status_t captureLayers(const sp<IBinder>& layerHandleBinder, sp<GraphicBuffer>* outBuffer,
+                           const Rect& sourceCrop, float frameScale = 1.0,
+                           bool childrenOnly = false) {
+        return captureLayers(layerHandleBinder, outBuffer, ui::Dataspace::V0_SRGB,
+                             ui::PixelFormat::RGBA_8888, sourceCrop, {}, frameScale, childrenOnly);
+    }
 
     /* Clears the frame statistics for animations.
      *
@@ -272,18 +347,12 @@ public:
      */
     virtual status_t getAnimationFrameStats(FrameStats* outStats) const = 0;
 
-    /* Overrides the supported HDR modes for the given display device.
+    /* Gets the supported HDR capabilities of the given display.
      *
      * Requires the ACCESS_SURFACE_FLINGER permission.
      */
-    virtual status_t overrideHdrTypes(const sp<IBinder>& display,
-                                      const std::vector<ui::Hdr>& hdrTypes) = 0;
-
-    /* Pulls surfaceflinger atoms global stats and layer stats to pipe to statsd.
-     *
-     * Requires the calling uid be from system server.
-     */
-    virtual status_t onPullAtom(const int32_t atomId, std::string* outData, bool* success) = 0;
+    virtual status_t getHdrCapabilities(const sp<IBinder>& display,
+            HdrCapabilities* outCapabilities) const = 0;
 
     virtual status_t enableVSyncInjections(bool enable) = 0;
 
@@ -365,66 +434,36 @@ public:
      */
     virtual status_t removeRegionSamplingListener(const sp<IRegionSamplingListener>& listener) = 0;
 
-    /* Registers a listener that streams fps updates from SurfaceFlinger.
-     *
-     * The listener will stream fps updates for the layer tree rooted at the layer denoted by the
-     * task ID, i.e., the layer must have the task ID as part of its layer metadata with key
-     * METADATA_TASK_ID. If there is no such layer, then no fps is expected to be reported.
-     *
-     * Multiple listeners may be supported.
-     *
-     * Requires the READ_FRAME_BUFFER permission.
-     */
-    virtual status_t addFpsListener(int32_t taskId, const sp<gui::IFpsListener>& listener) = 0;
-    /*
-     * Removes a listener that was streaming fps updates from SurfaceFlinger.
-     */
-    virtual status_t removeFpsListener(const sp<gui::IFpsListener>& listener) = 0;
-
-    /* Registers a listener to receive tunnel mode enabled updates from SurfaceFlinger.
-     *
-     * Requires ACCESS_SURFACE_FLINGER permission.
-     */
-    virtual status_t addTunnelModeEnabledListener(
-            const sp<gui::ITunnelModeEnabledListener>& listener) = 0;
-
-    /*
-     * Removes a listener that was receiving tunnel mode enabled updates from SurfaceFlinger.
-     *
-     * Requires ACCESS_SURFACE_FLINGER permission.
-     */
-    virtual status_t removeTunnelModeEnabledListener(
-            const sp<gui::ITunnelModeEnabledListener>& listener) = 0;
-
     /* Sets the refresh rate boundaries for the display.
      *
      * The primary refresh rate range represents display manager's general guidance on the display
-     * modes we'll consider when switching refresh rates. Unless we get an explicit signal from an
+     * configs we'll consider when switching refresh rates. Unless we get an explicit signal from an
      * app, we should stay within this range.
      *
-     * The app request refresh rate range allows us to consider more display modes when switching
+     * The app request refresh rate range allows us to consider more display configs when switching
      * refresh rates. Although we should generally stay within the primary range, specific
      * considerations, such as layer frame rate settings specified via the setFrameRate() api, may
      * cause us to go outside the primary range. We never go outside the app request range. The app
      * request range will be greater than or equal to the primary refresh rate range, never smaller.
      *
-     * defaultMode is used to narrow the list of display modes SurfaceFlinger will consider
-     * switching between. Only modes with a mode group and resolution matching defaultMode
-     * will be considered for switching. The defaultMode corresponds to an ID of mode in the list
-     * of supported modes returned from getDynamicDisplayInfo().
+     * defaultConfig is used to narrow the list of display configs SurfaceFlinger will consider
+     * switching between. Only configs with a config group and resolution matching defaultConfig
+     * will be considered for switching. The defaultConfig index corresponds to the list of configs
+     * returned from getDisplayConfigs().
      */
-    virtual status_t setDesiredDisplayModeSpecs(
-            const sp<IBinder>& displayToken, ui::DisplayModeId defaultMode,
-            bool allowGroupSwitching, float primaryRefreshRateMin, float primaryRefreshRateMax,
-            float appRequestRefreshRateMin, float appRequestRefreshRateMax) = 0;
+    virtual status_t setDesiredDisplayConfigSpecs(const sp<IBinder>& displayToken,
+                                                  int32_t defaultConfig,
+                                                  float primaryRefreshRateMin,
+                                                  float primaryRefreshRateMax,
+                                                  float appRequestRefreshRateMin,
+                                                  float appRequestRefreshRateMax) = 0;
 
-    virtual status_t getDesiredDisplayModeSpecs(const sp<IBinder>& displayToken,
-                                                ui::DisplayModeId* outDefaultMode,
-                                                bool* outAllowGroupSwitching,
-                                                float* outPrimaryRefreshRateMin,
-                                                float* outPrimaryRefreshRateMax,
-                                                float* outAppRequestRefreshRateMin,
-                                                float* outAppRequestRefreshRateMax) = 0;
+    virtual status_t getDesiredDisplayConfigSpecs(const sp<IBinder>& displayToken,
+                                                  int32_t* outDefaultConfig,
+                                                  float* outPrimaryRefreshRateMin,
+                                                  float* outPrimaryRefreshRateMax,
+                                                  float* outAppRequestRefreshRateMin,
+                                                  float* outAppRequestRefreshRateMax) = 0;
     /*
      * Gets whether brightness operations are supported on a display.
      *
@@ -446,44 +485,25 @@ public:
      * displayToken
      *      The token of the display whose brightness is set.
      * brightness
-     *      The DisplayBrightness info to set on the desired display.
+     *      A number between 0.0f (minimum brightness) and 1.0 (maximum brightness), or -1.0f to
+     *      turn the backlight off.
      *
      * Returns NO_ERROR upon success. Otherwise,
      *      NAME_NOT_FOUND    if the display is invalid, or
      *      BAD_VALUE         if the brightness is invalid, or
      *      INVALID_OPERATION if brightness operations are not supported.
      */
-    virtual status_t setDisplayBrightness(const sp<IBinder>& displayToken,
-                                          const gui::DisplayBrightness& brightness) = 0;
+    virtual status_t setDisplayBrightness(const sp<IBinder>& displayToken, float brightness) = 0;
 
     /*
-     * Adds a listener that receives HDR layer information. This is used in combination
-     * with setDisplayBrightness to adjust the display brightness depending on factors such
-     * as whether or not HDR is in use.
+     * Sends a power hint to the composer. This function is asynchronous.
      *
-     * Returns NO_ERROR upon success or NAME_NOT_FOUND if the display is invalid.
-     */
-    virtual status_t addHdrLayerInfoListener(const sp<IBinder>& displayToken,
-                                             const sp<gui::IHdrLayerInfoListener>& listener) = 0;
-    /*
-     * Removes a listener that was added with addHdrLayerInfoListener.
-     *
-     * Returns NO_ERROR upon success, NAME_NOT_FOUND if the display is invalid, and BAD_VALUE if
-     *     the listener wasn't registered.
-     *
-     */
-    virtual status_t removeHdrLayerInfoListener(const sp<IBinder>& displayToken,
-                                                const sp<gui::IHdrLayerInfoListener>& listener) = 0;
-
-    /*
-     * Sends a power boost to the composer. This function is asynchronous.
-     *
-     * boostId
-     *      boost id according to android::hardware::power::Boost
+     * hintId
+     *      hint id according to android::hardware::power::V1_0::PowerHint
      *
      * Returns NO_ERROR upon success.
      */
-    virtual status_t notifyPowerBoost(int32_t boostId) = 0;
+    virtual status_t notifyPowerHint(int32_t hintId) = 0;
 
     /*
      * Sets the global configuration for all the shadows drawn by SurfaceFlinger. Shadow follows
@@ -511,7 +531,7 @@ public:
      * Sets the intended frame rate for a surface. See ANativeWindow_setFrameRate() for more info.
      */
     virtual status_t setFrameRate(const sp<IGraphicBufferProducer>& surface, float frameRate,
-                                  int8_t compatibility, int8_t changeFrameRateStrategy) = 0;
+                                  int8_t compatibility) = 0;
 
     /*
      * Acquire a frame rate flexibility token from SurfaceFlinger. While this token is acquired,
@@ -520,46 +540,6 @@ public:
      * for tests. Release the token by releasing the returned IBinder reference.
      */
     virtual status_t acquireFrameRateFlexibilityToken(sp<IBinder>* outToken) = 0;
-
-    /*
-     * Sets the frame timeline vsync info received from choreographer that corresponds to next
-     * buffer submitted on that surface.
-     */
-    virtual status_t setFrameTimelineInfo(const sp<IGraphicBufferProducer>& surface,
-                                          const FrameTimelineInfo& frameTimelineInfo) = 0;
-
-    /*
-     * Adds a TransactionTraceListener to listen for transaction tracing state updates.
-     */
-    virtual status_t addTransactionTraceListener(
-            const sp<gui::ITransactionTraceListener>& listener) = 0;
-
-    /**
-     * Gets priority of the RenderEngine in SurfaceFlinger.
-     */
-    virtual int getGPUContextPriority() = 0;
-
-    /**
-     * Gets the number of buffers SurfaceFlinger would need acquire. This number
-     * would be propagated to the client via MIN_UNDEQUEUED_BUFFERS so that the
-     * client could allocate enough buffers to match SF expectations of the
-     * pipeline depth. SurfaceFlinger will make sure that it will give the app at
-     * least the time configured as the 'appDuration' before trying to latch
-     * the buffer.
-     *
-     * The total buffers needed for a given configuration is basically the
-     * numbers of vsyncs a single buffer is used across the stack. For the default
-     * configuration a buffer is held ~1 vsync by the app, ~1 vsync by SurfaceFlinger
-     * and 1 vsync by the display. The extra buffers are calculated as the
-     * number of additional buffers on top of the 2 buffers already present
-     * in MIN_UNDEQUEUED_BUFFERS.
-     */
-    virtual status_t getMaxAcquiredBufferCount(int* buffers) const = 0;
-
-    virtual status_t addWindowInfosListener(
-            const sp<gui::IWindowInfosListener>& windowInfosListener) const = 0;
-    virtual status_t removeWindowInfosListener(
-            const sp<gui::IWindowInfosListener>& windowInfosListener) const = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -571,7 +551,7 @@ public:
         // Java by ActivityManagerService.
         BOOT_FINISHED = IBinder::FIRST_CALL_TRANSACTION,
         CREATE_CONNECTION,
-        GET_STATIC_DISPLAY_INFO,
+        GET_DISPLAY_INFO,
         CREATE_DISPLAY_EVENT_CONNECTION,
         CREATE_DISPLAY,
         DESTROY_DISPLAY,
@@ -579,18 +559,18 @@ public:
         SET_TRANSACTION_STATE,
         AUTHENTICATE_SURFACE,
         GET_SUPPORTED_FRAME_TIMESTAMPS,
-        GET_DISPLAY_MODES,       // Deprecated. Use GET_DYNAMIC_DISPLAY_INFO instead.
-        GET_ACTIVE_DISPLAY_MODE, // Deprecated. Use GET_DYNAMIC_DISPLAY_INFO instead.
+        GET_DISPLAY_CONFIGS,
+        GET_ACTIVE_CONFIG,
         GET_DISPLAY_STATE,
-        CAPTURE_DISPLAY,
+        CAPTURE_SCREEN,
         CAPTURE_LAYERS,
         CLEAR_ANIMATION_FRAME_STATS,
         GET_ANIMATION_FRAME_STATS,
         SET_POWER_MODE,
         GET_DISPLAY_STATS,
-        GET_HDR_CAPABILITIES,    // Deprecated. Use GET_DYNAMIC_DISPLAY_INFO instead.
-        GET_DISPLAY_COLOR_MODES, // Deprecated. Use GET_DYNAMIC_DISPLAY_INFO instead.
-        GET_ACTIVE_COLOR_MODE,   // Deprecated. Use GET_DYNAMIC_DISPLAY_INFO instead.
+        GET_HDR_CAPABILITIES,
+        GET_DISPLAY_COLOR_MODES,
+        GET_ACTIVE_COLOR_MODE,
         SET_ACTIVE_COLOR_MODE,
         ENABLE_VSYNC_INJECTIONS,
         INJECT_VSYNC,
@@ -606,35 +586,19 @@ public:
         GET_PHYSICAL_DISPLAY_IDS,
         ADD_REGION_SAMPLING_LISTENER,
         REMOVE_REGION_SAMPLING_LISTENER,
-        SET_DESIRED_DISPLAY_MODE_SPECS,
-        GET_DESIRED_DISPLAY_MODE_SPECS,
+        SET_DESIRED_DISPLAY_CONFIG_SPECS,
+        GET_DESIRED_DISPLAY_CONFIG_SPECS,
         GET_DISPLAY_BRIGHTNESS_SUPPORT,
         SET_DISPLAY_BRIGHTNESS,
-        CAPTURE_DISPLAY_BY_ID,
-        NOTIFY_POWER_BOOST,
+        CAPTURE_SCREEN_BY_ID,
+        NOTIFY_POWER_HINT,
         SET_GLOBAL_SHADOW_SETTINGS,
-        GET_AUTO_LOW_LATENCY_MODE_SUPPORT, // Deprecated. Use GET_DYNAMIC_DISPLAY_INFO instead.
+        GET_AUTO_LOW_LATENCY_MODE_SUPPORT,
         SET_AUTO_LOW_LATENCY_MODE,
-        GET_GAME_CONTENT_TYPE_SUPPORT, // Deprecated. Use GET_DYNAMIC_DISPLAY_INFO instead.
+        GET_GAME_CONTENT_TYPE_SUPPORT,
         SET_GAME_CONTENT_TYPE,
         SET_FRAME_RATE,
         ACQUIRE_FRAME_RATE_FLEXIBILITY_TOKEN,
-        SET_FRAME_TIMELINE_INFO,
-        ADD_TRANSACTION_TRACE_LISTENER,
-        GET_GPU_CONTEXT_PRIORITY,
-        GET_MAX_ACQUIRED_BUFFER_COUNT,
-        GET_DYNAMIC_DISPLAY_INFO,
-        ADD_FPS_LISTENER,
-        REMOVE_FPS_LISTENER,
-        OVERRIDE_HDR_TYPES,
-        ADD_HDR_LAYER_INFO_LISTENER,
-        REMOVE_HDR_LAYER_INFO_LISTENER,
-        ON_PULL_ATOM,
-        ADD_TUNNEL_MODE_ENABLED_LISTENER,
-        REMOVE_TUNNEL_MODE_ENABLED_LISTENER,
-        ADD_WINDOW_INFOS_LISTENER,
-        REMOVE_WINDOW_INFOS_LISTENER,
-        GET_PRIMARY_PHYSICAL_DISPLAY_ID,
         // Always append new enum to the end.
     };
 

@@ -65,12 +65,6 @@ class ZipWriter {
      * mmapping the data at runtime.
      */
     kAlign32 = 0x02,
-
-    /**
-     * Flag to use gzip's default level of compression (6). If not set, 9 will
-     * be used.
-     */
-    kDefaultCompression = 0x04,
   };
 
   /**
@@ -168,7 +162,7 @@ class ZipWriter {
   DISALLOW_COPY_AND_ASSIGN(ZipWriter);
 
   int32_t HandleError(int32_t error_code);
-  int32_t PrepareDeflate(int compression_level);
+  int32_t PrepareDeflate();
   int32_t StoreBytes(FileEntry* file, const void* data, uint32_t len);
   int32_t CompressBytes(FileEntry* file, const void* data, uint32_t len);
   int32_t FlushCompressedBytes(FileEntry* file);

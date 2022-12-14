@@ -60,27 +60,25 @@ static void CheckPerfDataFile(const std::string& filename) {
 }
 
 static void RecordApp(const std::string& package_name, const std::string& apk_path) {
-  // 1. Install apk.
+  // 1. Prepare recording.
+  ASSERT_TRUE(CreateCommandInstance("api-prepare")->Run({}));
+
+  // 2. Install apk and start the app.
   AppHelper app_helper;
   ASSERT_TRUE(app_helper.InstallApk(apk_path, package_name));
-
-  // 2. Prepare recording.
-  ASSERT_TRUE(CreateCommandInstance("api-prepare")->Run({"--app", package_name, "--days", "1"}));
-
-  // 3. Start the app.
   ASSERT_TRUE(app_helper.StartApp("am start " + package_name + "/.MainActivity"));
 
-  // 4. Wait until the app stops.
+  // 3. Wait until the app stops.
   sleep(3);
   ASSERT_TRUE(WaitUntilAppExit(package_name));
 
-  // 5. Collect perf.data.
+  // 4. Collect perf.data.
   SetRunInAppToolForTesting(true, true);
   TemporaryFile tmpfile;
   ASSERT_TRUE(
       CreateCommandInstance("api-collect")->Run({"--app", package_name, "-o", tmpfile.path}));
 
-  // 6. Verify perf.data.
+  // 5. Verify perf.data.
   TemporaryDir tmpdir;
   ASSERT_TRUE(Workload::RunCmd({"unzip", "-d", tmpdir.path, tmpfile.path}));
   for (const std::string& filename : GetEntriesInDir(tmpdir.path)) {

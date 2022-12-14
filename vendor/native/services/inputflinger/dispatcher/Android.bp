@@ -34,18 +34,13 @@ filegroup {
         "AnrTracker.cpp",
         "Connection.cpp",
         "Entry.cpp",
-        "FocusResolver.cpp",
         "InjectionState.cpp",
         "InputDispatcher.cpp",
         "InputDispatcherFactory.cpp",
-        "InputEventTimeline.cpp",
         "InputState.cpp",
         "InputTarget.cpp",
-        "LatencyAggregator.cpp",
-        "LatencyTracker.cpp",
         "Monitor.cpp",
         "TouchState.cpp",
-        "DragState.cpp",
     ],
 }
 
@@ -57,21 +52,10 @@ cc_defaults {
         "libcrypto",
         "libcutils",
         "libinput",
-        "libkll",
         "liblog",
-        "libprotobuf-cpp-lite",
         "libstatslog",
-        "libstatspull",
-        "libstatssocket",
         "libui",
-        "libgui",
         "libutils",
-        "lib-platform-compat-native-api",
-        "server_configurable_flags",
-        "InputFlingerProperties",
-    ],
-    static_libs: [
-        "libattestation",
     ],
     header_libs: [
         "libinputdispatcher_headers",
@@ -93,5 +77,4 @@ cc_library_static {
     export_header_lib_headers: [
         "libinputdispatcher_headers",
     ],
-    logtags: ["EventLogTags.logtags"],
 }

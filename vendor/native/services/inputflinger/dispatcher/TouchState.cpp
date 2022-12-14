@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-#include <gui/WindowInfo.h>
+#include <input/InputWindow.h>
 
 #include "InputTarget.h"
 
 #include "TouchState.h"
 
-using android::gui::WindowInfo;
-using android::gui::WindowInfoHandle;
+using android::InputWindowHandle;
 
 namespace android::inputdispatcher {
 
@@ -52,7 +51,7 @@ void TouchState::copyFrom(const TouchState& other) {
     gestureMonitors = other.gestureMonitors;
 }
 
-void TouchState::addOrUpdateWindow(const sp<WindowInfoHandle>& windowHandle, int32_t targetFlags,
+void TouchState::addOrUpdateWindow(const sp<InputWindowHandle>& windowHandle, int32_t targetFlags,
                                    BitSet32 pointerIds) {
     if (targetFlags & InputTarget::FLAG_SPLIT) {
         split = true;
@@ -77,7 +76,7 @@ void TouchState::addOrUpdateWindow(const sp<WindowInfoHandle>& windowHandle, int
     windows.push_back(touchedWindow);
 }
 
-void TouchState::addPortalWindow(const sp<android::gui::WindowInfoHandle>& windowHandle) {
+void TouchState::addPortalWindow(const sp<InputWindowHandle>& windowHandle) {
     size_t numWindows = portalWindows.size();
     for (size_t i = 0; i < numWindows; i++) {
         if (portalWindows[i] == windowHandle) {
@@ -122,7 +121,7 @@ void TouchState::filterNonMonitors() {
     portalWindows.clear();
 }
 
-sp<WindowInfoHandle> TouchState::getFirstForegroundWindowHandle() const {
+sp<InputWindowHandle> TouchState::getFirstForegroundWindowHandle() const {
     for (size_t i = 0; i < windows.size(); i++) {
         const TouchedWindow& window = windows[i];
         if (window.targetFlags & InputTarget::FLAG_FOREGROUND) {
@@ -138,7 +137,8 @@ bool TouchState::isSlippery() const {
     for (const TouchedWindow& window : windows) {
         if (window.targetFlags & InputTarget::FLAG_FOREGROUND) {
             if (haveSlipperyForegroundWindow ||
-                !window.windowHandle->getInfo()->flags.test(WindowInfo::Flag::SLIPPERY)) {
+                !(window.windowHandle->getInfo()->layoutParamsFlags &
+                  InputWindowInfo::FLAG_SLIPPERY)) {
                 return false;
             }
             haveSlipperyForegroundWindow = true;

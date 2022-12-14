@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 The Android Open Source Project
+ * Copyright (C) 2006-2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@
 #include <error.h>
 #include <fcntl.h>
 #include <getopt.h>
-#include <linux/f2fs.h>
 #include <math.h>
 #include <sched.h>
 #include <stdarg.h>
@@ -64,7 +63,6 @@ using android::base::ParseByteCount;
 using android::base::ParseUint;
 using android::base::Split;
 using android::base::StringPrintf;
-using android::base::WaitForProperty;
 using android::base::WriteFully;
 
 class Logcat {
@@ -77,24 +75,17 @@ class Logcat {
     void PrintDividers(log_id_t log_id, bool print_dividers);
     void SetupOutputAndSchedulingPolicy(bool blocking);
     int SetLogFormat(const char* format_string);
-    void WriteFully(const void* p, size_t n) {
-        if (fwrite(p, 1, n, output_file_) != n) {
-            error(EXIT_FAILURE, errno, "Write to output file failed");
-        }
-    }
 
     // Used for all options
+    android::base::unique_fd output_fd_{dup(STDOUT_FILENO)};
     std::unique_ptr<AndroidLogFormat, decltype(&android_log_format_free)> logformat_{
             android_log_format_new(), &android_log_format_free};
-    // This isn't a unique_ptr because it's usually stdout;
-    // stdio's atexit handler ensures we flush on exit.
-    FILE* output_file_ = stdout;
 
     // For logging to a file and log rotation
     const char* output_file_name_ = nullptr;
     size_t log_rotate_size_kb_ = 0;                       // 0 means "no log rotation"
     size_t max_rotated_logs_ = DEFAULT_MAX_ROTATED_LOGS;  // 0 means "unbounded"
-    uint64_t out_byte_count_ = 0;
+    size_t out_byte_count_ = 0;
 
     // For binary log buffers
     int print_binary_ = 0;
@@ -116,38 +107,41 @@ class Logcat {
     bool debug_ = false;
 };
 
-static void pinLogFile(int fd, size_t sizeKB) {
-    // Ignore errors.
-    uint32_t set = 1;
+#ifndef F2FS_IOC_SET_PIN_FILE
+#define F2FS_IOCTL_MAGIC       0xf5
+#define F2FS_IOC_SET_PIN_FILE _IOW(F2FS_IOCTL_MAGIC, 13, __u32)
+#endif
+
+static int openLogFile(const char* pathname, size_t sizeKB) {
+    int fd = open(pathname, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR | S_IRGRP);
+    if (fd < 0) {
+        return fd;
+    }
+
+    // no need to check errors
+    __u32 set = 1;
     ioctl(fd, F2FS_IOC_SET_PIN_FILE, &set);
     fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, (sizeKB << 10));
+    return fd;
 }
 
-static void unpinLogFile(const char* pathname) {
+static void closeLogFile(const char* pathname) {
     int fd = open(pathname, O_WRONLY | O_CLOEXEC);
-    if (fd != -1) {
-        // Ignore errors.
-        uint32_t set = 0;
-        ioctl(fd, F2FS_IOC_SET_PIN_FILE, &set);
-        close(fd);
-    }
-}
-
-static FILE* openLogFile(const char* path, size_t sizeKB) {
-    int fd = open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR | S_IRGRP);
     if (fd == -1) {
-        error(EXIT_FAILURE, errno, "couldn't open output file '%s'", path);
+        return;
     }
-    pinLogFile(fd, sizeKB);
-    return fdopen(fd, "w");
+
+    // no need to check errors
+    __u32 set = 0;
+    ioctl(fd, F2FS_IOC_SET_PIN_FILE, &set);
+    close(fd);
 }
 
 void Logcat::RotateLogs() {
     // Can't rotate logs if we're not outputting to a file
     if (!output_file_name_) return;
 
-    fclose(output_file_);
-    output_file_ = nullptr;
+    output_fd_.reset();
 
     // Compute the maximum number of digits needed to count up to
     // maxRotatedLogs in decimal.  eg:
@@ -173,34 +167,40 @@ void Logcat::RotateLogs() {
             break;
         }
 
-        unpinLogFile(file0.c_str());
+        closeLogFile(file0.c_str());
 
-        if (rename(file0.c_str(), file1.c_str()) == -1 && errno != ENOENT) {
-            error(0, errno, "rename('%s', '%s') failed while rotating log files", file0.c_str(),
-                  file1.c_str());
+        int err = rename(file0.c_str(), file1.c_str());
+
+        if (err < 0 && errno != ENOENT) {
+            perror("while rotating log files");
         }
     }
 
-    output_file_ = openLogFile(output_file_name_, log_rotate_size_kb_);
+    output_fd_.reset(openLogFile(output_file_name_, log_rotate_size_kb_));
+
+    if (!output_fd_.ok()) {
+        error(EXIT_FAILURE, errno, "Couldn't open output file");
+    }
+
     out_byte_count_ = 0;
 }
 
 void Logcat::ProcessBuffer(struct log_msg* buf) {
+    int bytesWritten = 0;
+    int err;
     AndroidLogEntry entry;
-    char binaryMsgBuf[1024] __attribute__((__uninitialized__));
+    char binaryMsgBuf[1024];
 
     bool is_binary =
             buf->id() == LOG_ID_EVENTS || buf->id() == LOG_ID_STATS || buf->id() == LOG_ID_SECURITY;
-    int err;
+
     if (is_binary) {
         if (!event_tag_map_ && !has_opened_event_tag_map_) {
             event_tag_map_.reset(android_openEventTagMap(nullptr));
             has_opened_event_tag_map_ = true;
         }
-        // This causes entry to point to binaryMsgBuf!
         err = android_log_processBinaryLogBuffer(&buf->entry, &entry, event_tag_map_.get(),
                                                  binaryMsgBuf, sizeof(binaryMsgBuf));
-
         // printf(">>> pri=%d len=%d msg='%s'\n",
         //    entry.priority, entry.messageLen, entry.message);
     } else {
@@ -216,9 +216,16 @@ void Logcat::ProcessBuffer(struct log_msg* buf) {
         print_count_ += match;
         if (match || print_it_anyway_) {
             PrintDividers(buf->id(), print_dividers_);
-            out_byte_count_ += android_log_printLogLine(logformat_.get(), output_file_, &entry);
+
+            bytesWritten = android_log_printLogLine(logformat_.get(), output_fd_.get(), &entry);
+
+            if (bytesWritten < 0) {
+                error(EXIT_FAILURE, 0, "Output error.");
+            }
         }
     }
+
+    out_byte_count_ += bytesWritten;
 
     if (log_rotate_size_kb_ > 0 && (out_byte_count_ / 1024) >= log_rotate_size_kb_) {
         RotateLogs();
@@ -230,7 +237,7 @@ void Logcat::PrintDividers(log_id_t log_id, bool print_dividers) {
         return;
     }
     if (!printed_start_[log_id] || print_dividers) {
-        if (fprintf(output_file_, "--------- %s %s\n",
+        if (dprintf(output_fd_.get(), "--------- %s %s\n",
                     printed_start_[log_id] ? "switch to" : "beginning of",
                     android_log_id_to_name(log_id)) < 0) {
             error(EXIT_FAILURE, errno, "Output error");
@@ -260,13 +267,22 @@ void Logcat::SetupOutputAndSchedulingPolicy(bool blocking) {
         }
     }
 
-    output_file_ = openLogFile(output_file_name_, log_rotate_size_kb_);
+    output_fd_.reset(openLogFile(output_file_name_, log_rotate_size_kb_));
 
-    struct stat sb;
-    if (fstat(fileno(output_file_), &sb) == -1) {
-        error(EXIT_FAILURE, errno, "Couldn't stat output file");
+    if (!output_fd_.ok()) {
+        error(EXIT_FAILURE, errno, "Couldn't open output file");
     }
-    out_byte_count_ = sb.st_size;
+
+    struct stat statbuf;
+    if (fstat(output_fd_.get(), &statbuf) == -1) {
+        error(EXIT_FAILURE, errno, "Couldn't get output file stat");
+    }
+
+    if ((size_t)statbuf.st_size > SIZE_MAX || statbuf.st_size < 0) {
+        error(EXIT_FAILURE, 0, "Invalid output file stat.");
+    }
+
+    out_byte_count_ = statbuf.st_size;
 }
 
 // clang-format off
@@ -881,13 +897,13 @@ int Logcat::Run(int argc, char** argv) {
     }
 
     if (mode & ANDROID_LOG_PSTORE) {
+        if (output_file_name_) {
+            error(EXIT_FAILURE, 0, "-c is ambiguous with both -f and -L specified.");
+        }
         if (setLogSize || getLogSize || printStatistics || getPruneList || setPruneList) {
             error(EXIT_FAILURE, 0, "-L is incompatible with -g/-G, -S, and -p/-P.");
         }
         if (clearLog) {
-            if (output_file_name_) {
-                error(EXIT_FAILURE, 0, "-c is ambiguous with both -f and -L specified.");
-            }
             unlink("/sys/fs/pstore/pmsg-ramoops-0");
             return EXIT_SUCCESS;
         }
@@ -978,7 +994,9 @@ int Logcat::Run(int argc, char** argv) {
                         buffer_name, size_format.first, size_format.second, consumed_format.first,
                         consumed_format.second, readable_format.first, readable_format.second,
                         (int)LOGGER_ENTRY_MAX_LEN, (int)LOGGER_ENTRY_MAX_PAYLOAD);
-                WriteFully(str.data(), str.length());
+                if (!WriteFully(output_fd_, str.data(), str.length())) {
+                    error(EXIT_FAILURE, errno, "Failed to write to output fd");
+                }
             }
         }
     }
@@ -1047,18 +1065,16 @@ int Logcat::Run(int argc, char** argv) {
         while (isdigit(*cp)) ++cp;
         if (*cp == '\n') ++cp;
 
-        WriteFully(cp, strlen(cp));
+        size_t len = strlen(cp);
+        if (!WriteFully(output_fd_, cp, len)) {
+            error(EXIT_FAILURE, errno, "Failed to write to output fd");
+        }
         return EXIT_SUCCESS;
     }
 
     if (getLogSize || setLogSize || clearLog) return EXIT_SUCCESS;
 
-    bool blocking = !(mode & ANDROID_LOG_NONBLOCK);
-    SetupOutputAndSchedulingPolicy(blocking);
-
-    if (!WaitForProperty("logd.ready", "true", std::chrono::seconds(1))) {
-        error(EXIT_FAILURE, 0, "Failed to wait for logd.ready to become true. logd not running?");
-    }
+    SetupOutputAndSchedulingPolicy(!(mode & ANDROID_LOG_NONBLOCK));
 
     while (!max_count_ || print_count_ < max_count_) {
         struct log_msg log_msg;
@@ -1094,10 +1110,11 @@ If you have enabled significant logging, look into using the -G option to increa
         }
 
         if (print_binary_) {
-            WriteFully(&log_msg, log_msg.len());
+            if (!WriteFully(output_fd_, &log_msg, log_msg.len())) {
+                error(EXIT_FAILURE, errno, "Failed to write to output fd");
+            }
         } else {
             ProcessBuffer(&log_msg);
-            if (blocking && output_file_ == stdout) fflush(stdout);
         }
     }
     return EXIT_SUCCESS;

@@ -4,11 +4,6 @@
       "name": "ziparchive-tests"
     }
   ],
-  "hwasan-presubmit": [
-    {
-      "name": "ziparchive-tests"
-    }
-  ],
 
   "postsubmit": [
     {

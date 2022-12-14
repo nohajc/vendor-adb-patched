@@ -149,8 +149,7 @@ public:
             return (mKey & OUTPUT_TRANSFORM_MATRIX_MASK) == OUTPUT_TRANSFORM_MATRIX_ON;
         }
         inline bool hasDisplayColorMatrix() const {
-            return (mKey & DISPLAY_COLOR_TRANSFORM_MATRIX_MASK) ==
-                    DISPLAY_COLOR_TRANSFORM_MATRIX_ON;
+            return (mKey & DISPLAY_COLOR_TRANSFORM_MATRIX_MASK) == DISPLAY_COLOR_TRANSFORM_MATRIX_ON;
         }
         inline bool hasTransformMatrix() const {
             return hasInputTransformMatrix() || hasOutputTransformMatrix();
@@ -202,8 +201,6 @@ public:
     // useProgram lookup a suitable program in the cache or generates one
     // if none can be found.
     void useProgram(const EGLContext context, const Description& description);
-
-    void purgeCaches() { mCaches.clear(); }
 
 private:
     // compute a cache Key from a Description

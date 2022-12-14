@@ -77,7 +77,6 @@ void dumpVal(std::string& out, const char* name, const Region& region) {
 
 void dumpVal(std::string& out, const char* name, const ui::Transform& transform) {
     transform.dump(out, name);
-    out.append(" ");
 }
 
 void dumpVal(std::string& out, const char* name, const ui::Size& size) {
@@ -98,12 +97,6 @@ void dumpVal(std::string& out, const char* name, const mat4& tr) {
                   tr[0][2], tr[1][2], tr[2][2], tr[3][2],
                   tr[0][3], tr[1][3], tr[2][3], tr[3][3]
                   ); /* clang-format on */
-}
-
-void dumpVal(std::string& out, const char* name, const StretchEffect& effect) {
-    StringAppendF(&out, "%s={ width =%f, height = %f, vec=(%f, %f), max=(%f, %f) } ", name,
-                  effect.width, effect.height,
-                  effect.vectorX, effect.vectorY, effect.maxAmountX, effect.maxAmountY);
 }
 
 } // namespace android::compositionengine::impl

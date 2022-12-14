@@ -23,7 +23,7 @@
 #define F2FS_IOC_GARBAGE_COLLECT        _IO(F2FS_IOCTL_MAGIC, 6)
 
 #define DB1_PATH "/data/database_file1"
-#define DB2_PATH "/mnt/androidwritable/0/emulated/0/Android/data/database_file2"
+#define DB2_PATH "/sdcard/Android/data/database_file2"
 #define FILE_PATH "/data/testfile"
 
 #define BLOCK 4096
@@ -32,7 +32,7 @@
 int buf[BLOCKS];
 char cmd[BLOCK];
 
-static int run(const char *cmd)
+static int run(char *cmd)
 {
 	int status;
 
@@ -42,10 +42,7 @@ static int run(const char *cmd)
 	case 0:
 		/* redirect stderr to stdout */
 		dup2(1, 2);
-		execl("/system/bin/sh", "sh", "-c", cmd, (char *) NULL);
-	case -1:
-		printf("fork failed in run() errno:%d\n", errno);
-		return -1;
+		execl("/system/bin/sh", "sh", "-c", cmd, (char *) 0);
 	default:
 		wait(&status);
 	}
@@ -75,13 +72,7 @@ static int test_atomic_write(char *path)
 		return -1;
 	}
 	printf("\tCheck : Atomic in-memory count: 2\n");
-	if (access("/dev/sys/fs/by-name/userdata/current_atomic_write", F_OK)
-			== 0) {
-		printf("- inmem: ");
-		run("cat /dev/sys/fs/by-name/userdata/current_atomic_write");
-	} else {
-		run("grep \"atomic IO\" /sys/kernel/debug/f2fs/status");
-	}
+	run("cat /sys/kernel/debug/f2fs/status | grep \"atomic IO\"");
 
 	printf("\tCommit  ... \n");
 	ret = ioctl(db, F2FS_IOC_COMMIT_ATOMIC_WRITE);

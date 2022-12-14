@@ -55,49 +55,45 @@ TEST_F(RecordTest, CommRecordMatchBinary) {
 TEST_F(RecordTest, SampleRecordMatchBinary) {
   event_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_TIME | PERF_SAMPLE_ID |
                            PERF_SAMPLE_CPU | PERF_SAMPLE_PERIOD | PERF_SAMPLE_CALLCHAIN;
-  SampleRecord record(event_attr, 1, 2, 3, 4, 5, 6, 7, {}, {8, 9, 10}, {}, 0);
+  SampleRecord record(event_attr, 1, 2, 3, 4, 5, 6, 7, {8, 9, 10}, {}, 0);
   CheckRecordMatchBinary(record);
 }
 
 TEST_F(RecordTest, SampleRecord_exclude_kernel_callchain) {
-  SampleRecord r(event_attr, 0, 1, 0, 0, 0, 0, 0, {}, {}, {}, 0);
+  SampleRecord r(event_attr, 0, 1, 0, 0, 0, 0, 0, {}, {}, 0);
   ASSERT_TRUE(r.ExcludeKernelCallChain());
 
   event_attr.sample_type |= PERF_SAMPLE_CALLCHAIN;
-  SampleRecord r1(event_attr, 0, 1, 0, 0, 0, 0, 0, {}, {PERF_CONTEXT_USER, 2}, {}, 0);
+  SampleRecord r1(event_attr, 0, 1, 0, 0, 0, 0, 0, {PERF_CONTEXT_USER, 2}, {}, 0);
   ASSERT_TRUE(r1.ExcludeKernelCallChain());
   ASSERT_EQ(2u, r1.ip_data.ip);
-  SampleRecord r2;
-  ASSERT_TRUE(
-      r2.Parse(event_attr, r1.BinaryForTestingOnly(), r1.BinaryForTestingOnly() + r1.size()));
+  SampleRecord r2(event_attr, r1.BinaryForTestingOnly());
   ASSERT_EQ(1u, r.ip_data.ip);
   ASSERT_EQ(2u, r2.callchain_data.ip_nr);
   ASSERT_EQ(PERF_CONTEXT_USER, r2.callchain_data.ips[0]);
   ASSERT_EQ(2u, r2.callchain_data.ips[1]);
 
-  SampleRecord r3(event_attr, 0, 1, 0, 0, 0, 0, 0, {}, {1, PERF_CONTEXT_USER, 2}, {}, 0);
+  SampleRecord r3(event_attr, 0, 1, 0, 0, 0, 0, 0, {1, PERF_CONTEXT_USER, 2}, {}, 0);
   ASSERT_TRUE(r3.ExcludeKernelCallChain());
   ASSERT_EQ(2u, r3.ip_data.ip);
-  SampleRecord r4;
-  ASSERT_TRUE(
-      r4.Parse(event_attr, r3.BinaryForTestingOnly(), r3.BinaryForTestingOnly() + r3.size()));
+  SampleRecord r4(event_attr, r3.BinaryForTestingOnly());
   ASSERT_EQ(2u, r4.ip_data.ip);
   ASSERT_EQ(3u, r4.callchain_data.ip_nr);
   ASSERT_EQ(PERF_CONTEXT_USER, r4.callchain_data.ips[0]);
   ASSERT_EQ(PERF_CONTEXT_USER, r4.callchain_data.ips[1]);
   ASSERT_EQ(2u, r4.callchain_data.ips[2]);
 
-  SampleRecord r5(event_attr, 0, 1, 0, 0, 0, 0, 0, {}, {1, 2}, {}, 0);
+  SampleRecord r5(event_attr, 0, 1, 0, 0, 0, 0, 0, {1, 2}, {}, 0);
   ASSERT_FALSE(r5.ExcludeKernelCallChain());
-  SampleRecord r6(event_attr, 0, 1, 0, 0, 0, 0, 0, {}, {1, 2, PERF_CONTEXT_USER}, {}, 0);
+  SampleRecord r6(event_attr, 0, 1, 0, 0, 0, 0, 0, {1, 2, PERF_CONTEXT_USER}, {}, 0);
   ASSERT_FALSE(r6.ExcludeKernelCallChain());
 
   // Process consecutive context values.
-  SampleRecord r7(event_attr, 0, 1, 0, 0, 0, 0, 0, {},
+  SampleRecord r7(event_attr, 0, 1, 0, 0, 0, 0, 0,
                   {1, 2, PERF_CONTEXT_USER, PERF_CONTEXT_USER, 3, 4}, {}, 0);
   r7.header.misc = PERF_RECORD_MISC_KERNEL;
   ASSERT_TRUE(r7.ExcludeKernelCallChain());
-  CheckRecordEqual(r7, SampleRecord(event_attr, 0, 3, 0, 0, 0, 0, 0, {},
+  CheckRecordEqual(r7, SampleRecord(event_attr, 0, 3, 0, 0, 0, 0, 0,
                                     {PERF_CONTEXT_USER, PERF_CONTEXT_USER, PERF_CONTEXT_USER,
                                      PERF_CONTEXT_USER, 3, 4},
                                     {}, 0));
@@ -105,10 +101,9 @@ TEST_F(RecordTest, SampleRecord_exclude_kernel_callchain) {
 
 TEST_F(RecordTest, SampleRecord_ReplaceRegAndStackWithCallChain) {
   event_attr.sample_type |= PERF_SAMPLE_CALLCHAIN | PERF_SAMPLE_REGS_USER | PERF_SAMPLE_STACK_USER;
-  SampleRecord expected(event_attr, 0, 1, 2, 3, 4, 5, 6, {}, {1, PERF_CONTEXT_USER, 2, 3, 4, 5}, {},
-                        0);
+  SampleRecord expected(event_attr, 0, 1, 2, 3, 4, 5, 6, {1, PERF_CONTEXT_USER, 2, 3, 4, 5}, {}, 0);
   for (size_t stack_size : {8, 1024}) {
-    SampleRecord r(event_attr, 0, 1, 2, 3, 4, 5, 6, {}, {1}, std::vector<char>(stack_size), 10);
+    SampleRecord r(event_attr, 0, 1, 2, 3, 4, 5, 6, {1}, std::vector<char>(stack_size), 10);
     r.ReplaceRegAndStackWithCallChain({2, 3, 4, 5});
     CheckRecordMatchBinary(r);
     CheckRecordEqual(r, expected);
@@ -117,52 +112,25 @@ TEST_F(RecordTest, SampleRecord_ReplaceRegAndStackWithCallChain) {
 
 TEST_F(RecordTest, SampleRecord_UpdateUserCallChain) {
   event_attr.sample_type |= PERF_SAMPLE_CALLCHAIN | PERF_SAMPLE_REGS_USER | PERF_SAMPLE_STACK_USER;
-  SampleRecord r(event_attr, 0, 1, 2, 3, 4, 5, 6, {}, {1, PERF_CONTEXT_USER, 2}, {}, 0);
+  SampleRecord r(event_attr, 0, 1, 2, 3, 4, 5, 6, {1, PERF_CONTEXT_USER, 2}, {}, 0);
   r.UpdateUserCallChain({3, 4, 5});
   CheckRecordMatchBinary(r);
-  SampleRecord expected(event_attr, 0, 1, 2, 3, 4, 5, 6, {}, {1, PERF_CONTEXT_USER, 3, 4, 5}, {},
-                        0);
+  SampleRecord expected(event_attr, 0, 1, 2, 3, 4, 5, 6, {1, PERF_CONTEXT_USER, 3, 4, 5}, {}, 0);
   CheckRecordEqual(r, expected);
 }
 
 TEST_F(RecordTest, SampleRecord_AdjustCallChainGeneratedByKernel) {
   event_attr.sample_type |= PERF_SAMPLE_CALLCHAIN | PERF_SAMPLE_REGS_USER | PERF_SAMPLE_STACK_USER;
-  SampleRecord r(event_attr, 0, 1, 2, 3, 4, 5, 6, {}, {1, 5, 0, PERF_CONTEXT_USER, 6, 0}, {}, 0);
+  SampleRecord r(event_attr, 0, 1, 2, 3, 4, 5, 6, {1, 5, 0, PERF_CONTEXT_USER, 6, 0}, {}, 0);
   r.header.misc = PERF_RECORD_MISC_KERNEL;
   r.AdjustCallChainGeneratedByKernel();
-  uint64_t adjustValue = (GetTargetArch() == ARCH_ARM || GetTargetArch() == ARCH_ARM64) ? 2 : 1;
-  SampleRecord expected(event_attr, 0, 1, 2, 3, 4, 5, 6, {},
+  uint64_t adjustValue = (GetBuildArch() == ARCH_ARM || GetBuildArch() == ARCH_ARM64) ? 2 : 1;
+  SampleRecord expected(event_attr, 0, 1, 2, 3, 4, 5, 6,
                         {1, 5 - adjustValue, PERF_CONTEXT_KERNEL, PERF_CONTEXT_USER,
                          6 - adjustValue, PERF_CONTEXT_USER},
                         {}, 0);
   expected.header.misc = PERF_RECORD_MISC_KERNEL;
   CheckRecordEqual(r, expected);
-}
-
-TEST_F(RecordTest, SampleRecord_PerfSampleReadData) {
-  event_attr.sample_type |= PERF_SAMPLE_READ;
-  event_attr.read_format =
-      PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING | PERF_FORMAT_ID;
-  PerfSampleReadType read_data;
-  read_data.time_enabled = 1000;
-  read_data.time_running = 500;
-  read_data.counts = {100};
-  read_data.ids = {200};
-  SampleRecord r(event_attr, 0, 1, 2, 3, 4, 5, 6, read_data, {}, {}, 0);
-  ASSERT_EQ(read_data.time_enabled, r.read_data.time_enabled);
-  ASSERT_EQ(read_data.time_running, r.read_data.time_running);
-  ASSERT_TRUE(read_data.counts == r.read_data.counts);
-  ASSERT_TRUE(read_data.ids == r.read_data.ids);
-  CheckRecordMatchBinary(r);
-  event_attr.read_format |= PERF_FORMAT_GROUP;
-  read_data.counts = {100, 200, 300, 400};
-  read_data.ids = {500, 600, 700, 800};
-  SampleRecord r2(event_attr, 0, 1, 2, 3, 4, 5, 6, read_data, {}, {}, 0);
-  ASSERT_EQ(read_data.time_enabled, r2.read_data.time_enabled);
-  ASSERT_EQ(read_data.time_running, r2.read_data.time_running);
-  ASSERT_TRUE(read_data.counts == r2.read_data.counts);
-  ASSERT_TRUE(read_data.ids == r2.read_data.ids);
-  CheckRecordMatchBinary(r2);
 }
 
 TEST_F(RecordTest, CommRecord) {

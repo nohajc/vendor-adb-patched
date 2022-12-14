@@ -301,7 +301,7 @@ class KmemCommand : public Command {
         print_callgraph_(false),
         callgraph_show_callee_(false),
         record_filename_("perf.data"),
-        record_file_arch_(GetTargetArch()) {}
+        record_file_arch_(GetBuildArch()) {}
 
   bool Run(const std::vector<std::string>& args);
 
@@ -493,29 +493,28 @@ bool KmemCommand::PrepareToBuildSampleTree() {
     for (const auto& key : slab_sort_keys_) {
       if (key == "hit") {
         sort_comparator.AddCompareFunction(CompareSampleCount);
-        displayer.AddDisplayFunction(accumulated_name + "Hit", DisplaySampleCount<SlabSample>);
+        displayer.AddDisplayFunction(accumulated_name + "Hit", DisplaySampleCount);
       } else if (key == "caller") {
         comparator.AddCompareFunction(CompareSymbol);
-        displayer.AddDisplayFunction("Caller", DisplaySymbol<SlabSample>);
+        displayer.AddDisplayFunction("Caller", DisplaySymbol);
       } else if (key == "ptr") {
         comparator.AddCompareFunction(ComparePtr);
-        displayer.AddDisplayFunction("Ptr", DisplayPtr<SlabSample>);
+        displayer.AddDisplayFunction("Ptr", DisplayPtr);
       } else if (key == "bytes_req") {
         sort_comparator.AddCompareFunction(CompareBytesReq);
-        displayer.AddDisplayFunction(accumulated_name + "BytesReq", DisplayBytesReq<SlabSample>);
+        displayer.AddDisplayFunction(accumulated_name + "BytesReq", DisplayBytesReq);
       } else if (key == "bytes_alloc") {
         sort_comparator.AddCompareFunction(CompareBytesAlloc);
-        displayer.AddDisplayFunction(accumulated_name + "BytesAlloc",
-                                     DisplayBytesAlloc<SlabSample>);
+        displayer.AddDisplayFunction(accumulated_name + "BytesAlloc", DisplayBytesAlloc);
       } else if (key == "fragment") {
         sort_comparator.AddCompareFunction(CompareFragment);
         displayer.AddDisplayFunction(accumulated_name + "Fragment", DisplayFragment);
       } else if (key == "gfp_flags") {
         comparator.AddCompareFunction(CompareGfpFlags);
-        displayer.AddDisplayFunction("GfpFlags", DisplayGfpFlags<SlabSample>);
+        displayer.AddDisplayFunction("GfpFlags", DisplayGfpFlags);
       } else if (key == "pingpong") {
         sort_comparator.AddCompareFunction(CompareCrossCpuAllocations);
-        displayer.AddDisplayFunction("Pingpong", DisplayCrossCpuAllocations<SlabSample>);
+        displayer.AddDisplayFunction("Pingpong", DisplayCrossCpuAllocations);
       } else {
         LOG(ERROR) << "Unknown sort key for slab allocation: " << key;
         return false;

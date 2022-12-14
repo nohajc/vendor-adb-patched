@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-// clang-format off
 #include "../Macros.h"
-// clang-format on
 
 #include "RotaryEncoderInputMapper.h"
 
@@ -68,7 +66,7 @@ void RotaryEncoderInputMapper::configure(nsecs_t when, const InputReaderConfigur
     }
     if (!changes || (changes & InputReaderConfiguration::CHANGE_DISPLAY_INFO)) {
         std::optional<DisplayViewport> internalViewport =
-                config->getDisplayViewportByType(ViewportType::INTERNAL);
+                config->getDisplayViewportByType(ViewportType::VIEWPORT_INTERNAL);
         if (internalViewport) {
             mOrientation = internalViewport->orientation;
         } else {
@@ -87,11 +85,11 @@ void RotaryEncoderInputMapper::process(const RawEvent* rawEvent) {
     mRotaryEncoderScrollAccumulator.process(rawEvent);
 
     if (rawEvent->type == EV_SYN && rawEvent->code == SYN_REPORT) {
-        sync(rawEvent->when, rawEvent->readTime);
+        sync(rawEvent->when);
     }
 }
 
-void RotaryEncoderInputMapper::sync(nsecs_t when, nsecs_t readTime) {
+void RotaryEncoderInputMapper::sync(nsecs_t when) {
     PointerCoords pointerCoords;
     pointerCoords.clear();
 
@@ -121,9 +119,9 @@ void RotaryEncoderInputMapper::sync(nsecs_t when, nsecs_t readTime) {
         int32_t metaState = getContext()->getGlobalMetaState();
         pointerCoords.setAxisValue(AMOTION_EVENT_AXIS_SCROLL, scroll * mScalingFactor);
 
-        NotifyMotionArgs scrollArgs(getContext()->getNextId(), when, readTime, getDeviceId(),
-                                    mSource, displayId, policyFlags, AMOTION_EVENT_ACTION_SCROLL, 0,
-                                    0, metaState, /* buttonState */ 0, MotionClassification::NONE,
+        NotifyMotionArgs scrollArgs(getContext()->getNextId(), when, getDeviceId(), mSource,
+                                    displayId, policyFlags, AMOTION_EVENT_ACTION_SCROLL, 0, 0,
+                                    metaState, /* buttonState */ 0, MotionClassification::NONE,
                                     AMOTION_EVENT_EDGE_FLAG_NONE, 1, &pointerProperties,
                                     &pointerCoords, 0, 0, AMOTION_EVENT_INVALID_CURSOR_POSITION,
                                     AMOTION_EVENT_INVALID_CURSOR_POSITION, 0, /* videoFrames */ {});

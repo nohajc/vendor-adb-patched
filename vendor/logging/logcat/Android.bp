@@ -45,24 +45,15 @@ cc_defaults {
     ],
     static_libs: ["liblog"],
     logtags: ["event.logtags"],
-    srcs: [
-        "logcat.cpp",
-    ],
 }
 
 cc_binary {
     name: "logcat",
 
     defaults: ["logcat_defaults"],
-}
-
-cc_binary {
-    name: "logcat.microdroid",
-    stem: "logcat",
-    defaults: ["logcat_defaults"],
-    bootstrap: true,
-    installable: false,
-    visibility: ["//packages/modules/Virtualization/microdroid"],
+    srcs: [
+        "logcat.cpp",
+    ],
 }
 
 sh_binary {

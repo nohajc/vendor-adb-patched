@@ -36,11 +36,17 @@ public:
         mMaxAverageLuminance(maxAverageLuminance),
         mMinLuminance(minLuminance) {}
 
+    // Make this move-constructable and move-assignable
+    HdrCapabilities(HdrCapabilities&& other) noexcept;
+    HdrCapabilities& operator=(HdrCapabilities&& other) noexcept;
+
     HdrCapabilities()
       : mSupportedHdrTypes(),
         mMaxLuminance(-1.0f),
         mMaxAverageLuminance(-1.0f),
         mMinLuminance(-1.0f) {}
+
+    ~HdrCapabilities();
 
     const std::vector<ui::Hdr>& getSupportedHdrTypes() const {
         return mSupportedHdrTypes;

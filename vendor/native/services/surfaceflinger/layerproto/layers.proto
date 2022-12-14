@@ -2,9 +2,6 @@
 
 syntax = "proto3";
 option optimize_for = LITE_RUNTIME;
-
-import "frameworks/native/services/surfaceflinger/layerproto/common.proto";
-
 package android.surfaceflinger;
 
 // Contains a list of all layers.
@@ -126,16 +123,6 @@ message LayerProto {
   bool is_relative_of = 51;
   // Layer's background blur radius in pixels.
   int32 background_blur_radius = 52;
-
-  uint32 owner_uid = 53;
-
-  // Regions of a layer, where blur should be applied.
-  repeated BlurRegion blur_regions = 54;
-
-  bool is_trusted_overlay = 55;
-
-  // Corner radius explicitly set on layer rather than inherited
-  float requested_corner_radius = 56;
 }
 
 message PositionProto {
@@ -143,9 +130,29 @@ message PositionProto {
   float y = 2;
 }
 
+message SizeProto {
+  int32 w = 1;
+  int32 h = 2;
+}
+
+message TransformProto {
+  float dsdx = 1;
+  float dtdx = 2;
+  float dsdy = 3;
+  float dtdy = 4;
+  int32 type = 5;
+}
+
 message RegionProto {
   reserved 1;  // Previously: uint64 id
   repeated RectProto rect = 2;
+}
+
+message RectProto {
+  int32 left   = 1;
+  int32 top    = 2;
+  int32 right  = 3;
+  int32 bottom = 4;
 }
 
 message FloatRectProto {
@@ -184,34 +191,20 @@ message InputWindowInfoProto {
 
     uint32 surface_inset = 5;
     bool visible = 6;
-    bool can_receive_keys = 7  [deprecated=true];
-    bool focusable = 8;
+    bool can_receive_keys = 7;
+    bool has_focus = 8;
     bool has_wallpaper = 9;
 
     float global_scale_factor = 10;
-    float window_x_scale = 11 [deprecated=true];
-    float window_y_scale = 12 [deprecated=true];
+    float window_x_scale = 11;
+    float window_y_scale = 12;
 
     uint32 crop_layer_id = 13;
     bool replace_touchable_region_with_crop = 14;
     RectProto touchable_region_crop = 15;
-    TransformProto transform = 16;
 }
 
 message ColorTransformProto {
   // This will be a 4x4 matrix of float values
   repeated float val = 1;
-}
-
-message BlurRegion {
-    uint32 blur_radius = 1;
-    uint32 corner_radius_tl = 2;
-    uint32 corner_radius_tr = 3;
-    uint32 corner_radius_bl = 4;
-    float corner_radius_br = 5;
-    float alpha = 6;
-    int32 left = 7;
-    int32 top = 8;
-    int32 right = 9;
-    int32 bottom = 10;
 }

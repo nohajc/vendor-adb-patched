@@ -68,7 +68,6 @@
 
 #include "../internal.h"
 #include "../x509v3/internal.h"
-#include "internal.h"
 
 
 int X509_issuer_and_serial_cmp(const X509 *a, const X509 *b)
@@ -82,6 +81,34 @@ int X509_issuer_and_serial_cmp(const X509 *a, const X509 *b)
     if (i)
         return (i);
     return (X509_NAME_cmp(ai->issuer, bi->issuer));
+}
+
+unsigned long X509_issuer_and_serial_hash(X509 *a)
+{
+    unsigned long ret = 0;
+    EVP_MD_CTX ctx;
+    unsigned char md[16];
+    char *f;
+
+    EVP_MD_CTX_init(&ctx);
+    f = X509_NAME_oneline(a->cert_info->issuer, NULL, 0);
+    if (!EVP_DigestInit_ex(&ctx, EVP_md5(), NULL))
+        goto err;
+    if (!EVP_DigestUpdate(&ctx, (unsigned char *)f, strlen(f)))
+        goto err;
+    OPENSSL_free(f);
+    if (!EVP_DigestUpdate
+        (&ctx, (unsigned char *)a->cert_info->serialNumber->data,
+         (unsigned long)a->cert_info->serialNumber->length))
+        goto err;
+    if (!EVP_DigestFinal_ex(&ctx, &(md[0]), NULL))
+        goto err;
+    ret = (((unsigned long)md[0]) | ((unsigned long)md[1] << 8L) |
+           ((unsigned long)md[2] << 16L) | ((unsigned long)md[3] << 24L)
+        ) & 0xffffffffL;
+ err:
+    EVP_MD_CTX_cleanup(&ctx);
+    return (ret);
 }
 
 int X509_issuer_name_cmp(const X509 *a, const X509 *b)
@@ -101,7 +128,7 @@ int X509_CRL_cmp(const X509_CRL *a, const X509_CRL *b)
 
 int X509_CRL_match(const X509_CRL *a, const X509_CRL *b)
 {
-    return OPENSSL_memcmp(a->crl_hash, b->crl_hash, SHA256_DIGEST_LENGTH);
+    return OPENSSL_memcmp(a->sha1_hash, b->sha1_hash, 20);
 }
 
 X509_NAME *X509_get_issuer_name(const X509 *a)
@@ -154,7 +181,7 @@ unsigned long X509_subject_name_hash_old(X509 *x)
  */
 int X509_cmp(const X509 *a, const X509 *b)
 {
-    /* Fill in the |cert_hash| fields.
+    /* Fill in the |sha1_hash| fields.
      *
      * TODO(davidben): This may fail, in which case the the hash will be all
      * zeros. This produces a consistent comparison (failures are sticky), but
@@ -165,7 +192,18 @@ int X509_cmp(const X509 *a, const X509 *b)
     x509v3_cache_extensions((X509 *)a);
     x509v3_cache_extensions((X509 *)b);
 
-    return OPENSSL_memcmp(a->cert_hash, b->cert_hash, SHA256_DIGEST_LENGTH);
+    int rv = OPENSSL_memcmp(a->sha1_hash, b->sha1_hash, SHA_DIGEST_LENGTH);
+    if (rv)
+        return rv;
+    /* Check for match against stored encoding too */
+    if (!a->cert_info->enc.modified && !b->cert_info->enc.modified) {
+        rv = (int)(a->cert_info->enc.len - b->cert_info->enc.len);
+        if (rv)
+            return rv;
+        return OPENSSL_memcmp(a->cert_info->enc.enc, b->cert_info->enc.enc,
+                              a->cert_info->enc.len);
+    }
+    return rv;
 }
 
 int X509_NAME_cmp(const X509_NAME *a, const X509_NAME *b)
@@ -373,7 +411,7 @@ int X509_chain_check_suiteb(int *perror_depth, X509 *x, STACK_OF(X509) *chain,
     } else
         i = 0;
 
-    if (X509_get_version(x) != X509_VERSION_3) {
+    if (X509_get_version(x) != 2) {
         rv = X509_V_ERR_SUITE_B_INVALID_VERSION;
         /* Correct error depth */
         i = 0;
@@ -391,7 +429,7 @@ int X509_chain_check_suiteb(int *perror_depth, X509 *x, STACK_OF(X509) *chain,
     for (; i < sk_X509_num(chain); i++) {
         sign_nid = X509_get_signature_nid(x);
         x = sk_X509_value(chain, i);
-        if (X509_get_version(x) != X509_VERSION_3) {
+        if (X509_get_version(x) != 2) {
             rv = X509_V_ERR_SUITE_B_INVALID_VERSION;
             goto end;
         }

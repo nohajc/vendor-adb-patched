@@ -19,7 +19,6 @@
 
 #include "internal.h"
 #include "../cipher/internal.h"
-#include "../service_indicator/internal.h"
 
 
 // Section references in this file refer to SP 800-90Ar1:
@@ -195,7 +194,6 @@ int CTR_DRBG_generate(CTR_DRBG_STATE *drbg, uint8_t *out, size_t out_len,
   }
 
   drbg->reseed_counter++;
-  FIPS_service_indicator_update_state();
   return 1;
 }
 

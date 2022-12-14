@@ -159,8 +159,10 @@ int32_t ANativeWindow_getBuffersDataSpace(ANativeWindow* window) {
 }
 
 int32_t ANativeWindow_setFrameRate(ANativeWindow* window, float frameRate, int8_t compatibility) {
-    return ANativeWindow_setFrameRateWithChangeStrategy(window, frameRate, compatibility,
-        ANATIVEWINDOW_CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+    if (!window || !query(window, NATIVE_WINDOW_IS_VALID)) {
+        return -EINVAL;
+    }
+    return native_window_set_frame_rate(window, frameRate, compatibility);
 }
 
 void ANativeWindow_tryAllocateBuffers(ANativeWindow* window) {
@@ -170,13 +172,6 @@ void ANativeWindow_tryAllocateBuffers(ANativeWindow* window) {
     window->perform(window, NATIVE_WINDOW_ALLOCATE_BUFFERS);
 }
 
-int32_t ANativeWindow_setFrameRateWithChangeStrategy(ANativeWindow* window, float frameRate,
-        int8_t compatibility, int8_t changeFrameRateStrategy) {
-    if (!window || !query(window, NATIVE_WINDOW_IS_VALID)) {
-        return -EINVAL;
-    }
-    return native_window_set_frame_rate(window, frameRate, compatibility, changeFrameRateStrategy);
-}
 
 /**************************************************************************************************
  * vndk-stable

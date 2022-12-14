@@ -60,46 +60,33 @@
 #include <openssl/obj.h>
 #include <openssl/x509.h>
 
-#include "internal.h"
-
-
 long X509_get_version(const X509 *x509)
 {
-    // The default version is v1(0).
-    if (x509->cert_info->version == NULL) {
-        return X509_VERSION_1;
-    }
     return ASN1_INTEGER_get(x509->cert_info->version);
+}
+
+X509_CINF *X509_get_cert_info(const X509 *x509)
+{
+    return x509->cert_info;
 }
 
 int X509_set_version(X509 *x, long version)
 {
-    if (x == NULL) {
-        return 0;
-    }
-
-    if (version < X509_VERSION_1 || version > X509_VERSION_3) {
-        OPENSSL_PUT_ERROR(X509, X509_R_INVALID_VERSION);
-        return 0;
-    }
-
-    /* v1(0) is default and is represented by omitting the version. */
-    if (version == X509_VERSION_1) {
+    if (x == NULL)
+        return (0);
+    if (version == 0) {
         ASN1_INTEGER_free(x->cert_info->version);
         x->cert_info->version = NULL;
-        return 1;
+        return (1);
     }
-
     if (x->cert_info->version == NULL) {
-        x->cert_info->version = ASN1_INTEGER_new();
-        if (x->cert_info->version == NULL) {
-            return 0;
-        }
+        if ((x->cert_info->version = ASN1_INTEGER_new()) == NULL)
+            return (0);
     }
-    return ASN1_INTEGER_set(x->cert_info->version, version);
+    return (ASN1_INTEGER_set(x->cert_info->version, version));
 }
 
-int X509_set_serialNumber(X509 *x, const ASN1_INTEGER *serial)
+int X509_set_serialNumber(X509 *x, ASN1_INTEGER *serial)
 {
     ASN1_INTEGER *in;
 
@@ -242,6 +229,16 @@ const STACK_OF(X509_EXTENSION) *X509_get0_extensions(const X509 *x)
 const X509_ALGOR *X509_get0_tbs_sigalg(const X509 *x)
 {
     return x->cert_info->signature;
+}
+
+void X509_CINF_set_modified(X509_CINF *cinf)
+{
+    cinf->enc.modified = 1;
+}
+
+const X509_ALGOR *X509_CINF_get_signature(const X509_CINF *cinf)
+{
+    return cinf->signature;
 }
 
 X509_PUBKEY *X509_get_X509_PUBKEY(const X509 *x509)

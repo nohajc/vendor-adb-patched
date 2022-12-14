@@ -107,7 +107,6 @@ void RecordBuffer::MoveToNextRecord() {
 
 RecordParser::RecordParser(const perf_event_attr& attr)
     : sample_type_(attr.sample_type),
-      read_format_(attr.read_format),
       sample_regs_count_(__builtin_popcountll(attr.sample_regs_user)) {
   size_t pos = sizeof(perf_event_header);
   uint64_t mask = PERF_SAMPLE_IDENTIFIER | PERF_SAMPLE_IP;
@@ -123,7 +122,7 @@ RecordParser::RecordParser(const perf_event_attr& attr)
   mask = PERF_SAMPLE_ADDR | PERF_SAMPLE_ID | PERF_SAMPLE_STREAM_ID | PERF_SAMPLE_CPU |
          PERF_SAMPLE_PERIOD;
   pos += __builtin_popcountll(sample_type_ & mask) * sizeof(uint64_t);
-  read_pos_in_sample_records_ = pos;
+  callchain_pos_in_sample_records_ = pos;
   if ((sample_type_ & PERF_SAMPLE_TIME) && attr.sample_id_all) {
     mask = PERF_SAMPLE_IDENTIFIER | PERF_SAMPLE_CPU | PERF_SAMPLE_STREAM_ID | PERF_SAMPLE_ID;
     time_rpos_in_non_sample_records_ =
@@ -144,19 +143,7 @@ size_t RecordParser::GetTimePos(const perf_event_header& header) const {
 
 size_t RecordParser::GetStackSizePos(
     const std::function<void(size_t, size_t, void*)>& read_record_fn) const {
-  size_t pos = read_pos_in_sample_records_;
-  if (sample_type_ & PERF_SAMPLE_READ) {
-    uint64_t nr = 1;
-    if (read_format_ & PERF_FORMAT_GROUP) {
-      read_record_fn(pos, sizeof(nr), &nr);
-      pos += sizeof(uint64_t);
-    }
-    size_t u64_count = nr;
-    u64_count += (read_format_ & PERF_FORMAT_TOTAL_TIME_ENABLED) ? 1 : 0;
-    u64_count += (read_format_ & PERF_FORMAT_TOTAL_TIME_RUNNING) ? 1 : 0;
-    u64_count += (read_format_ & PERF_FORMAT_ID) ? nr : 0;
-    pos += u64_count * sizeof(uint64_t);
-  }
+  size_t pos = callchain_pos_in_sample_records_;
   if (sample_type_ & PERF_SAMPLE_CALLCHAIN) {
     uint64_t ip_nr;
     read_record_fn(pos, sizeof(ip_nr), &ip_nr);
@@ -316,8 +303,7 @@ std::unique_ptr<Record> RecordReadThread::GetRecord() {
   record_buffer_.MoveToNextRecord();
   char* p = record_buffer_.GetCurrentRecord();
   if (p != nullptr) {
-    std::unique_ptr<Record> r = ReadRecordFromBuffer(attr_, p, record_buffer_.BufferEnd());
-    CHECK(r);
+    std::unique_ptr<Record> r = ReadRecordFromBuffer(attr_, p);
     if (r->type() == PERF_RECORD_AUXTRACE) {
       auto auxtrace = static_cast<AuxTraceRecord*>(r.get());
       record_buffer_.AddCurrentRecordSize(auxtrace->data->aux_size);
@@ -561,7 +547,7 @@ void RecordReadThread::PushRecordToRecordBuffer(KernelRecordReader* kernel_recor
       // space in each sample to store stack data. However, a thread may use less stack than 64K.
       // So not all the 64K stack data in a sample is valid, and we only need to keep valid stack
       // data, whose size is dyn_stack_size.
-      uint64_t new_stack_size = Align(std::min<uint64_t>(dyn_stack_size, stack_size_limit), 8);
+      uint64_t new_stack_size = std::min<uint64_t>(dyn_stack_size, stack_size_limit);
       if (stack_size > new_stack_size) {
         // Remove part of the stack data.
         perf_event_header new_header = header;
@@ -590,8 +576,8 @@ void RecordReadThread::PushRecordToRecordBuffer(KernelRecordReader* kernel_recor
   if (p != nullptr) {
     kernel_record_reader->ReadRecord(0, header.size, p);
     if (header.type == PERF_RECORD_AUX) {
-      AuxRecord r;
-      if (r.Parse(attr_, p, p + header.size) && (r.data->flags & PERF_AUX_FLAG_TRUNCATED)) {
+      AuxRecord r{attr_, p};
+      if (r.data->flags & PERF_AUX_FLAG_TRUNCATED) {
         // When the kernel sees aux output flagged with PERF_AUX_FLAG_TRUNCATED,
         // it sets a pending disable on the event:
         // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/events/ring_buffer.c?h=v5.13#n516

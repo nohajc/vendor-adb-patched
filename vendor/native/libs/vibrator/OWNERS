@@ -1,1 +1,2 @@
-include platform/frameworks/base:/services/core/java/com/android/server/vibrator/OWNERS
+lsandrade@google.com
+michaelwr@google.com

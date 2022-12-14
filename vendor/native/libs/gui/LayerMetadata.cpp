@@ -17,7 +17,6 @@
 #include <android-base/stringprintf.h>
 #include <binder/Parcel.h>
 #include <gui/LayerMetadata.h>
-#include <inttypes.h>
 
 #include "android/view/LayerMetadataKey.h"
 
@@ -114,15 +113,6 @@ void LayerMetadata::setInt32(uint32_t key, int32_t value) {
     memcpy(data.data(), p.data(), p.dataSize());
 }
 
-std::optional<int64_t> LayerMetadata::getInt64(uint32_t key) const {
-    if (!has(key)) return std::nullopt;
-    const std::vector<uint8_t>& data = mMap.at(key);
-    if (data.size() < sizeof(int64_t)) return std::nullopt;
-    Parcel p;
-    p.setData(data.data(), data.size());
-    return p.readInt64();
-}
-
 std::string LayerMetadata::itemToString(uint32_t key, const char* separator) const {
     if (!has(key)) return std::string();
     switch (static_cast<view::LayerMetadataKey>(key)) {
@@ -132,12 +122,6 @@ std::string LayerMetadata::itemToString(uint32_t key, const char* separator) con
             return StringPrintf("windowType%s%d", separator, getInt32(key, 0));
         case view::LayerMetadataKey::METADATA_TASK_ID:
             return StringPrintf("taskId%s%d", separator, getInt32(key, 0));
-        case view::LayerMetadataKey::METADATA_OWNER_PID:
-            return StringPrintf("ownerPID%s%d", separator, getInt32(key, 0));
-        case view::LayerMetadataKey::METADATA_DEQUEUE_TIME:
-            return StringPrintf("dequeueTime%s%" PRId64, separator, *getInt64(key));
-        case view::LayerMetadataKey::METADATA_GAME_MODE:
-            return StringPrintf("gameMode%s%d", separator, getInt32(key, 0));
         default:
             return StringPrintf("%d%s%dbytes", key, separator,
                                 static_cast<int>(mMap.at(key).size()));

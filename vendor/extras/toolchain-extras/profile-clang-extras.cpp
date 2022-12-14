@@ -24,18 +24,13 @@ extern "C" {
 
 static sighandler_t chained_signal_handler = SIG_ERR;
 
-#ifndef __CONTINUOUS_COVERAGE_MODE__
 int __llvm_profile_write_file(void);
-#endif  // __CONTINUOUS_COVERAGE_MODE__
 
 static void llvm_signal_handler(__unused int signum) {
-  // TODO(pirama) Only disable __llvm_profile_write_file call to begin with.
-  // After continuous mode is stable, stop registering the signal handler.
-#ifndef __CONTINUOUS_COVERAGE_MODE__
   __llvm_profile_write_file();
-#endif  // __CONTINUOUS_COVERAGE_MODE__
 
-  if (chained_signal_handler != SIG_ERR && chained_signal_handler != SIG_IGN &&
+  if (chained_signal_handler != SIG_ERR &&
+      chained_signal_handler != SIG_IGN &&
       chained_signal_handler != SIG_DFL) {
     (chained_signal_handler)(signum);
   }

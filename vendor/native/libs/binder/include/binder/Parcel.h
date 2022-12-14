@@ -16,11 +16,9 @@
 
 #pragma once
 
-#include <array>
 #include <map> // for legacy reasons
 #include <string>
 #include <type_traits>
-#include <variant>
 #include <vector>
 
 #include <android-base/unique_fd.h>
@@ -55,9 +53,6 @@ class ProcessState;
 class RpcSession;
 class String8;
 class TextOutput;
-namespace binder {
-class Status;
-}
 
 class Parcel {
     friend class IPCThreadState;
@@ -77,11 +72,6 @@ public:
     size_t              dataCapacity() const;
 
     status_t            setDataSize(size_t size);
-
-    // this must only be used to set a data position that was previously returned from
-    // dataPosition(). If writes are made, the exact same types of writes must be made (e.g.
-    // auto i = p.dataPosition(); p.writeInt32(0); p.setDataPosition(i); p.writeInt32(1);).
-    // Writing over objects, such as file descriptors and binders, is not supported.
     void                setDataPosition(size_t pos) const;
     status_t            setDataCapacity(size_t size);
 
@@ -91,21 +81,12 @@ public:
                                    size_t start, size_t len);
 
     int                 compareData(const Parcel& other);
-    status_t compareDataInRange(size_t thisOffset, const Parcel& other, size_t otherOffset,
-                                size_t length, int* result) const;
 
     bool                allowFds() const;
     bool                pushAllowFds(bool allowFds);
     void                restoreAllowFds(bool lastValue);
 
     bool                hasFileDescriptors() const;
-    status_t hasFileDescriptorsInRange(size_t offset, size_t length, bool* result) const;
-
-    // returns all binder objects in the Parcel
-    std::vector<sp<IBinder>> debugReadAllStrongBinders() const;
-    // returns all file descriptors in the Parcel
-    // does not dup
-    std::vector<int> debugReadAllFileDescriptors() const;
 
     // Zeros data when reallocating. Other mitigations may be added
     // in the future.
@@ -145,10 +126,6 @@ public:
                                          size_t len,
                                          IPCThreadState* threadState = nullptr) const;
     bool                checkInterface(IBinder*) const;
-
-    // Verify there are no bytes left to be read on the Parcel.
-    // Returns Status(EX_BAD_PARCELABLE) when the Parcel is not consumed.
-    binder::Status enforceNoDataAvail() const;
 
     void                freeData();
 
@@ -227,32 +204,6 @@ public:
     status_t            writeStrongBinderVector(const std::unique_ptr<std::vector<sp<IBinder>>>& val) __attribute__((deprecated("use std::optional version instead")));
     status_t            writeStrongBinderVector(const std::vector<sp<IBinder>>& val);
 
-    // Write an IInterface or a vector of IInterface's
-    template <typename T,
-              std::enable_if_t<std::is_base_of_v<::android::IInterface, T>, bool> = true>
-    status_t writeStrongBinder(const sp<T>& val) {
-        return writeStrongBinder(T::asBinder(val));
-    }
-    template <typename T,
-              std::enable_if_t<std::is_base_of_v<::android::IInterface, T>, bool> = true>
-    status_t writeStrongBinderVector(const std::vector<sp<T>>& val) {
-        return writeData(val);
-    }
-    template <typename T,
-              std::enable_if_t<std::is_base_of_v<::android::IInterface, T>, bool> = true>
-    status_t writeStrongBinderVector(const std::optional<std::vector<sp<T>>>& val) {
-        return writeData(val);
-    }
-
-    template <typename T, size_t N>
-    status_t writeFixedArray(const std::array<T, N>& val) {
-        return writeData(val);
-    }
-    template <typename T, size_t N>
-    status_t writeFixedArray(const std::optional<std::array<T, N>>& val) {
-        return writeData(val);
-    }
-
     // Write an Enum vector with underlying type int8_t.
     // Does not use padding; each byte is contiguous.
     template<typename T, std::enable_if_t<std::is_enum_v<T> && std::is_same_v<typename std::underlying_type_t<T>,int8_t>, bool> = 0>
@@ -294,10 +245,9 @@ public:
     template<typename T>
     status_t            writeNullableParcelable(const std::optional<T>& parcelable)
             { return writeData(parcelable); }
-    template <typename T>
-    status_t writeNullableParcelable(const std::unique_ptr<T>& parcelable) {
-        return writeData(parcelable);
-    }
+    template<typename T>
+    status_t            writeNullableParcelable(const std::unique_ptr<T>& parcelable) __attribute__((deprecated("use std::optional version instead")))
+            { return writeData(parcelable); }
 
     status_t            writeParcelable(const Parcelable& parcelable);
 
@@ -451,10 +401,9 @@ public:
     template<typename T>
     status_t            readParcelable(std::optional<T>* parcelable) const
             { return readData(parcelable); }
-    template <typename T>
-    status_t readParcelable(std::unique_ptr<T>* parcelable) const {
-        return readData(parcelable);
-    }
+    template<typename T>
+    status_t            readParcelable(std::unique_ptr<T>* parcelable) const __attribute__((deprecated("use std::optional version instead")))
+            { return readData(parcelable); }
 
     // If strong binder would be nullptr, readStrongBinder() returns an error.
     // TODO: T must be derived from IInterface, fix for clarity.
@@ -467,16 +416,6 @@ public:
     status_t            readStrongBinderVector(std::optional<std::vector<sp<IBinder>>>* val) const;
     status_t            readStrongBinderVector(std::unique_ptr<std::vector<sp<IBinder>>>* val) const __attribute__((deprecated("use std::optional version instead")));
     status_t            readStrongBinderVector(std::vector<sp<IBinder>>* val) const;
-    template <typename T,
-              std::enable_if_t<std::is_base_of_v<::android::IInterface, T>, bool> = true>
-    status_t readStrongBinderVector(std::vector<sp<T>>* val) const {
-        return readData(val);
-    }
-    template <typename T,
-              std::enable_if_t<std::is_base_of_v<::android::IInterface, T>, bool> = true>
-    status_t readStrongBinderVector(std::optional<std::vector<sp<T>>>* val) const {
-        return readData(val);
-    }
 
     status_t            readByteVector(std::optional<std::vector<int8_t>>* val) const;
     status_t            readByteVector(std::unique_ptr<std::vector<int8_t>>* val) const __attribute__((deprecated("use std::optional version instead")));
@@ -515,15 +454,6 @@ public:
     status_t            readUtf8VectorFromUtf16Vector(
                             std::unique_ptr<std::vector<std::unique_ptr<std::string>>>* val) const __attribute__((deprecated("use std::optional version instead")));
     status_t            readUtf8VectorFromUtf16Vector(std::vector<std::string>* val) const;
-
-    template <typename T, size_t N>
-    status_t readFixedArray(std::array<T, N>* val) const {
-        return readData(val);
-    }
-    template <typename T, size_t N>
-    status_t readFixedArray(std::optional<std::array<T, N>>* val) const {
-        return readData(val);
-    }
 
     template<typename T>
     status_t            read(Flattenable<T>& val) const;
@@ -598,33 +528,24 @@ public:
     void                print(TextOutput& to, uint32_t flags = 0) const;
 
 private:
-    // `objects` and `objectsSize` always 0 for RPC Parcels.
-    typedef void (*release_func)(const uint8_t* data, size_t dataSize, const binder_size_t* objects,
-                                 size_t objectsSize);
+    typedef void        (*release_func)(Parcel* parcel,
+                                        const uint8_t* data, size_t dataSize,
+                                        const binder_size_t* objects, size_t objectsSize);
 
     uintptr_t           ipcData() const;
     size_t              ipcDataSize() const;
     uintptr_t           ipcObjects() const;
     size_t              ipcObjectsCount() const;
-    void ipcSetDataReference(const uint8_t* data, size_t dataSize, const binder_size_t* objects,
-                             size_t objectsCount, release_func relFunc);
-    // Takes ownership even when an error is returned.
-    status_t rpcSetDataReference(
-            const sp<RpcSession>& session, const uint8_t* data, size_t dataSize,
-            const uint32_t* objectTable, size_t objectTableSize,
-            std::vector<std::variant<base::unique_fd, base::borrowed_fd>>&& ancillaryFds,
-            release_func relFunc);
+    void                ipcSetDataReference(const uint8_t* data, size_t dataSize,
+                                            const binder_size_t* objects, size_t objectsCount,
+                                            release_func relFunc);
 
     status_t            finishWrite(size_t len);
     void                releaseObjects();
     void                acquireObjects();
     status_t            growData(size_t len);
-    // Clear the Parcel and set the capacity to `desired`.
-    // Doesn't reset the RPC session association.
     status_t            restartWrite(size_t desired);
-    // Set the capacity to `desired`, truncating the Parcel if necessary.
     status_t            continueWrite(size_t desired);
-    status_t truncateRpcObjects(size_t newObjectsSize);
     status_t            writePointer(uintptr_t val);
     status_t            readPointer(uintptr_t *pArg) const;
     uintptr_t           readPointer() const;
@@ -865,16 +786,6 @@ private:
             || is_specialization_v<T, std::unique_ptr>
             || is_specialization_v<T, std::shared_ptr>;
 
-    // Tells if T is a fixed-size array.
-    template <typename T>
-    struct is_fixed_array : std::false_type {};
-
-    template <typename T, size_t N>
-    struct is_fixed_array<std::array<T, N>> : std::true_type {};
-
-    template <typename T>
-    static inline constexpr bool is_fixed_array_v = is_fixed_array<T>::value;
-
     // special int32 value to indicate NonNull or Null parcelables
     // This is fixed to be only 0 or 1 by contract, do not change.
     static constexpr int32_t kNonNullParcelableFlag = 1;
@@ -979,9 +890,7 @@ private:
             if (!c) return writeData(static_cast<int32_t>(kNullVectorSize));
         } else if constexpr (std::is_base_of_v<Parcelable, T>) {
             if (!c) return writeData(static_cast<int32_t>(kNullParcelableFlag));
-        } else if constexpr (is_fixed_array_v<T>) {
-            if (!c) return writeData(static_cast<int32_t>(kNullVectorSize));
-        } else /* constexpr */ { // could define this, but raise as error.
+        } else /* constexpr */ {  // could define this, but raise as error.
             static_assert(dependent_false_v<CT>);
         }
         return writeData(*c);
@@ -1018,23 +927,6 @@ private:
             }
         }
         return OK;
-    }
-
-    template <typename T, size_t N>
-    status_t writeData(const std::array<T, N>& val) {
-        static_assert(N <= std::numeric_limits<int32_t>::max());
-        status_t status = writeData(static_cast<int32_t>(N));
-        if (status != OK) return status;
-        if constexpr (is_pointer_equivalent_array_v<T>) {
-            static_assert(N <= std::numeric_limits<size_t>::max() / sizeof(T));
-            return write(val.data(), val.size() * sizeof(T));
-        } else /* constexpr */ {
-            for (const auto& t : val) {
-                status = writeData(t);
-                if (status != OK) return status;
-            }
-            return OK;
-        }
     }
 
     // readData function overloads.
@@ -1129,8 +1021,9 @@ private:
         int32_t peek;
         status_t status = readData(&peek);
         if (status != OK) return status;
-        if constexpr (is_specialization_v<T, std::vector> || is_fixed_array_v<T> ||
-                      std::is_same_v<T, String16> || std::is_same_v<T, std::string>) {
+        if constexpr (is_specialization_v<T, std::vector>
+                || std::is_same_v<T, String16>
+                || std::is_same_v<T, std::string>) {
             if (peek == kNullVectorSize) {
                 c->reset();
                 return OK;
@@ -1140,15 +1033,12 @@ private:
                 c->reset();
                 return OK;
             }
-        } else /* constexpr */ { // could define this, but raise as error.
+        } else /* constexpr */ {  // could define this, but raise as error.
             static_assert(dependent_false_v<CT>);
         }
         // create a new object.
         if constexpr (is_specialization_v<CT, std::optional>) {
-            // Call default constructor explicitly
-            // - Clang bug: https://bugs.llvm.org/show_bug.cgi?id=35748
-            //   std::optional::emplace() doesn't work with nested types.
-            c->emplace(T());
+            c->emplace();
         } else /* constexpr */ {
             T* const t = new (std::nothrow) T;  // contents read from Parcel below.
             if (t == nullptr) return NO_MEMORY;
@@ -1157,7 +1047,7 @@ private:
         // rewind data ptr to reread (this is pretty quick), otherwise we could
         // pass an optional argument to readData to indicate a peeked value.
         setDataPosition(startPos);
-        if constexpr (is_specialization_v<T, std::vector> || is_fixed_array_v<T>) {
+        if constexpr (is_specialization_v<T, std::vector>) {
             return readData(&**c, READ_FLAG_SP_NULLABLE);  // nullable sp<> allowed now
         } else {
             return readData(&**c);
@@ -1184,20 +1074,10 @@ private:
         c->clear(); // must clear before resizing/reserving otherwise move ctors may be called.
         if constexpr (is_pointer_equivalent_array_v<T>) {
             // could consider POD without gaps and alignment of 4.
-            size_t dataLen;
-            if (__builtin_mul_overflow(size, sizeof(T), &dataLen)) {
-                return -EOVERFLOW;
-            }
-            auto data = reinterpret_cast<const T*>(readInplace(dataLen));
+            auto data = reinterpret_cast<const T*>(
+                    readInplace(static_cast<size_t>(size) * sizeof(T)));
             if (data == nullptr) return BAD_VALUE;
-            // std::vector::insert and similar methods will require type-dependent
-            // byte alignment when inserting from a const iterator such as `data`,
-            // e.g. 8 byte alignment for int64_t, and so will not work if `data`
-            // is 4 byte aligned (which is all Parcel guarantees). Copying
-            // the contents into the vector directly, where possible, circumvents
-            // this.
-            c->resize(size);
-            memcpy(c->data(), data, dataLen);
+            c->insert(c->begin(), data, data + size); // insert should do a reserve().
         } else if constexpr (std::is_same_v<T, bool>
                 || std::is_same_v<T, char16_t>) {
             c->reserve(size); // avoids default initialization
@@ -1230,41 +1110,6 @@ private:
         return OK;
     }
 
-    template <typename T, size_t N>
-    status_t readData(std::array<T, N>* val, ReadFlags readFlags = READ_FLAG_NONE) const {
-        static_assert(N <= std::numeric_limits<int32_t>::max());
-        int32_t size;
-        status_t status = readInt32(&size);
-        if (status != OK) return status;
-        if (size < 0) return UNEXPECTED_NULL;
-        if (size != static_cast<int32_t>(N)) return BAD_VALUE;
-        if constexpr (is_pointer_equivalent_array_v<T>) {
-            auto data = reinterpret_cast<const T*>(readInplace(N * sizeof(T)));
-            if (data == nullptr) return BAD_VALUE;
-            memcpy(val->data(), data, N * sizeof(T));
-        } else if constexpr (is_specialization_v<T, sp>) {
-            for (auto& t : *val) {
-                if (readFlags & READ_FLAG_SP_NULLABLE) {
-                    status = readNullableStrongBinder(&t); // allow nullable
-                } else {
-                    status = readStrongBinder(&t);
-                }
-                if (status != OK) return status;
-            }
-        } else if constexpr (is_fixed_array_v<T>) { // pass readFlags down to nested arrays
-            for (auto& t : *val) {
-                status = readData(&t, readFlags);
-                if (status != OK) return status;
-            }
-        } else /* constexpr */ {
-            for (auto& t : *val) {
-                status = readData(&t);
-                if (status != OK) return status;
-            }
-        }
-        return OK;
-    }
-
     //-----------------------------------------------------------------------------
     private:
 
@@ -1272,57 +1117,19 @@ private:
     uint8_t*            mData;
     size_t              mDataSize;
     size_t              mDataCapacity;
-    mutable size_t mDataPos;
+    mutable size_t      mDataPos;
+    binder_size_t*      mObjects;
+    size_t              mObjectsSize;
+    size_t              mObjectsCapacity;
+    mutable size_t      mNextObjectHint;
+    mutable bool        mObjectsSorted;
 
-    // Fields only needed when parcelling for "kernel Binder".
-    struct KernelFields {
-        binder_size_t* mObjects = nullptr;
-        size_t mObjectsSize = 0;
-        size_t mObjectsCapacity = 0;
-        mutable size_t mNextObjectHint = 0;
+    mutable bool        mRequestHeaderPresent;
 
-        mutable size_t mWorkSourceRequestHeaderPosition = 0;
-        mutable bool mRequestHeaderPresent = false;
+    mutable size_t      mWorkSourceRequestHeaderPosition;
 
-        mutable bool mObjectsSorted = false;
-        mutable bool mFdsKnown = true;
-        mutable bool mHasFds = false;
-    };
-    // Fields only needed when parcelling for RPC Binder.
-    struct RpcFields {
-        RpcFields(const sp<RpcSession>& session);
-
-        // Should always be non-null.
-        const sp<RpcSession> mSession;
-
-        enum ObjectType : int32_t {
-            TYPE_BINDER_NULL = 0,
-            TYPE_BINDER = 1,
-            // FD to be passed via native transport (Trusty IPC or UNIX domain socket).
-            TYPE_NATIVE_FILE_DESCRIPTOR = 2,
-        };
-
-        // Sorted.
-        std::vector<uint32_t> mObjectPositions;
-
-        // File descriptors referenced by the parcel data. Should be indexed
-        // using the offsets in the parcel data. Don't assume the list is in the
-        // same order as `mObjectPositions`.
-        //
-        // Boxed to save space. Lazy allocated.
-        std::unique_ptr<std::vector<std::variant<base::unique_fd, base::borrowed_fd>>> mFds;
-    };
-    std::variant<KernelFields, RpcFields> mVariantFields;
-
-    // Pointer to KernelFields in mVariantFields if present.
-    KernelFields* maybeKernelFields() { return std::get_if<KernelFields>(&mVariantFields); }
-    const KernelFields* maybeKernelFields() const {
-        return std::get_if<KernelFields>(&mVariantFields);
-    }
-    // Pointer to RpcFields in mVariantFields if present.
-    RpcFields* maybeRpcFields() { return std::get_if<RpcFields>(&mVariantFields); }
-    const RpcFields* maybeRpcFields() const { return std::get_if<RpcFields>(&mVariantFields); }
-
+    mutable bool        mFdsKnown;
+    mutable bool        mHasFds;
     bool                mAllowFds;
 
     // if this parcelable is involved in a secure transaction, force the
@@ -1331,7 +1138,7 @@ private:
 
     release_func        mOwner;
 
-    size_t mReserved;
+    sp<RpcSession> mSession;
 
     class Blob {
     public:
@@ -1416,19 +1223,13 @@ public:
         inline void* data() { return mData; }
     };
 
-    /**
-     * Returns the total amount of ashmem memory owned by this object.
-     *
-     * Note: for historical reasons, this does not include ashmem memory which
-     * is referenced by this Parcel, but which this parcel doesn't own (e.g.
-     * writeFileDescriptor is called without 'takeOwnership' true).
-     */
-    size_t getOpenAshmemSize() const;
-
 private:
-    // TODO(b/202029388): Remove 'getBlobAshmemSize' once no prebuilts reference
-    // this
+    size_t mOpenAshmemSize;
+
+public:
+    // TODO: Remove once ABI can be changed.
     size_t getBlobAshmemSize() const;
+    size_t getOpenAshmemSize() const;
 };
 
 // ---------------------------------------------------------------------------

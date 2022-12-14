@@ -22,10 +22,9 @@
 #include <thread>
 #include <vector>
 
-#include <android-base/parseint.h>
-#include <android/hardware/tests/inheritance/1.0/IChild.h>
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
+#include <android/hardware/tests/inheritance/1.0/IChild.h>
 #include <hidl/HidlTransportSupport.h>
 #include <vintf/parse_xml.h>
 
@@ -77,13 +76,6 @@ struct Child : android::hardware::tests::inheritance::V1_0::IChild {
         for (const auto &option : options) {
             content += "\n";
             content += option.c_str();
-        }
-        if (options.size() > 0) {
-            uint64_t len;
-            if (android::base::ParseUint(options[0], &len)) {
-                content += "\n";
-                content += std::string(len, 'X');
-            }
         }
         ssize_t written = write(fd, content.c_str(), content.size());
         if (written != (ssize_t)content.size()) {
@@ -195,16 +187,6 @@ TEST_F(DebugTest, Debug3) {
         "lshal", "debug", "android.hardware.tests.doesnotexist@1.0::IDoesNotExist",
     }));
     EXPECT_THAT(err.str(), HasSubstr("does not exist"));
-}
-
-TEST_F(DebugTest, DebugLarge) {
-    EXPECT_EQ(0u, callMain(lshal, {
-        "lshal", "debug", "android.hardware.tests.inheritance@1.0::IChild/default", "10000"
-    }));
-    EXPECT_THAT(out.str(),
-                StrEq("android.hardware.tests.inheritance@1.0::IChild\n10000\n" +
-                      std::string(10000, 'X')));
-    EXPECT_THAT(err.str(), IsEmpty());
 }
 
 TEST_F(DebugTest, DebugParent) {

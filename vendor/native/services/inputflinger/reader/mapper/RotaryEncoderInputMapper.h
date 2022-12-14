@@ -42,7 +42,7 @@ private:
     float mScalingFactor;
     int32_t mOrientation;
 
-    void sync(nsecs_t when, nsecs_t readTime);
+    void sync(nsecs_t when);
 };
 
 } // namespace android

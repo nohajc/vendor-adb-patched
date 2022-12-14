@@ -25,8 +25,6 @@
 
 namespace android {
 
-using base::StringAppendF;
-
 ANDROID_SINGLETON_STATIC_INSTANCE(ClientCache);
 
 ClientCache::ClientCache() : mDeathRecipient(new CacheDeathRecipient) {}
@@ -48,7 +46,7 @@ bool ClientCache::getBuffer(const client_cache_t& cacheId,
 
     auto bufItr = processBuffers.find(id);
     if (bufItr == processBuffers.end()) {
-        ALOGV("failed to get buffer, invalid buffer id");
+        ALOGE("failed to get buffer, invalid buffer id");
         return false;
     }
 
@@ -102,12 +100,7 @@ bool ClientCache::add(const client_cache_t& cacheId, const sp<GraphicBuffer>& bu
         return false;
     }
 
-    LOG_ALWAYS_FATAL_IF(mRenderEngine == nullptr,
-                        "Attempted to build the ClientCache before a RenderEngine instance was "
-                        "ready!");
-    processBuffers[id].buffer = std::make_shared<
-            renderengine::ExternalTexture>(buffer, *mRenderEngine,
-                                           renderengine::ExternalTexture::Usage::READABLE);
+    processBuffers[id].buffer = buffer;
     return true;
 }
 
@@ -137,7 +130,7 @@ void ClientCache::erase(const client_cache_t& cacheId) {
     }
 }
 
-std::shared_ptr<renderengine::ExternalTexture> ClientCache::get(const client_cache_t& cacheId) {
+sp<GraphicBuffer> ClientCache::get(const client_cache_t& cacheId) {
     std::lock_guard lock(mMutex);
 
     ClientCacheBuffer* buf = nullptr;
@@ -155,7 +148,7 @@ bool ClientCache::registerErasedRecipient(const client_cache_t& cacheId,
 
     ClientCacheBuffer* buf = nullptr;
     if (!getBuffer(cacheId, &buf)) {
-        ALOGV("failed to register erased recipient, could not retrieve buffer");
+        ALOGE("failed to register erased recipient, could not retrieve buffer");
         return false;
     }
     buf->recipients.insert(recipient);
@@ -208,20 +201,6 @@ void ClientCache::removeProcess(const wp<IBinder>& processToken) {
 
 void ClientCache::CacheDeathRecipient::binderDied(const wp<IBinder>& who) {
     ClientCache::getInstance().removeProcess(who);
-}
-
-void ClientCache::dump(std::string& result) {
-    std::lock_guard lock(mMutex);
-    for (auto i : mBuffers) {
-        const sp<IBinder>& cacheOwner = i.second.first;
-        StringAppendF(&result," Cache owner: %p\n", cacheOwner.get());
-        auto &buffers = i.second.second;
-        for (auto& [id, clientCacheBuffer] : buffers) {
-            StringAppendF(&result, "\t ID: %d, Width/Height: %d,%d\n", (int)id,
-                          (int)clientCacheBuffer.buffer->getBuffer()->getWidth(),
-                          (int)clientCacheBuffer.buffer->getBuffer()->getHeight());
-        }
-    }
 }
 
 }; // namespace android

@@ -18,9 +18,7 @@
 
 #include "libdebuggerd/tombstone.h"
 #include "libdebuggerd/gwp_asan.h"
-#if defined(USE_SCUDO)
 #include "libdebuggerd/scudo.h"
-#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -30,18 +28,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/sysinfo.h>
 #include <time.h>
 
 #include <memory>
 #include <optional>
-#include <set>
 #include <string>
 
 #include <async_safe/log.h>
 
 #include <android-base/file.h>
-#include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
@@ -49,18 +44,16 @@
 
 #include <android/log.h>
 #include <bionic/macros.h>
-#include <bionic/reserved_signals.h>
 #include <log/log.h>
 #include <log/log_read.h>
 #include <log/logprint.h>
 #include <private/android_filesystem_config.h>
 
 #include <procinfo/process.h>
-#include <unwindstack/AndroidUnwinder.h>
-#include <unwindstack/Error.h>
-#include <unwindstack/MapInfo.h>
 #include <unwindstack/Maps.h>
+#include <unwindstack/Memory.h>
 #include <unwindstack/Regs.h>
+#include <unwindstack/Unwinder.h>
 
 #include "libdebuggerd/open_files_list.h"
 #include "libdebuggerd/utility.h"
@@ -106,7 +99,7 @@ static std::optional<std::string> get_stack_overflow_cause(uint64_t fault_addr, 
     // In this case, the sp will be in either an invalid map if triggered
     // on the main thread, or in a guard map if in another thread, which
     // will be the first case or second case from below.
-    std::shared_ptr<unwindstack::MapInfo> map_info = maps->Find(sp);
+    unwindstack::MapInfo* map_info = maps->Find(sp);
     if (map_info == nullptr) {
       return "stack pointer is in a non-existent map; likely due to stack overflow.";
     } else if ((map_info->flags() & (PROT_READ | PROT_WRITE)) != (PROT_READ | PROT_WRITE)) {
@@ -190,15 +183,13 @@ void set_human_readable_cause(Cause* cause, uint64_t fault_addr) {
       error_type_str, diff, byte_suffix, location_str, heap_object.size(), heap_object.address()));
 }
 
-static void dump_probable_cause(Tombstone* tombstone, unwindstack::AndroidUnwinder* unwinder,
+static void dump_probable_cause(Tombstone* tombstone, unwindstack::Unwinder* unwinder,
                                 const ProcessInfo& process_info, const ThreadInfo& main_thread) {
-#if defined(USE_SCUDO)
   ScudoCrashData scudo_crash_data(unwinder->GetProcessMemory().get(), process_info);
   if (scudo_crash_data.CrashIsMine()) {
     scudo_crash_data.AddCauseProtos(tombstone, unwinder);
     return;
   }
-#endif
 
   GwpAsanCrashData gwp_asan_crash_data(unwinder->GetProcessMemory().get(), process_info,
                                        main_thread);
@@ -229,7 +220,7 @@ static void dump_probable_cause(Tombstone* tombstone, unwindstack::AndroidUnwind
       cause = get_stack_overflow_cause(fault_addr, main_thread.registers->sp(), maps);
     }
   } else if (si->si_signo == SIGSEGV && si->si_code == SEGV_ACCERR) {
-    auto map_info = maps->Find(fault_addr);
+    unwindstack::MapInfo* map_info = maps->Find(fault_addr);
     if (map_info != nullptr && map_info->flags() == PROT_EXEC) {
       cause = "execute-only (no-read) memory access error; likely due to data in .text.";
     } else {
@@ -246,9 +237,9 @@ static void dump_probable_cause(Tombstone* tombstone, unwindstack::AndroidUnwind
   }
 }
 
-static void dump_abort_message(Tombstone* tombstone,
-                               std::shared_ptr<unwindstack::Memory>& process_memory,
+static void dump_abort_message(Tombstone* tombstone, unwindstack::Unwinder* unwinder,
                                const ProcessInfo& process_info) {
+  std::shared_ptr<unwindstack::Memory> process_memory = unwinder->GetProcessMemory();
   uintptr_t address = process_info.abort_msg_address;
   if (address == 0) {
     return;
@@ -280,13 +271,6 @@ static void dump_abort_message(Tombstone* tombstone,
     return;
   }
 
-  // Remove any trailing newlines.
-  size_t index = msg.size();
-  while (index > 0 && (msg[index - 1] == '\0' || msg[index - 1] == '\n')) {
-    --index;
-  }
-  msg.resize(index);
-
   tombstone->set_abort_message(msg);
 }
 
@@ -315,7 +299,8 @@ static void dump_open_fds(Tombstone* tombstone, const OpenFilesList* open_files)
   }
 }
 
-void fill_in_backtrace_frame(BacktraceFrame* f, const unwindstack::FrameData& frame) {
+void fill_in_backtrace_frame(BacktraceFrame* f, const unwindstack::FrameData& frame,
+                             unwindstack::Maps* maps) {
   f->set_rel_pc(frame.rel_pc);
   f->set_pc(frame.pc);
   f->set_sp(frame.sp);
@@ -333,134 +318,126 @@ void fill_in_backtrace_frame(BacktraceFrame* f, const unwindstack::FrameData& fr
 
   f->set_function_offset(frame.function_offset);
 
-  if (frame.map_info == nullptr) {
+  if (frame.map_start == frame.map_end) {
     // No valid map associated with this frame.
     f->set_file_name("<unknown>");
-    return;
-  }
-
-  if (!frame.map_info->name().empty()) {
-    f->set_file_name(frame.map_info->GetFullName());
+  } else if (!frame.map_name.empty()) {
+    f->set_file_name(frame.map_name);
   } else {
-    f->set_file_name(StringPrintf("<anonymous:%" PRIx64 ">", frame.map_info->start()));
-  }
-  f->set_file_map_offset(frame.map_info->elf_start_offset());
-
-  f->set_build_id(frame.map_info->GetPrintableBuildID());
-}
-
-static void dump_registers(unwindstack::AndroidUnwinder* unwinder,
-                           const std::unique_ptr<unwindstack::Regs>& regs, Thread& thread,
-                           bool memory_dump) {
-  if (regs == nullptr) {
-    return;
+    f->set_file_name(StringPrintf("<anonymous:%" PRIx64 ">", frame.map_start));
   }
 
-  unwindstack::Maps* maps = unwinder->GetMaps();
-  unwindstack::Memory* memory = unwinder->GetProcessMemory().get();
+  f->set_file_map_offset(frame.map_elf_start_offset);
 
-  regs->IterateRegisters([&thread, memory_dump, maps, memory](const char* name, uint64_t value) {
-    Register r;
-    r.set_name(name);
-    r.set_u64(value);
-    *thread.add_registers() = r;
-
-    if (memory_dump) {
-      MemoryDump dump;
-
-      dump.set_register_name(name);
-      std::shared_ptr<unwindstack::MapInfo> map_info = maps->Find(untag_address(value));
-      if (map_info) {
-        dump.set_mapping_name(map_info->name());
-      }
-
-      constexpr size_t kNumBytesAroundRegister = 256;
-      constexpr size_t kNumTagsAroundRegister = kNumBytesAroundRegister / kTagGranuleSize;
-      char buf[kNumBytesAroundRegister];
-      uint8_t tags[kNumTagsAroundRegister];
-      ssize_t bytes = dump_memory(buf, sizeof(buf), tags, sizeof(tags), &value, memory);
-      if (bytes == -1) {
-        return;
-      }
-      dump.set_begin_address(value);
-      dump.set_memory(buf, bytes);
-
-      bool has_tags = false;
-#if defined(__aarch64__)
-      for (size_t i = 0; i < kNumTagsAroundRegister; ++i) {
-        if (tags[i] != 0) {
-          has_tags = true;
-        }
-      }
-#endif  // defined(__aarch64__)
-
-      if (has_tags) {
-        dump.mutable_arm_mte_metadata()->set_memory_tags(tags, kNumTagsAroundRegister);
-      }
-
-      *thread.add_memory_dump() = std::move(dump);
-    }
-  });
-}
-
-static void dump_thread_backtrace(std::vector<unwindstack::FrameData>& frames, Thread& thread) {
-  std::set<std::string> unreadable_elf_files;
-  for (const auto& frame : frames) {
-    BacktraceFrame* f = thread.add_current_backtrace();
-    fill_in_backtrace_frame(f, frame);
-    if (frame.map_info != nullptr && frame.map_info->ElfFileNotReadable()) {
-      unreadable_elf_files.emplace(frame.map_info->name());
-    }
-  }
-
-  if (!unreadable_elf_files.empty()) {
-    auto unreadable_elf_files_proto = thread.mutable_unreadable_elf_files();
-    auto backtrace_note = thread.mutable_backtrace_note();
-    *backtrace_note->Add() =
-        "Function names and BuildId information is missing for some frames due";
-    *backtrace_note->Add() = "to unreadable libraries. For unwinds of apps, only shared libraries";
-    *backtrace_note->Add() = "found under the lib/ directory are readable.";
-    *backtrace_note->Add() = "On this device, run setenforce 0 to make the libraries readable.";
-    *backtrace_note->Add() = "Unreadable libraries:";
-    for (auto& name : unreadable_elf_files) {
-      *backtrace_note->Add() = "  " + name;
-      *unreadable_elf_files_proto->Add() = name;
-    }
+  unwindstack::MapInfo* map_info = maps->Find(frame.map_start);
+  if (map_info) {
+    f->set_build_id(map_info->GetPrintableBuildID());
   }
 }
 
-static void dump_thread(Tombstone* tombstone, unwindstack::AndroidUnwinder* unwinder,
+static void dump_thread(Tombstone* tombstone, unwindstack::Unwinder* unwinder,
                         const ThreadInfo& thread_info, bool memory_dump = false) {
   Thread thread;
 
   thread.set_id(thread_info.tid);
   thread.set_name(thread_info.thread_name);
   thread.set_tagged_addr_ctrl(thread_info.tagged_addr_ctrl);
-  thread.set_pac_enabled_keys(thread_info.pac_enabled_keys);
 
-  unwindstack::AndroidUnwinderData data;
-  // Indicate we want a copy of the initial registers.
-  data.saved_initial_regs = std::make_optional<std::unique_ptr<unwindstack::Regs>>();
-  bool unwind_ret;
-  if (thread_info.registers != nullptr) {
-    unwind_ret = unwinder->Unwind(thread_info.registers.get(), data);
+  unwindstack::Maps* maps = unwinder->GetMaps();
+  unwindstack::Memory* memory = unwinder->GetProcessMemory().get();
+
+  thread_info.registers->IterateRegisters(
+      [&thread, memory_dump, maps, memory](const char* name, uint64_t value) {
+        Register r;
+        r.set_name(name);
+        r.set_u64(value);
+        *thread.add_registers() = r;
+
+        if (memory_dump) {
+          MemoryDump dump;
+
+          dump.set_register_name(name);
+          unwindstack::MapInfo* map_info = maps->Find(untag_address(value));
+          if (map_info) {
+            dump.set_mapping_name(map_info->name());
+          }
+
+          constexpr size_t kNumBytesAroundRegister = 256;
+          constexpr size_t kNumTagsAroundRegister = kNumBytesAroundRegister / kTagGranuleSize;
+          char buf[kNumBytesAroundRegister];
+          uint8_t tags[kNumTagsAroundRegister];
+          size_t start_offset = 0;
+          ssize_t bytes = dump_memory(buf, sizeof(buf), tags, sizeof(tags), &value, memory);
+          if (bytes == -1) {
+            return;
+          }
+          dump.set_begin_address(value);
+
+          if (start_offset + bytes > sizeof(buf)) {
+            async_safe_fatal("dump_memory overflowed? start offset = %zu, bytes read = %zd",
+                             start_offset, bytes);
+          }
+
+          dump.set_memory(buf, bytes);
+
+          bool has_tags = false;
+#if defined(__aarch64__)
+          for (size_t i = 0; i < kNumTagsAroundRegister; ++i) {
+            if (tags[i] != 0) {
+              has_tags = true;
+            }
+          }
+#endif  // defined(__aarch64__)
+
+          if (has_tags) {
+            dump.mutable_arm_mte_metadata()->set_memory_tags(tags, kNumTagsAroundRegister);
+          }
+
+          *thread.add_memory_dump() = std::move(dump);
+        }
+      });
+
+  std::unique_ptr<unwindstack::Regs> regs_copy(thread_info.registers->Clone());
+  unwinder->SetRegs(regs_copy.get());
+  unwinder->Unwind();
+  if (unwinder->NumFrames() == 0) {
+    async_safe_format_log(ANDROID_LOG_ERROR, LOG_TAG, "failed to unwind");
+    if (unwinder->LastErrorCode() != unwindstack::ERROR_NONE) {
+      async_safe_format_log(ANDROID_LOG_ERROR, LOG_TAG, "  error code: %s",
+                            unwinder->LastErrorCodeString());
+      async_safe_format_log(ANDROID_LOG_ERROR, LOG_TAG, "  error address: 0x%" PRIx64,
+                            unwinder->LastErrorAddress());
+    }
   } else {
-    unwind_ret = unwinder->Unwind(thread_info.tid, data);
+    if (unwinder->elf_from_memory_not_file()) {
+      auto backtrace_note = thread.mutable_backtrace_note();
+      *backtrace_note->Add() =
+          "Function names and BuildId information is missing for some frames due";
+      *backtrace_note->Add() =
+          "to unreadable libraries. For unwinds of apps, only shared libraries";
+      *backtrace_note->Add() = "found under the lib/ directory are readable.";
+      *backtrace_note->Add() = "On this device, run setenforce 0 to make the libraries readable.";
+    }
+    unwinder->SetDisplayBuildID(true);
+    for (const auto& frame : unwinder->frames()) {
+      BacktraceFrame* f = thread.add_current_backtrace();
+      fill_in_backtrace_frame(f, frame, maps);
+    }
   }
-  if (!unwind_ret) {
-    async_safe_format_log(ANDROID_LOG_ERROR, LOG_TAG, "Unwind failed for tid %d: Error %s",
-                          thread_info.tid, data.GetErrorString().c_str());
-  } else {
-    dump_thread_backtrace(data.frames, thread);
-  }
-  dump_registers(unwinder, *data.saved_initial_regs, thread, memory_dump);
 
   auto& threads = *tombstone->mutable_threads();
   threads[thread_info.tid] = thread;
 }
 
-static void dump_mappings(Tombstone* tombstone, unwindstack::Maps* maps,
-                          std::shared_ptr<unwindstack::Memory>& process_memory) {
+static void dump_main_thread(Tombstone* tombstone, unwindstack::Unwinder* unwinder,
+                             const ThreadInfo& thread_info) {
+  dump_thread(tombstone, unwinder, thread_info, true);
+}
+
+static void dump_mappings(Tombstone* tombstone, unwindstack::Unwinder* unwinder) {
+  unwindstack::Maps* maps = unwinder->GetMaps();
+  std::shared_ptr<unwindstack::Memory> process_memory = unwinder->GetProcessMemory();
+
   for (const auto& map_info : *maps) {
     auto* map = tombstone->add_memory_mappings();
     map->set_begin_address(map_info->start());
@@ -569,8 +546,7 @@ static void dump_logcat(Tombstone* tombstone, pid_t pid) {
 }
 
 static void dump_tags_around_fault_addr(Signal* signal, const Tombstone& tombstone,
-                                        std::shared_ptr<unwindstack::Memory>& process_memory,
-                                        uintptr_t fault_addr) {
+                                        unwindstack::Unwinder* unwinder, uintptr_t fault_addr) {
   if (tombstone.arch() != Architecture::ARM64) return;
 
   fault_addr = untag_address(fault_addr);
@@ -581,6 +557,8 @@ static void dump_tags_around_fault_addr(Signal* signal, const Tombstone& tombsto
   // a valid address for us to dump tags from.
   if (fault_addr < kBytesToRead / 2) return;
 
+  unwindstack::Memory* memory = unwinder->GetProcessMemory().get();
+
   constexpr uintptr_t kRowStartMask = ~(kNumTagColumns * kTagGranuleSize - 1);
   size_t start_address = (fault_addr & kRowStartMask) - kBytesToRead / 2;
   MemoryDump tag_dump;
@@ -589,7 +567,7 @@ static void dump_tags_around_fault_addr(Signal* signal, const Tombstone& tombsto
   // Attempt to read the first tag. If reading fails, this likely indicates the
   // lowest touched page is inaccessible or not marked with PROT_MTE.
   // Fast-forward over pages until one has tags, or we exhaust the search range.
-  while (process_memory->ReadTag(start_address) < 0) {
+  while (memory->ReadTag(start_address) < 0) {
     size_t page_size = sysconf(_SC_PAGE_SIZE);
     size_t bytes_to_next_page = page_size - (start_address % page_size);
     if (bytes_to_next_page >= granules_to_read * kTagGranuleSize) return;
@@ -601,7 +579,7 @@ static void dump_tags_around_fault_addr(Signal* signal, const Tombstone& tombsto
   std::string* mte_tags = tag_dump.mutable_arm_mte_metadata()->mutable_memory_tags();
 
   for (size_t i = 0; i < granules_to_read; ++i) {
-    long tag = process_memory->ReadTag(start_address + i * kTagGranuleSize);
+    long tag = memory->ReadTag(start_address + i * kTagGranuleSize);
     if (tag < 0) break;
     mte_tags->push_back(static_cast<uint8_t>(tag));
   }
@@ -611,7 +589,15 @@ static void dump_tags_around_fault_addr(Signal* signal, const Tombstone& tombsto
   }
 }
 
-void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::AndroidUnwinder* unwinder,
+static std::optional<uint64_t> read_uptime_secs() {
+  std::string uptime;
+  if (!android::base::ReadFileToString("/proc/uptime", &uptime)) {
+    return {};
+  }
+  return strtoll(uptime.c_str(), nullptr, 10);
+}
+
+void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::Unwinder* unwinder,
                              const std::map<pid_t, ThreadInfo>& threads, pid_t target_thread,
                              const ProcessInfo& process_info, const OpenFilesList* open_files) {
   Tombstone result;
@@ -621,25 +607,27 @@ void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::AndroidUnwinder*
   result.set_revision(android::base::GetProperty("ro.revision", "unknown"));
   result.set_timestamp(get_timestamp());
 
+  std::optional<uint64_t> system_uptime = read_uptime_secs();
+  if (system_uptime) {
+    android::procinfo::ProcessInfo proc_info;
+    std::string error;
+    if (android::procinfo::GetProcessInfo(target_thread, &proc_info, &error)) {
+      uint64_t starttime = proc_info.starttime / sysconf(_SC_CLK_TCK);
+      result.set_process_uptime(*system_uptime - starttime);
+    } else {
+      async_safe_format_log(ANDROID_LOG_ERROR, LOG_TAG, "failed to read process info: %s",
+                            error.c_str());
+    }
+  } else {
+    async_safe_format_log(ANDROID_LOG_ERROR, LOG_TAG, "failed to read /proc/uptime: %s",
+                          strerror(errno));
+  }
+
   const ThreadInfo& main_thread = threads.at(target_thread);
   result.set_pid(main_thread.pid);
   result.set_tid(main_thread.tid);
   result.set_uid(main_thread.uid);
   result.set_selinux_label(main_thread.selinux_label);
-  // The main thread must have a valid siginfo.
-  CHECK(main_thread.siginfo != nullptr);
-
-  struct sysinfo si;
-  sysinfo(&si);
-  android::procinfo::ProcessInfo proc_info;
-  std::string error;
-  if (android::procinfo::GetProcessInfo(main_thread.pid, &proc_info, &error)) {
-    uint64_t starttime = proc_info.starttime / sysconf(_SC_CLK_TCK);
-    result.set_process_uptime(si.uptime - starttime);
-  } else {
-    async_safe_format_log(ANDROID_LOG_ERROR, LOG_TAG, "failed to read process info: %s",
-                          error.c_str());
-  }
 
   auto cmd_line = result.mutable_command_line();
   for (const auto& arg : main_thread.command_line) {
@@ -666,15 +654,14 @@ void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::AndroidUnwinder*
     sig.set_has_fault_address(true);
     uintptr_t fault_addr = process_info.maybe_tagged_fault_address;
     sig.set_fault_address(fault_addr);
-    dump_tags_around_fault_addr(&sig, result, unwinder->GetProcessMemory(), fault_addr);
+    dump_tags_around_fault_addr(&sig, result, unwinder, fault_addr);
   }
 
   *result.mutable_signal_info() = sig;
 
-  dump_abort_message(&result, unwinder->GetProcessMemory(), process_info);
+  dump_abort_message(&result, unwinder, process_info);
 
-  // Dump the main thread, but save the memory around the registers.
-  dump_thread(&result, unwinder, main_thread, /* memory_dump */ true);
+  dump_main_thread(&result, unwinder, main_thread);
 
   for (const auto& [tid, thread_info] : threads) {
     if (tid != target_thread) {
@@ -684,7 +671,7 @@ void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::AndroidUnwinder*
 
   dump_probable_cause(&result, unwinder, process_info, main_thread);
 
-  dump_mappings(&result, unwinder->GetMaps(), unwinder->GetProcessMemory());
+  dump_mappings(&result, unwinder);
 
   // Only dump logs on debuggable devices.
   if (android::base::GetBoolProperty("ro.debuggable", false)) {

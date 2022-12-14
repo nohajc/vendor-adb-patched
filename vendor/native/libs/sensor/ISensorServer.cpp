@@ -91,14 +91,13 @@ public:
     }
 
     virtual sp<ISensorEventConnection> createSensorEventConnection(const String8& packageName,
-             int mode, const String16& opPackageName, const String16& attributionTag)
+             int mode, const String16& opPackageName)
     {
         Parcel data, reply;
         data.writeInterfaceToken(ISensorServer::getInterfaceDescriptor());
         data.writeString8(packageName);
         data.writeInt32(mode);
         data.writeString16(opPackageName);
-        data.writeString16(attributionTag);
         remote()->transact(CREATE_SENSOR_EVENT_CONNECTION, data, &reply);
         return interface_cast<ISensorEventConnection>(reply.readStrongBinder());
     }
@@ -171,9 +170,8 @@ status_t BnSensorServer::onTransact(
             String8 packageName = data.readString8();
             int32_t mode = data.readInt32();
             const String16& opPackageName = data.readString16();
-            const String16& attributionTag = data.readString16();
             sp<ISensorEventConnection> connection(createSensorEventConnection(packageName, mode,
-                    opPackageName, attributionTag));
+                    opPackageName));
             reply->writeStrongBinder(IInterface::asBinder(connection));
             return NO_ERROR;
         }
@@ -218,25 +216,14 @@ status_t BnSensorServer::onTransact(
             int32_t type;
             Vector<float> floats;
             Vector<int32_t> ints;
-            uint32_t count;
 
             handle = data.readInt32();
             type = data.readInt32();
-
-            count = data.readUint32();
-            if (count > (data.dataAvail() / sizeof(float))) {
-              return BAD_VALUE;
-            }
-            floats.resize(count);
+            floats.resize(data.readUint32());
             for (auto &i : floats) {
                 i = data.readFloat();
             }
-
-            count = data.readUint32();
-            if (count > (data.dataAvail() / sizeof(int32_t))) {
-              return BAD_VALUE;
-            }
-            ints.resize(count);
+            ints.resize(data.readUint32());
             for (auto &i : ints) {
                 i = data.readInt32();
             }

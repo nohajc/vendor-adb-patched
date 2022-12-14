@@ -43,12 +43,10 @@
 namespace ndk {
 
 /**
- * Binder analog to using std::shared_ptr for an internally held refcount.
+ * analog using std::shared_ptr for internally held refcount
  *
  * ref must be called at least one time during the lifetime of this object. The recommended way to
  * construct this object is with SharedRefBase::make.
- *
- * If you need a "this" shared reference analogous to shared_from_this, use this->ref().
  */
 class SharedRefBase {
    public:
@@ -57,12 +55,6 @@ class SharedRefBase {
         std::call_once(mFlagThis, [&]() {
             __assert(__FILE__, __LINE__, "SharedRefBase: no ref created during lifetime");
         });
-
-        if (ref() != nullptr) {
-            __assert(__FILE__, __LINE__,
-                     "SharedRefBase: destructed but still able to lock weak_ptr. Is this object "
-                     "double-owned?");
-        }
     }
 
     /**
@@ -192,9 +184,9 @@ class BnCInterface : public INTERFACE {
     BnCInterface() {}
     virtual ~BnCInterface() {}
 
-    SpAIBinder asBinder() override final;
+    SpAIBinder asBinder() override;
 
-    bool isRemote() override final { return false; }
+    bool isRemote() override { return false; }
 
    protected:
     /**
@@ -217,9 +209,9 @@ class BpCInterface : public INTERFACE {
     explicit BpCInterface(const SpAIBinder& binder) : mBinder(binder) {}
     virtual ~BpCInterface() {}
 
-    SpAIBinder asBinder() override final;
+    SpAIBinder asBinder() override;
 
-    bool isRemote() override final { return AIBinder_isRemote(mBinder.get()); }
+    bool isRemote() override { return AIBinder_isRemote(mBinder.get()); }
 
     binder_status_t dump(int fd, const char** args, uint32_t numArgs) override {
         return AIBinder_dump(asBinder().get(), fd, args, numArgs);
@@ -258,11 +250,7 @@ AIBinder_Class* ICInterface::defineClass(const char* interfaceDescriptor,
     // ourselves. The defaults are harmless.
     AIBinder_Class_setOnDump(clazz, ICInterfaceData::onDump);
 #ifdef HAS_BINDER_SHELL_COMMAND
-#ifdef __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
     if (__builtin_available(android 30, *)) {
-#else
-    if (__ANDROID_API__ >= 30) {
-#endif
         AIBinder_Class_setHandleShellCommand(clazz, ICInterfaceData::handleShellCommand);
     }
 #endif

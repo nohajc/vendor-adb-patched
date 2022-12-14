@@ -42,7 +42,7 @@ static const std::vector<std::function<void(FuzzedDataProvider*, android::Proper
                     android::String8 out;
                     propertyMap.tryGetProperty(key, out);
                 },
-                [](FuzzedDataProvider* dataProvider, android::PropertyMap /*unused*/) -> void {
+                [](FuzzedDataProvider* dataProvider, android::PropertyMap propertyMap) -> void {
                     TemporaryFile tf;
                     // Generate file contents
                     std::string contents = dataProvider->ConsumeRandomLengthString(MAX_FILE_SIZE);
@@ -52,7 +52,8 @@ static const std::vector<std::function<void(FuzzedDataProvider*, android::Proper
                         const char* bytes = contents.c_str();
                         android::base::WriteStringToFd(bytes, tf.fd);
                     }
-                    android::PropertyMap::load(tf.path);
+                    android::PropertyMap* mapPtr = &propertyMap;
+                    android::PropertyMap::load(android::String8(tf.path), &mapPtr);
                 },
                 [](FuzzedDataProvider* dataProvider, android::PropertyMap propertyMap) -> void {
                     std::string keyStr = dataProvider->ConsumeRandomLengthString(MAX_STR_LEN);
@@ -64,12 +65,12 @@ static const std::vector<std::function<void(FuzzedDataProvider*, android::Proper
 };
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     FuzzedDataProvider dataProvider(data, size);
-    android::PropertyMap propertyMap = android::PropertyMap();
+    android::PropertyMap proprtyMap = android::PropertyMap();
 
     int opsRun = 0;
     while (dataProvider.remaining_bytes() > 0 && opsRun++ < MAX_OPERATIONS) {
         uint8_t op = dataProvider.ConsumeIntegralInRange<uint8_t>(0, operations.size() - 1);
-        operations[op](&dataProvider, propertyMap);
+        operations[op](&dataProvider, proprtyMap);
     }
     return 0;
 }

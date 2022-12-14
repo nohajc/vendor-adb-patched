@@ -27,7 +27,6 @@ cc_library {
     use_version_lib: false,
 
     recovery_available: true,
-    min_sdk_version: "30",
     apex_available: [
         "com.android.adbd",
         // TODO(b/151398197) remove the below
@@ -51,7 +50,6 @@ cc_library {
         "//art:__subpackages__",
         "//packages/modules/adb/apex:__subpackages__",
     ],
-    min_sdk_version: "30",
     apex_available: [
         "com.android.adbd",
         "test_com.android.adbd",

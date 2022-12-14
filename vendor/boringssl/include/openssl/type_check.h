@@ -71,12 +71,7 @@ extern "C" {
 // C11 defines the |_Static_assert| keyword and the |static_assert| macro in
 // assert.h. While the former is available at all versions in Clang and GCC, the
 // later depends on libc and, in glibc, depends on being built in C11 mode. We
-// require C11 mode to build the library but, for now, do not require it in
-// public headers. Use |_Static_assert| directly.
-//
-// TODO(davidben): In July 2022, if the C11 change has not been reverted, switch
-// all uses of this macro within the library to C11 |static_assert|. This macro
-// will only be necessary in public headers.
+// do not require this, for now, so use |_Static_assert| directly.
 #define OPENSSL_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
 

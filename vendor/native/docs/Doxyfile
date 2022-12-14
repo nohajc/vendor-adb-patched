@@ -1642,7 +1642,6 @@ extern "C" {
     "__attribute__(x)=" \
     __ANDROID__ \
     __BIONIC__ \
-    "U_IN_DOXYGEN=1" \ # Required by the ICU4C module only
 
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then
 # this tag can be used to specify a list of macro names that should be expanded.

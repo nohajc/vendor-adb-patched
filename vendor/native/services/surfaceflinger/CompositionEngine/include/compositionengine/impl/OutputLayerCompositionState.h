@@ -16,27 +16,25 @@
 
 #pragma once
 
-#include <compositionengine/ProjectionSpace.h>
+#include <cstdint>
+#include <optional>
+#include <string>
+
 #include <compositionengine/impl/HwcBufferCache.h>
-#include <renderengine/ExternalTexture.h>
+#include <renderengine/Mesh.h>
 #include <ui/FloatRect.h>
 #include <ui/GraphicTypes.h>
 #include <ui/Rect.h>
 #include <ui/Region.h>
 
-#include <cstdint>
-#include <optional>
-#include <string>
-
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wextra"
 
 #include "DisplayHardware/ComposerHal.h"
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
-#pragma clang diagnostic pop // ignored "-Wconversion -Wextra"
+#pragma clang diagnostic pop // ignored "-Wconversion"
 
 namespace android {
 
@@ -46,14 +44,8 @@ class Layer;
 
 class HWComposer;
 
-namespace compositionengine {
-class OutputLayer;
-} // namespace compositionengine
-
 namespace compositionengine::impl {
 
-// Note that fields that affect HW composer state may need to be mirrored into
-// android::compositionengine::impl::planner::LayerState
 struct OutputLayerCompositionState {
     // The portion of the layer that is not obscured by opaque layers on top
     Region visibleRegion;
@@ -88,29 +80,8 @@ struct OutputLayerCompositionState {
     // The dataspace for this layer
     ui::Dataspace dataspace{ui::Dataspace::UNKNOWN};
 
-    // Overrides the buffer, acquire fence, and display frame stored in LayerFECompositionState
-    struct {
-        std::shared_ptr<renderengine::ExternalTexture> buffer = nullptr;
-        sp<Fence> acquireFence = nullptr;
-        Rect displayFrame = {};
-        ui::Dataspace dataspace{ui::Dataspace::UNKNOWN};
-        ProjectionSpace displaySpace;
-        Region damageRegion = Region::INVALID_REGION;
-        Region visibleRegion;
-
-        // The OutputLayer pointed to by this field will be rearranged to draw
-        // behind the OutputLayer represented by this CompositionState and will
-        // be visible through it. Unowned - the OutputLayer's lifetime will
-        // outlast this.)
-        compositionengine::OutputLayer* peekThroughLayer = nullptr;
-        // True when this layer's blur has been cached with a previous layer, so that this layer
-        // does not need to request blurring.
-        // TODO(b/188816867): support blur regions too, which are less likely to be common if a
-        // device supports cross-window blurs. Blur region support should be doable, but we would
-        // need to make sure that layer caching works well with the blur region transform passed
-        // into RenderEngine
-        bool disableBackgroundBlur = false;
-    } overrideInfo;
+    // The Z order index of this layer on this output
+    uint32_t z{0};
 
     /*
      * HWC state
@@ -129,12 +100,6 @@ struct OutputLayerCompositionState {
         // The buffer cache for this layer. This is used to lower the
         // cost of sending reused buffers to the HWC.
         HwcBufferCache hwcBufferCache;
-
-        // Set to true when overridden info has been sent to HW composer
-        bool stateOverridden = false;
-
-        // True when this layer was skipped as part of SF-side layer caching.
-        bool layerSkipped = false;
     };
 
     // The HWC state is optional, and is only set up if there is any potential

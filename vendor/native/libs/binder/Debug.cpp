@@ -15,7 +15,6 @@
  */
 
 #include "Debug.h"
-#include "BuildFlags.h"
 
 #include <binder/ProcessState.h>
 
@@ -26,6 +25,22 @@
 #include <ctype.h>
 
 namespace android {
+
+std::string hexString(const void* bytes, size_t len) {
+    if (bytes == nullptr) return "<null>";
+
+    const uint8_t* bytes8 = static_cast<const uint8_t*>(bytes);
+    const char chars[] = "0123456789abcdef";
+    std::string result;
+    result.resize(len * 2);
+
+    for (size_t i = 0; i < len; i++) {
+        result[2 * i] = chars[bytes8[i] >> 4];
+        result[2 * i + 1] = chars[bytes8[i] & 0xf];
+    }
+
+    return result;
+}
 
 // ---------------------------------------------------------------------
 
@@ -302,11 +317,6 @@ void printHexData(int32_t indent, const void *buf, size_t length,
 }
 
 ssize_t getBinderKernelReferences(size_t count, uintptr_t* buf) {
-    if constexpr (!kEnableKernelIpc) {
-        LOG_ALWAYS_FATAL("Binder kernel driver disabled at build time");
-        return 0;
-    }
-
     sp<ProcessState> proc = ProcessState::selfOrNull();
     if (proc.get() == nullptr) {
         return 0;

@@ -67,7 +67,7 @@ uint64_t CompressedSnapshotWriter::GetCowSize() {
     return cow_->GetCowSize();
 }
 
-std::unique_ptr<CowReader> CompressedSnapshotWriter::OpenCowReader() const {
+std::unique_ptr<FileDescriptor> CompressedSnapshotWriter::OpenReader() {
     unique_fd cow_fd(dup(cow_device_.get()));
     if (cow_fd < 0) {
         PLOG(ERROR) << "dup COW device";
@@ -79,20 +79,6 @@ std::unique_ptr<CowReader> CompressedSnapshotWriter::OpenCowReader() const {
         LOG(ERROR) << "Unable to read COW";
         return nullptr;
     }
-    return cow;
-}
-
-bool CompressedSnapshotWriter::VerifyMergeOps() const noexcept {
-    auto cow_reader = OpenCowReader();
-    if (cow_reader == nullptr) {
-        LOG(ERROR) << "Couldn't open CowReader";
-        return false;
-    }
-    return cow_reader->VerifyMergeOps();
-}
-
-std::unique_ptr<FileDescriptor> CompressedSnapshotWriter::OpenReader() {
-    auto cow = OpenCowReader();
 
     auto reader = std::make_unique<CompressedSnapshotReader>();
     if (!reader->SetCow(std::move(cow))) {
@@ -118,11 +104,6 @@ bool CompressedSnapshotWriter::EmitCopy(uint64_t new_block, uint64_t old_block) 
 bool CompressedSnapshotWriter::EmitRawBlocks(uint64_t new_block_start, const void* data,
                                              size_t size) {
     return cow_->AddRawBlocks(new_block_start, data, size);
-}
-
-bool CompressedSnapshotWriter::EmitXorBlocks(uint32_t new_block_start, const void* data,
-                                             size_t size, uint32_t old_block, uint16_t offset) {
-    return cow_->AddXorBlocks(new_block_start, data, size, old_block, offset);
 }
 
 bool CompressedSnapshotWriter::EmitZeroBlocks(uint64_t new_block_start, uint64_t num_blocks) {
@@ -174,11 +155,6 @@ bool OnlineKernelSnapshotWriter::EmitRawBlocks(uint64_t new_block_start, const v
         return false;
     }
     return true;
-}
-
-bool OnlineKernelSnapshotWriter::EmitXorBlocks(uint32_t, const void*, size_t, uint32_t, uint16_t) {
-    LOG(ERROR) << "EmitXorBlocks not implemented.";
-    return false;
 }
 
 bool OnlineKernelSnapshotWriter::EmitZeroBlocks(uint64_t new_block_start, uint64_t num_blocks) {

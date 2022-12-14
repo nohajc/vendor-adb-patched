@@ -21,32 +21,12 @@
 #include <cmath>
 #include <string>
 
-namespace std {
-template <class Rep, class Period>
-bool signbit(std::chrono::duration<Rep, Period> v) {
-    return signbit(std::chrono::duration_cast<std::chrono::nanoseconds>(v).count());
-}
-} // namespace std
-
 namespace android {
-
-namespace {
-template <typename T>
-int64_t to_int64(T v) {
-    return int64_t(v);
-}
-
-template <class Rep, class Period>
-int64_t to_int64(std::chrono::duration<Rep, Period> v) {
-    return int64_t(v.count());
-}
-} // namespace
 
 template <typename T>
 class TracedOrdinal {
 public:
-    static_assert(std::is_same<bool, T>() || (std::is_signed<T>() && std::is_integral<T>()) ||
-                          std::is_same<std::chrono::nanoseconds, T>(),
+    static_assert(std::is_same<bool, T>() || (std::is_signed<T>() && std::is_integral<T>()),
                   "Type is not supported. Please test it with systrace before adding "
                   "it to the list.");
 
@@ -57,9 +37,7 @@ public:
         trace();
     }
 
-    T get() const { return mData; }
-
-    operator T() const { return get(); }
+    operator T() const { return mData; }
 
     TracedOrdinal& operator=(T other) {
         mData = other;
@@ -79,12 +57,12 @@ private:
         }
 
         if (!std::signbit(mData)) {
-            ATRACE_INT64(mName.c_str(), to_int64(mData));
+            ATRACE_INT64(mName.c_str(), int64_t(mData));
             if (mHasGoneNegative) {
                 ATRACE_INT64(mNameNegative.c_str(), 0);
             }
         } else {
-            ATRACE_INT64(mNameNegative.c_str(), -to_int64(mData));
+            ATRACE_INT64(mNameNegative.c_str(), -int64_t(mData));
             ATRACE_INT64(mName.c_str(), 0);
         }
     }

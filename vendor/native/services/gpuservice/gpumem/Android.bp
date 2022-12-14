@@ -26,17 +26,19 @@ cc_library_shared {
     srcs: [
         "GpuMem.cpp",
     ],
-    header_libs: ["bpf_headers"],
     shared_libs: [
         "libbase",
-        "libbpf_bcc",
+        "libbpf",
+        "libbpf_android",
         "libcutils",
         "liblog",
         "libutils",
     ],
     export_include_dirs: ["include"],
-    export_header_lib_headers: ["bpf_headers"],
-    export_shared_lib_headers: ["libbase"],
+    export_shared_lib_headers: [
+        "libbase",
+        "libbpf_android",
+    ],
     cppflags: [
         "-Wall",
         "-Werror",

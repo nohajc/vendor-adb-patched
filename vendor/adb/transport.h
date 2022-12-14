@@ -31,7 +31,6 @@
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 
 #include <android-base/macros.h>
@@ -99,8 +98,6 @@ extern const char* const kFeatureSendRecv2LZ4;
 extern const char* const kFeatureSendRecv2Zstd;
 // adbd supports dry-run send for send/recv v2.
 extern const char* const kFeatureSendRecv2DryRunSend;
-// adbd supports delayed acks.
-extern const char* const kFeatureDelayedAck;
 
 TransportId NextTransportId();
 
@@ -299,10 +296,6 @@ class atransport : public enable_weak_from_this<atransport> {
 #if ADB_HOST
     void SetUsbHandle(usb_handle* h) { usb_handle_ = h; }
     usb_handle* GetUsbHandle() { return usb_handle_; }
-
-    // Interface for management/filter on forward:reverse: configuration.
-    void UpdateReverseConfig(std::string_view service_addr);
-    bool IsReverseConfigured(const std::string& local_addr);
 #endif
 
     const TransportId id;
@@ -350,10 +343,6 @@ class atransport : public enable_weak_from_this<atransport> {
     const FeatureSet& features() const { return features_; }
 
     bool has_feature(const std::string& feature) const;
-
-    bool SupportsDelayedAck() const {
-        return delayed_ack_;
-    }
 
     // Loads the transport's feature set from the given string.
     void SetFeatures(const std::string& features_string);
@@ -430,29 +419,8 @@ class atransport : public enable_weak_from_this<atransport> {
 
     std::mutex mutex_;
 
-    bool delayed_ack_ = false;
-
-#if ADB_HOST
-    // Track remote addresses against local addresses (configured)
-    // through `adb reverse` commands.
-    // Access constrained to primary thread by virtue of check_main_thread().
-    std::unordered_map<std::string, std::string> reverse_forwards_;
-#endif
-
     DISALLOW_COPY_AND_ASSIGN(atransport);
 };
-
-// --one-device command line parameter is eventually put here.
-void transport_set_one_device(const char* adb_one_device);
-
-// Returns one device owned by this server of nullptr if all devices belong to server.
-const char* transport_get_one_device();
-
-// Returns true if the adb server owns all devices, or `serial`.
-bool transport_server_owns_device(std::string_view serial);
-
-// Returns true if the adb server owns all devices, `serial`, or `dev_path`.
-bool transport_server_owns_device(std::string_view dev_path, std::string_view serial);
 
 /*
  * Obtain a transport from the available transports.

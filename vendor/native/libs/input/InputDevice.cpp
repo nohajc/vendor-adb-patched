@@ -21,7 +21,6 @@
 #include <ctype.h>
 
 #include <android-base/stringprintf.h>
-#include <ftl/NamedEnum.h>
 #include <input/InputDevice.h>
 #include <input/InputEventLabels.h>
 
@@ -47,45 +46,39 @@ static bool isValidNameChar(char ch) {
 
 static void appendInputDeviceConfigurationFileRelativePath(std::string& path,
         const std::string& name, InputDeviceConfigurationFileType type) {
-    path += CONFIGURATION_FILE_DIR[static_cast<int32_t>(type)];
+    path += CONFIGURATION_FILE_DIR[type];
     path += name;
-    path += CONFIGURATION_FILE_EXTENSION[static_cast<int32_t>(type)];
+    path += CONFIGURATION_FILE_EXTENSION[type];
 }
 
 std::string getInputDeviceConfigurationFilePathByDeviceIdentifier(
-        const InputDeviceIdentifier& deviceIdentifier, InputDeviceConfigurationFileType type,
-        const char* suffix) {
+        const InputDeviceIdentifier& deviceIdentifier,
+        InputDeviceConfigurationFileType type) {
     if (deviceIdentifier.vendor !=0 && deviceIdentifier.product != 0) {
         if (deviceIdentifier.version != 0) {
             // Try vendor product version.
-            std::string versionPath =
-                    getInputDeviceConfigurationFilePathByName(StringPrintf("Vendor_%04x_Product_%"
-                                                                           "04x_Version_%04x%s",
-                                                                           deviceIdentifier.vendor,
-                                                                           deviceIdentifier.product,
-                                                                           deviceIdentifier.version,
-                                                                           suffix),
-                                                              type);
+            std::string versionPath = getInputDeviceConfigurationFilePathByName(
+                    StringPrintf("Vendor_%04x_Product_%04x_Version_%04x",
+                            deviceIdentifier.vendor, deviceIdentifier.product,
+                            deviceIdentifier.version),
+                    type);
             if (!versionPath.empty()) {
                 return versionPath;
             }
         }
 
         // Try vendor product.
-        std::string productPath =
-                getInputDeviceConfigurationFilePathByName(StringPrintf("Vendor_%04x_Product_%04x%s",
-                                                                       deviceIdentifier.vendor,
-                                                                       deviceIdentifier.product,
-                                                                       suffix),
-                                                          type);
+        std::string productPath = getInputDeviceConfigurationFilePathByName(
+                StringPrintf("Vendor_%04x_Product_%04x",
+                        deviceIdentifier.vendor, deviceIdentifier.product),
+                type);
         if (!productPath.empty()) {
             return productPath;
         }
     }
 
     // Try device name.
-    return getInputDeviceConfigurationFilePathByName(deviceIdentifier.getCanonicalName() + suffix,
-                                                     type);
+    return getInputDeviceConfigurationFilePathByName(deviceIdentifier.getCanonicalName(), type);
 }
 
 std::string getInputDeviceConfigurationFilePathByName(
@@ -93,17 +86,8 @@ std::string getInputDeviceConfigurationFilePathByName(
     // Search system repository.
     std::string path;
 
-    // Treblized input device config files will be located /product/usr, /system_ext/usr,
-    // /odm/usr or /vendor/usr.
-    // These files may also be in the com.android.input.config APEX.
-    const char* rootsForPartition[]{
-            "/product",
-            "/system_ext",
-            "/odm",
-            "/vendor",
-            "/apex/com.android.input.config/etc",
-            getenv("ANDROID_ROOT"),
-    };
+    // Treblized input device config files will be located /odm/usr or /vendor/usr.
+    const char *rootsForPartition[] {"/odm", "/vendor", getenv("ANDROID_ROOT")};
     for (size_t i = 0; i < size(rootsForPartition); i++) {
         if (rootsForPartition[i] == nullptr) {
             continue;
@@ -169,24 +153,14 @@ InputDeviceInfo::InputDeviceInfo() {
     initialize(-1, 0, -1, InputDeviceIdentifier(), "", false, false);
 }
 
-InputDeviceInfo::InputDeviceInfo(const InputDeviceInfo& other)
-      : mId(other.mId),
-        mGeneration(other.mGeneration),
-        mControllerNumber(other.mControllerNumber),
-        mIdentifier(other.mIdentifier),
-        mAlias(other.mAlias),
-        mIsExternal(other.mIsExternal),
-        mHasMic(other.mHasMic),
-        mSources(other.mSources),
-        mKeyboardType(other.mKeyboardType),
-        mKeyCharacterMap(other.mKeyCharacterMap),
-        mHasVibrator(other.mHasVibrator),
-        mHasBattery(other.mHasBattery),
-        mHasButtonUnderPad(other.mHasButtonUnderPad),
-        mHasSensor(other.mHasSensor),
-        mMotionRanges(other.mMotionRanges),
-        mSensors(other.mSensors),
-        mLights(other.mLights) {}
+InputDeviceInfo::InputDeviceInfo(const InputDeviceInfo& other) :
+        mId(other.mId), mGeneration(other.mGeneration), mControllerNumber(other.mControllerNumber),
+        mIdentifier(other.mIdentifier), mAlias(other.mAlias), mIsExternal(other.mIsExternal),
+        mHasMic(other.mHasMic), mSources(other.mSources),
+        mKeyboardType(other.mKeyboardType), mKeyCharacterMap(other.mKeyCharacterMap),
+        mHasVibrator(other.mHasVibrator), mHasButtonUnderPad(other.mHasButtonUnderPad),
+        mMotionRanges(other.mMotionRanges) {
+}
 
 InputDeviceInfo::~InputDeviceInfo() {
 }
@@ -204,12 +178,8 @@ void InputDeviceInfo::initialize(int32_t id, int32_t generation, int32_t control
     mSources = 0;
     mKeyboardType = AINPUT_KEYBOARD_TYPE_NONE;
     mHasVibrator = false;
-    mHasBattery = false;
     mHasButtonUnderPad = false;
-    mHasSensor = false;
     mMotionRanges.clear();
-    mSensors.clear();
-    mLights.clear();
 }
 
 const InputDeviceInfo::MotionRange* InputDeviceInfo::getMotionRange(
@@ -236,46 +206,6 @@ void InputDeviceInfo::addMotionRange(int32_t axis, uint32_t source, float min, f
 
 void InputDeviceInfo::addMotionRange(const MotionRange& range) {
     mMotionRanges.push_back(range);
-}
-
-void InputDeviceInfo::addSensorInfo(const InputDeviceSensorInfo& info) {
-    if (mSensors.find(info.type) != mSensors.end()) {
-        ALOGW("Sensor type %s already exists, will be replaced by new sensor added.",
-              NamedEnum::string(info.type).c_str());
-    }
-    mSensors.insert_or_assign(info.type, info);
-}
-
-void InputDeviceInfo::addBatteryInfo(const InputDeviceBatteryInfo& info) {
-    if (mBatteries.find(info.id) != mBatteries.end()) {
-        ALOGW("Battery id %d already exists, will be replaced by new battery added.", info.id);
-    }
-    mBatteries.insert_or_assign(info.id, info);
-}
-
-void InputDeviceInfo::addLightInfo(const InputDeviceLightInfo& info) {
-    if (mLights.find(info.id) != mLights.end()) {
-        ALOGW("Light id %d already exists, will be replaced by new light added.", info.id);
-    }
-    mLights.insert_or_assign(info.id, info);
-}
-
-std::vector<InputDeviceSensorInfo> InputDeviceInfo::getSensors() {
-    std::vector<InputDeviceSensorInfo> infos;
-    infos.reserve(mSensors.size());
-    for (const auto& [type, info] : mSensors) {
-        infos.push_back(info);
-    }
-    return infos;
-}
-
-std::vector<InputDeviceLightInfo> InputDeviceInfo::getLights() {
-    std::vector<InputDeviceLightInfo> infos;
-    infos.reserve(mLights.size());
-    for (const auto& [id, info] : mLights) {
-        infos.push_back(info);
-    }
-    return infos;
 }
 
 } // namespace android

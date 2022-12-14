@@ -63,17 +63,18 @@ static status_t startGraphicsAllocatorService() {
     return OK;
 }
 
-static void startDisplayService() {
+static status_t startDisplayService() {
     using android::frameworks::displayservice::V1_0::implementation::DisplayService;
     using android::frameworks::displayservice::V1_0::IDisplayService;
 
     sp<IDisplayService> displayservice = new DisplayService();
     status_t err = displayservice->registerAsService();
 
-    // b/141930622
     if (err != OK) {
-        ALOGE("Did not register (deprecated) IDisplayService service.");
+        ALOGE("Could not register IDisplayService service.");
     }
+
+    return err;
 }
 
 int main(int, char**) {
@@ -88,52 +89,12 @@ int main(int, char**) {
     // binder threads to 4.
     ProcessState::self()->setThreadPoolMaxThreadCount(4);
 
-    // Set uclamp.min setting on all threads, maybe an overkill but we want
-    // to cover important threads like RenderEngine.
-    if (SurfaceFlinger::setSchedAttr(true) != NO_ERROR) {
-        ALOGW("Couldn't set uclamp.min: %s\n", strerror(errno));
-    }
-
-    // The binder threadpool we start will inherit sched policy and priority
-    // of (this) creating thread. We want the binder thread pool to have
-    // SCHED_FIFO policy and priority 1 (lowest RT priority)
-    // Once the pool is created we reset this thread's priority back to
-    // original.
-    int newPriority = 0;
-    int origPolicy = sched_getscheduler(0);
-    struct sched_param origSchedParam;
-
-    int errorInPriorityModification = sched_getparam(0, &origSchedParam);
-    if (errorInPriorityModification == 0) {
-        int policy = SCHED_FIFO;
-        newPriority = sched_get_priority_min(policy);
-
-        struct sched_param param;
-        param.sched_priority = newPriority;
-
-        errorInPriorityModification = sched_setscheduler(0, policy, &param);
-    }
-
     // start the thread pool
     sp<ProcessState> ps(ProcessState::self());
     ps->startThreadPool();
 
-    // Reset current thread's policy and priority
-    if (errorInPriorityModification == 0) {
-        errorInPriorityModification = sched_setscheduler(0, origPolicy, &origSchedParam);
-    } else {
-        ALOGE("Failed to set SurfaceFlinger binder threadpool priority to SCHED_FIFO");
-    }
-
     // instantiate surfaceflinger
     sp<SurfaceFlinger> flinger = surfaceflinger::createSurfaceFlinger();
-
-    // Set the minimum policy of surfaceflinger node to be SCHED_FIFO.
-    // So any thread with policy/priority lower than {SCHED_FIFO, 1}, will run
-    // at least with SCHED_FIFO policy and priority 1.
-    if (errorInPriorityModification == 0) {
-        flinger->setMinSchedulerPolicy(SCHED_FIFO, newPriority);
-    }
 
     setpriority(PRIO_PROCESS, 0, PRIORITY_URGENT_DISPLAY);
 

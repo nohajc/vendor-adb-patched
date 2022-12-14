@@ -88,7 +88,6 @@ status_t GpuStatsAppInfo::writeToParcel(Parcel* parcel) const {
     if ((status = parcel->writeBool(cpuVulkanInUse)) != OK) return status;
     if ((status = parcel->writeBool(falsePrerotation)) != OK) return status;
     if ((status = parcel->writeBool(gles1InUse)) != OK) return status;
-    if ((status = parcel->writeBool(angleInUse)) != OK) return status;
     return OK;
 }
 
@@ -102,7 +101,6 @@ status_t GpuStatsAppInfo::readFromParcel(const Parcel* parcel) {
     if ((status = parcel->readBool(&cpuVulkanInUse)) != OK) return status;
     if ((status = parcel->readBool(&falsePrerotation)) != OK) return status;
     if ((status = parcel->readBool(&gles1InUse)) != OK) return status;
-    if ((status = parcel->readBool(&angleInUse)) != OK) return status;
     return OK;
 }
 
@@ -113,7 +111,6 @@ std::string GpuStatsAppInfo::toString() const {
     StringAppendF(&result, "cpuVulkanInUse = %d\n", cpuVulkanInUse);
     StringAppendF(&result, "falsePrerotation = %d\n", falsePrerotation);
     StringAppendF(&result, "gles1InUse = %d\n", gles1InUse);
-    StringAppendF(&result, "angleInUse = %d\n", angleInUse);
     result.append("glDriverLoadingTime:");
     for (int32_t loadingTime : glDriverLoadingTime) {
         StringAppendF(&result, " %d", loadingTime);

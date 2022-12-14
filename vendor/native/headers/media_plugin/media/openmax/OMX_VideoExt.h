@@ -318,9 +318,6 @@ typedef enum OMX_VIDEO_DOLBYVISIONLEVELTYPE {
     OMX_VIDEO_DolbyVisionLevelUhd30   = 0x40,
     OMX_VIDEO_DolbyVisionLevelUhd48   = 0x80,
     OMX_VIDEO_DolbyVisionLevelUhd60   = 0x100,
-    OMX_VIDEO_DolbyVisionLevelUhd120  = 0x200,
-    OMX_VIDEO_DolbyVisionLevel8k30    = 0x400,
-    OMX_VIDEO_DolbyVisionLevel8k60    = 0x800,
     OMX_VIDEO_DolbyVisionLevelmax     = 0x7FFFFFFF
 } OMX_VIDEO_DOLBYVISIONLEVELTYPE;
 

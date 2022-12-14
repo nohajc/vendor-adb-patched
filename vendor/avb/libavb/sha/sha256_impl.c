@@ -35,7 +35,8 @@
  * SUCH DAMAGE.
  */
 
-#include "../avb_sha.h"
+#include <libavb/avb_sha.h>
+
 #include "avb_crypto_ops_impl.h"
 
 #define SHFR(x, n) (x >> n)

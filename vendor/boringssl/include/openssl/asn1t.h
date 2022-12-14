@@ -72,9 +72,6 @@ extern "C" {
  * |CBB| library in <openssl/bytestring.h> instead. */
 
 
-typedef struct ASN1_TEMPLATE_st ASN1_TEMPLATE;
-typedef struct ASN1_TLC_st ASN1_TLC;
-
 /* Macro to obtain ASN1_ADB pointer from a type (only used internally) */
 #define ASN1_ADB_ptr(iptr) ((const ASN1_ADB *)(iptr))
 
@@ -260,6 +257,7 @@ typedef struct ASN1_TLC_st ASN1_TLC;
 /* Any defined by macros: the field used is in the table itself */
 
 #define ASN1_ADB_OBJECT(tblname) { ASN1_TFLG_ADB_OID, -1, 0, #tblname, (const ASN1_ITEM *)&(tblname##_adb) }
+#define ASN1_ADB_INTEGER(tblname) { ASN1_TFLG_ADB_INT, -1, 0, #tblname, (const ASN1_ITEM *)&(tblname##_adb) }
 /* Plain simple type */
 #define ASN1_SIMPLE(stname, field, type) ASN1_EX_TYPE(0,0, stname, field, type)
 
@@ -376,7 +374,7 @@ struct ASN1_ADB_st {
 };
 
 struct ASN1_ADB_TABLE_st {
-	int value;		/* NID for an object */
+	long value;		/* NID for an object or value for an int */
 	const ASN1_TEMPLATE tt;		/* item for this value */
 };
 
@@ -390,6 +388,13 @@ struct ASN1_ADB_TABLE_st {
 
 /* Field is a SEQUENCE OF */
 #define ASN1_TFLG_SEQUENCE_OF	(0x2 << 1)
+
+/* Special case: this refers to a SET OF that
+ * will be sorted into DER order when encoded *and*
+ * the corresponding STACK will be modified to match
+ * the new order.
+ */
+#define ASN1_TFLG_SET_ORDER	(0x3 << 1)
 
 /* Mask for SET OF or SEQUENCE OF */
 #define ASN1_TFLG_SK_MASK	(0x3 << 1)
@@ -440,6 +445,8 @@ struct ASN1_ADB_TABLE_st {
 #define ASN1_TFLG_ADB_MASK	(0x3<<8)
 
 #define ASN1_TFLG_ADB_OID	(0x1<<8)
+
+#define ASN1_TFLG_ADB_INT	(0x1<<9)
 
 /* This flag means a parent structure is passed
  * instead of the field: this is useful is a
@@ -509,8 +516,19 @@ const char *sname;		/* Structure name */
 
 #define ASN1_ITYPE_MSTRING		0x5
 
-/* Deprecated tag and length cache */
-struct ASN1_TLC_st;
+/* Cache for ASN1 tag and length, so we
+ * don't keep re-reading it for things
+ * like CHOICE
+ */
+
+struct ASN1_TLC_st{
+	char valid;	/* Values below are valid */
+	int ret;	/* return value */
+	long plen;	/* length */
+	int ptag;	/* class value */
+	int pclass;	/* class value */
+	int hdrlen;	/* header length */
+};
 
 /* Typedefs for ASN1 function pointers */
 
@@ -584,8 +602,8 @@ typedef struct ASN1_AUX_st {
 #define ASN1_OP_FREE_POST	3
 #define ASN1_OP_D2I_PRE		4
 #define ASN1_OP_D2I_POST	5
-/* ASN1_OP_I2D_PRE and ASN1_OP_I2D_POST are not supported. We leave the
- * constants undefined so code relying on them does not accidentally compile. */
+#define ASN1_OP_I2D_PRE		6
+#define ASN1_OP_I2D_POST	7
 #define ASN1_OP_PRINT_PRE	8
 #define ASN1_OP_PRINT_POST	9
 #define ASN1_OP_STREAM_PRE	10
@@ -694,6 +712,9 @@ typedef struct ASN1_AUX_st {
 
 /* external definitions for primitive types */
 
+DECLARE_ASN1_ITEM(ASN1_BOOLEAN)
+DECLARE_ASN1_ITEM(ASN1_TBOOLEAN)
+DECLARE_ASN1_ITEM(ASN1_FBOOLEAN)
 DECLARE_ASN1_ITEM(ASN1_SEQUENCE)
 
 DEFINE_STACK_OF(ASN1_VALUE)

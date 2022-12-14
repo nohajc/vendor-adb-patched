@@ -321,6 +321,10 @@ std::string decodeRenderIntent(RenderIntent renderIntent) {
     return std::string("Unknown RenderIntent");
 }
 
+std::string to_string(const android::Rect& rect) {
+    return StringPrintf("(%4d,%4d,%4d,%4d)", rect.left, rect.top, rect.right, rect.bottom);
+}
+
 std::string toString(const android::DeviceProductInfo::ManufactureOrModelDate& date) {
     using ModelYear = android::DeviceProductInfo::ModelYear;
     using ManufactureYear = android::DeviceProductInfo::ManufactureYear;

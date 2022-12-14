@@ -574,15 +574,6 @@ void find_devices() {
                     unsigned long serial_number_len = sizeof(serial_number);
                     if (AdbGetSerialNumber(handle->adb_interface, serial_number, &serial_number_len,
                                            true)) {
-                        if (!transport_server_owns_device(serial_number)) {
-                            // We aren't allowed to communicate with this device. Don't open this
-                            // device.
-                            D("ignoring device: not owned by this server serial: '%s'",
-                              serial_number);
-                            usb_cleanup_handle(handle);
-                            free(handle);
-                            return;
-                        }
                         // Lets make sure that we don't duplicate this device
                         if (register_new_device(handle)) {
                             register_usb_transport(handle, serial_number, nullptr, 1);

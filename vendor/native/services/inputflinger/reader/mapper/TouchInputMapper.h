@@ -150,7 +150,7 @@ public:
     bool markSupportedKeyCodes(uint32_t sourceMask, size_t numCodes, const int32_t* keyCodes,
                                uint8_t* outFlags) override;
 
-    void cancelTouch(nsecs_t when, nsecs_t readTime) override;
+    void cancelTouch(nsecs_t when) override;
     void timeoutExpired(nsecs_t when) override;
     void updateExternalStylusState(const StylusState& state) override;
     std::optional<int32_t> getAssociatedDisplayId() override;
@@ -204,15 +204,6 @@ protected:
         bool hasAssociatedDisplay;
         bool associatedDisplayIsExternal;
         bool orientationAware;
-
-        enum class Orientation : int32_t {
-            ORIENTATION_0 = DISPLAY_ORIENTATION_0,
-            ORIENTATION_90 = DISPLAY_ORIENTATION_90,
-            ORIENTATION_180 = DISPLAY_ORIENTATION_180,
-            ORIENTATION_270 = DISPLAY_ORIENTATION_270,
-        };
-        Orientation orientation;
-
         bool hasButtonUnderPad;
         std::string uniqueDisplayId;
 
@@ -307,7 +298,6 @@ protected:
 
     struct RawState {
         nsecs_t when;
-        nsecs_t readTime;
 
         // Raw pointer sample data.
         RawPointerData rawPointerData;
@@ -320,7 +310,6 @@ protected:
 
         void copyFrom(const RawState& other) {
             when = other.when;
-            readTime = other.readTime;
             rawPointerData.copyFrom(other.rawPointerData);
             buttonState = other.buttonState;
             rawVScroll = other.rawVScroll;
@@ -329,7 +318,6 @@ protected:
 
         void clear() {
             when = 0;
-            readTime = 0;
             rawPointerData.clear();
             buttonState = 0;
             rawVScroll = 0;
@@ -599,27 +587,6 @@ private:
             QUIET,
         };
 
-        // When a gesture is sent to an unfocused window, return true if it can bring that window
-        // into focus, false otherwise.
-        static bool canGestureAffectWindowFocus(Mode mode) {
-            switch (mode) {
-                case Mode::TAP:
-                case Mode::TAP_DRAG:
-                case Mode::BUTTON_CLICK_OR_DRAG:
-                    // Taps can affect window focus.
-                    return true;
-                case Mode::FREEFORM:
-                case Mode::HOVER:
-                case Mode::NEUTRAL:
-                case Mode::PRESS:
-                case Mode::QUIET:
-                case Mode::SWIPE:
-                    // Most gestures can be performed on an unfocused window, so they should not
-                    // not affect window focus.
-                    return false;
-            }
-        }
-
         // Time the first finger went down.
         nsecs_t firstTouchTime;
 
@@ -735,42 +702,39 @@ private:
     void resetExternalStylus();
     void clearStylusDataPendingFlags();
 
-    void sync(nsecs_t when, nsecs_t readTime);
+    void sync(nsecs_t when);
 
-    bool consumeRawTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    bool consumeRawTouches(nsecs_t when, uint32_t policyFlags);
     void processRawTouches(bool timeout);
-    void cookAndDispatch(nsecs_t when, nsecs_t readTime);
-    void dispatchVirtualKey(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
-                            int32_t keyEventAction, int32_t keyEventFlags);
+    void cookAndDispatch(nsecs_t when);
+    void dispatchVirtualKey(nsecs_t when, uint32_t policyFlags, int32_t keyEventAction,
+                            int32_t keyEventFlags);
 
-    void dispatchTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchHoverExit(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchHoverEnterAndMove(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchButtonRelease(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void dispatchButtonPress(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void dispatchTouches(nsecs_t when, uint32_t policyFlags);
+    void dispatchHoverExit(nsecs_t when, uint32_t policyFlags);
+    void dispatchHoverEnterAndMove(nsecs_t when, uint32_t policyFlags);
+    void dispatchButtonRelease(nsecs_t when, uint32_t policyFlags);
+    void dispatchButtonPress(nsecs_t when, uint32_t policyFlags);
     const BitSet32& findActiveIdBits(const CookedPointerData& cookedPointerData);
     void cookPointerData();
-    void abortTouches(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void abortTouches(nsecs_t when, uint32_t policyFlags);
 
-    void dispatchPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
-                              PointerUsage pointerUsage);
-    void abortPointerUsage(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void dispatchPointerUsage(nsecs_t when, uint32_t policyFlags, PointerUsage pointerUsage);
+    void abortPointerUsage(nsecs_t when, uint32_t policyFlags);
 
-    void dispatchPointerGestures(nsecs_t when, nsecs_t readTime, uint32_t policyFlags,
-                                 bool isTimeout);
-    void abortPointerGestures(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void dispatchPointerGestures(nsecs_t when, uint32_t policyFlags, bool isTimeout);
+    void abortPointerGestures(nsecs_t when, uint32_t policyFlags);
     bool preparePointerGestures(nsecs_t when, bool* outCancelPreviousGesture,
                                 bool* outFinishPreviousGesture, bool isTimeout);
 
-    void dispatchPointerStylus(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void abortPointerStylus(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void dispatchPointerStylus(nsecs_t when, uint32_t policyFlags);
+    void abortPointerStylus(nsecs_t when, uint32_t policyFlags);
 
-    void dispatchPointerMouse(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
-    void abortPointerMouse(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void dispatchPointerMouse(nsecs_t when, uint32_t policyFlags);
+    void abortPointerMouse(nsecs_t when, uint32_t policyFlags);
 
-    void dispatchPointerSimple(nsecs_t when, nsecs_t readTime, uint32_t policyFlags, bool down,
-                               bool hovering);
-    void abortPointerSimple(nsecs_t when, nsecs_t readTime, uint32_t policyFlags);
+    void dispatchPointerSimple(nsecs_t when, uint32_t policyFlags, bool down, bool hovering);
+    void abortPointerSimple(nsecs_t when, uint32_t policyFlags);
 
     bool assignExternalStylusId(const RawState& state, bool timeout);
     void applyExternalStylusButtonState(nsecs_t when);
@@ -780,9 +744,9 @@ private:
     // If the changedId is >= 0 and the action is POINTER_DOWN or POINTER_UP, the
     // method will take care of setting the index and transmuting the action to DOWN or UP
     // it is the first / last pointer to go down / up.
-    void dispatchMotion(nsecs_t when, nsecs_t readTime, uint32_t policyFlags, uint32_t source,
-                        int32_t action, int32_t actionButton, int32_t flags, int32_t metaState,
-                        int32_t buttonState, int32_t edgeFlags, const PointerProperties* properties,
+    void dispatchMotion(nsecs_t when, uint32_t policyFlags, uint32_t source, int32_t action,
+                        int32_t actionButton, int32_t flags, int32_t metaState, int32_t buttonState,
+                        int32_t edgeFlags, const PointerProperties* properties,
                         const PointerCoords* coords, const uint32_t* idToIndex, BitSet32 idBits,
                         int32_t changedId, float xPrecision, float yPrecision, nsecs_t downTime);
 
@@ -793,27 +757,13 @@ private:
                              PointerCoords* outCoords, const uint32_t* outIdToIndex,
                              BitSet32 idBits) const;
 
-    // Returns if this touch device is a touch screen with an associated display.
-    bool isTouchScreen();
-    // Updates touch spots if they are enabled. Should only be used when this device is a
-    // touchscreen.
-    void updateTouchSpots();
-
     bool isPointInsideSurface(int32_t x, int32_t y);
     const VirtualKey* findVirtualKeyHit(int32_t x, int32_t y);
 
-    static void assignPointerIds(const RawState& last, RawState& current);
+    static void assignPointerIds(const RawState* last, RawState* current);
 
     const char* modeToString(DeviceMode deviceMode);
     void rotateAndScale(float& x, float& y);
-
-    // Wrapper methods for interfacing with PointerController. These are used to convert points
-    // between the coordinate spaces used by InputReader and PointerController, if they differ.
-    void moveMouseCursor(float dx, float dy) const;
-    std::pair<float, float> getMouseCursorPosition() const;
-    void setMouseCursorPosition(float x, float y) const;
-    void setTouchSpots(const PointerCoords* spotCoords, const uint32_t* spotIdToIndex,
-                       BitSet32 spotIdBits, int32_t displayId);
 };
 
 } // namespace android

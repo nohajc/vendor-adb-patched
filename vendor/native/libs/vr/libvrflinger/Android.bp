@@ -18,6 +18,8 @@ package {
     // all of the 'license_kinds' from "frameworks_native_license"
     // to get the below license kinds:
     //   SPDX-license-identifier-Apache-2.0
+    //   SPDX-license-identifier-MIT
+    //   SPDX-license-identifier-Unicode-DFS
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
@@ -31,7 +33,7 @@ sourceFiles = [
     "vr_flinger.cpp",
 ]
 
-includeFiles = ["include"]
+includeFiles = [ "include" ]
 
 staticLibraries = [
     "libdisplay",
@@ -83,6 +85,8 @@ headerLibraries = [
 cc_library_static {
     srcs: sourceFiles,
     export_include_dirs: includeFiles,
+
+    clang: true,
     cflags: [
         "-DLOG_TAG=\"vr_flinger\"",
         "-DTRACE=0",

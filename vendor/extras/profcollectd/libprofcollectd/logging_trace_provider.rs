@@ -32,10 +32,6 @@ impl TraceProvider for LoggingTraceProvider {
         "logging"
     }
 
-    fn is_ready(&self) -> bool {
-        true
-    }
-
     fn trace(&self, trace_dir: &Path, tag: &str, sampling_period: &Duration) {
         let trace_file = trace_provider::get_path(trace_dir, tag, LOGGING_TRACEFILE_EXTENSION);
 

@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -27,4 +26,3 @@ std::string get_process_name(pid_t pid);
 std::string get_thread_name(pid_t tid);
 
 std::string get_timestamp();
-bool iterate_tids(pid_t, std::function<void(pid_t)>);

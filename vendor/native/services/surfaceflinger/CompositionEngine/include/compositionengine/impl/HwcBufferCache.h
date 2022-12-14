@@ -22,12 +22,11 @@
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wextra"
 
 #include <gui/BufferQueue.h>
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
-#pragma clang diagnostic pop // ignored "-Wconversion -Wextra"
+#pragma clang diagnostic pop // ignored "-Wconversion"
 
 #include <utils/StrongPointer.h>
 
@@ -57,15 +56,11 @@ public:
     void getHwcBuffer(int slot, const sp<GraphicBuffer>& buffer, uint32_t* outSlot,
                       sp<GraphicBuffer>* outBuffer);
 
-    // Special caching slot for the layer caching feature.
-    static const constexpr size_t FLATTENER_CACHING_SLOT = BufferQueue::NUM_BUFFER_SLOTS;
-
 private:
     // an array where the index corresponds to a slot and the value corresponds to a (counter,
     // buffer) pair. "counter" is a unique value that indicates the last time this slot was updated
     // or used and allows us to keep track of the least-recently used buffer.
-    static const constexpr size_t kMaxLayerBufferCount = BufferQueue::NUM_BUFFER_SLOTS + 1;
-    wp<GraphicBuffer> mBuffers[kMaxLayerBufferCount];
+    wp<GraphicBuffer> mBuffers[BufferQueue::NUM_BUFFER_SLOTS];
 };
 
 } // namespace compositionengine::impl

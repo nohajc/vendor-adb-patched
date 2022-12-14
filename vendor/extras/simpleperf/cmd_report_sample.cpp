@@ -27,7 +27,6 @@
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 
 #include "OfflineUnwinder.h"
-#include "RecordFilter.h"
 #include "command.h"
 #include "event_attr.h"
 #include "event_type.h"
@@ -144,9 +143,6 @@ class ReportSampleCommand : public Command {
 "--show-art-frames  Show frames of internal methods in the ART Java interpreter.\n"
 "--show-execution-type  Show execution type of a method\n"
 "--symdir <dir>     Look for files with symbols in a directory recursively.\n"
-"\n"
-"Sample filter options:\n"
-RECORD_FILTER_OPTION_HELP_MSG_FOR_REPORTING
             // clang-format on
             ),
         record_filename_("perf.data"),
@@ -159,8 +155,7 @@ RECORD_FILTER_OPTION_HELP_MSG_FOR_REPORTING
         trace_offcpu_(false),
         remove_unknown_kernel_symbols_(false),
         kernel_symbols_available_(false),
-        callchain_report_builder_(thread_tree_),
-        record_filter_(thread_tree_) {}
+        callchain_report_builder_(thread_tree_) {}
 
   bool Run(const std::vector<std::string>& args) override;
 
@@ -175,7 +170,6 @@ RECORD_FILTER_OPTION_HELP_MSG_FOR_REPORTING
   bool PrintSampleRecordInProtobuf(const SampleRecord& record,
                                    const std::vector<CallChainReportEntry>& entries);
   void AddUnwindingResultInProtobuf(proto::Sample_UnwindingResult* proto_unwinding_result);
-  bool ProcessSwitchRecord(Record* r);
   bool WriteRecordInProtobuf(proto::Record& proto_record);
   bool PrintLostSituationInProtobuf();
   bool PrintFileInfoInProtobuf();
@@ -204,7 +198,6 @@ RECORD_FILTER_OPTION_HELP_MSG_FOR_REPORTING
   // map from <pid, tid> to thread name
   std::map<uint64_t, const char*> thread_names_;
   std::unique_ptr<UnwindingResultRecord> last_unwinding_result_;
-  RecordFilter record_filter_;
 };
 
 bool ReportSampleCommand::Run(const std::vector<std::string>& args) {
@@ -294,7 +287,7 @@ bool ReportSampleCommand::Run(const std::vector<std::string>& args) {
 }
 
 bool ReportSampleCommand::ParseOptions(const std::vector<std::string>& args) {
-  OptionFormatMap option_formats = {
+  const OptionFormatMap option_formats = {
       {"--dump-protobuf-report", {OptionValueType::STRING, OptionType::SINGLE}},
       {"-i", {OptionValueType::STRING, OptionType::SINGLE}},
       {"-o", {OptionValueType::STRING, OptionType::SINGLE}},
@@ -306,8 +299,6 @@ bool ReportSampleCommand::ParseOptions(const std::vector<std::string>& args) {
       {"--show-execution-type", {OptionValueType::NONE, OptionType::SINGLE}},
       {"--symdir", {OptionValueType::STRING, OptionType::MULTIPLE}},
   };
-  OptionFormatMap record_filter_options = GetRecordFilterOptionFormats(false);
-  option_formats.insert(record_filter_options.begin(), record_filter_options.end());
   OptionValueMap options;
   std::vector<std::pair<OptionName, OptionValue>> ordered_options;
   if (!PreprocessOptions(args, option_formats, &options, &ordered_options, nullptr)) {
@@ -332,9 +323,6 @@ bool ReportSampleCommand::ParseOptions(const std::vector<std::string>& args) {
     if (!Dso::AddSymbolDir(*value.str_value)) {
       return false;
     }
-  }
-  if (!record_filter_.ParseOptions(options)) {
-    return false;
   }
   CHECK(options.values.empty());
 
@@ -372,7 +360,8 @@ bool ReportSampleCommand::DumpProtobufReport(const std::string& filename) {
   // files[file_id] is the number of symbols in the file.
   std::vector<uint32_t> files;
   uint32_t max_message_size = 64 * (1 << 20);
-  coded_is.SetTotalBytesLimit(max_message_size);
+  uint32_t warning_message_size = 512 * (1 << 20);
+  coded_is.SetTotalBytesLimit(max_message_size, warning_message_size);
   while (true) {
     uint32_t size;
     if (!coded_is.ReadLittleEndian32(&size)) {
@@ -385,7 +374,7 @@ bool ReportSampleCommand::DumpProtobufReport(const std::string& filename) {
     // Handle files having large symbol table.
     if (size > max_message_size) {
       max_message_size = size;
-      coded_is.SetTotalBytesLimit(max_message_size);
+      coded_is.SetTotalBytesLimit(max_message_size, warning_message_size);
     }
     auto limit = coded_is.PushLimit(size);
     proto::Record proto_record;
@@ -466,31 +455,20 @@ bool ReportSampleCommand::DumpProtobufReport(const std::string& filename) {
         FprintIndented(report_fp_, 1, "event_type: %s\n", meta_info.event_type(i).c_str());
       }
       if (meta_info.has_app_package_name()) {
-        FprintIndented(report_fp_, 1, "app_package_name: %s\n",
+        FprintIndented(report_fp_, 0, "app_package_name: %s\n",
                        meta_info.app_package_name().c_str());
       }
       if (meta_info.has_app_type()) {
-        FprintIndented(report_fp_, 1, "app_type: %s\n", meta_info.app_type().c_str());
+        FprintIndented(report_fp_, 0, "app_type: %s\n", meta_info.app_type().c_str());
       }
       if (meta_info.has_android_sdk_version()) {
-        FprintIndented(report_fp_, 1, "android_sdk_version: %s\n",
+        FprintIndented(report_fp_, 0, "android_sdk_version: %s\n",
                        meta_info.android_sdk_version().c_str());
       }
       if (meta_info.has_android_build_type()) {
-        FprintIndented(report_fp_, 1, "android_build_type: %s\n",
+        FprintIndented(report_fp_, 0, "android_build_type: %s\n",
                        meta_info.android_build_type().c_str());
       }
-      if (meta_info.has_trace_offcpu()) {
-        FprintIndented(report_fp_, 1, "trace_offcpu: %s\n",
-                       meta_info.trace_offcpu() ? "true" : "false");
-      }
-    } else if (proto_record.has_context_switch()) {
-      auto& context_switch = proto_record.context_switch();
-      FprintIndented(report_fp_, 0, "context_switch:\n");
-      FprintIndented(report_fp_, 1, "switch_on: %s\n",
-                     context_switch.switch_on() ? "true" : "false");
-      FprintIndented(report_fp_, 1, "time: %" PRIu64 "\n", context_switch.time());
-      FprintIndented(report_fp_, 1, "thread_id: %u\n", context_switch.thread_id());
     } else {
       LOG(ERROR) << "unexpected record type ";
       return false;
@@ -519,21 +497,9 @@ bool ReportSampleCommand::OpenRecordFile() {
   auto& meta_info = record_file_reader_->GetMetaInfoFeature();
   if (auto it = meta_info.find("trace_offcpu"); it != meta_info.end()) {
     trace_offcpu_ = it->second == "true";
-    if (trace_offcpu_) {
-      std::string event_name = GetEventNameByAttr(*record_file_reader_->AttrSection()[0].attr);
-      if (!android::base::StartsWith(event_name, "cpu-clock") &&
-          !android::base::StartsWith(event_name, "task-clock")) {
-        LOG(ERROR) << "Recording file " << record_filename_ << " is no longer supported. "
-                   << "--trace-offcpu must be used with `-e cpu-clock` or `-e task-clock`.";
-        return false;
-      }
-    }
   }
   if (auto it = meta_info.find("kernel_symbols_available"); it != meta_info.end()) {
     kernel_symbols_available_ = it->second == "true";
-  }
-  if (!record_filter_.CheckClock(record_file_reader_->GetClockId())) {
-    return false;
   }
   for (EventAttrWithId& attr : record_file_reader_->AttrSection()) {
     event_types_.push_back(GetEventNameByAttr(*attr.attr));
@@ -574,7 +540,6 @@ bool ReportSampleCommand::PrintMetaInfo() {
     if (!android_build_type.empty()) {
       proto_meta_info->set_android_build_type(android_build_type);
     }
-    proto_meta_info->set_trace_offcpu(trace_offcpu_);
     return WriteRecordInProtobuf(proto_record);
   }
   FprintIndented(report_fp_, 0, "meta_info:\n");
@@ -614,20 +579,11 @@ bool ReportSampleCommand::ProcessRecord(std::unique_ptr<Record> record) {
       lost_count_ += static_cast<const LostRecord*>(record.get())->lost;
       break;
     }
-    case PERF_RECORD_SWITCH:
-      [[fallthrough]];
-    case PERF_RECORD_SWITCH_CPU_WIDE: {
-      result = ProcessSwitchRecord(record.get());
-      break;
-    }
   }
   return result;
 }
 
 bool ReportSampleCommand::ProcessSampleRecord(const SampleRecord& r) {
-  if (!record_filter_.Check(&r)) {
-    return true;
-  }
   size_t kernel_ip_count;
   std::vector<uint64_t> ips = r.GetCallChain(&kernel_ip_count);
   if (kernel_ip_count > 0u && remove_unknown_kernel_symbols_ && !kernel_symbols_available_) {
@@ -761,25 +717,6 @@ void ReportSampleCommand::AddUnwindingResultInProtobuf(
   proto_unwinding_result->set_error_code(error_code);
 }
 
-bool ReportSampleCommand::ProcessSwitchRecord(Record* r) {
-  bool switch_on = !(r->header.misc & PERF_RECORD_MISC_SWITCH_OUT);
-  uint64_t time = r->Timestamp();
-  uint32_t tid = r->sample_id.tid_data.tid;
-  if (use_protobuf_) {
-    proto::Record proto_record;
-    proto::ContextSwitch* proto_switch = proto_record.mutable_context_switch();
-    proto_switch->set_switch_on(switch_on);
-    proto_switch->set_time(time);
-    proto_switch->set_thread_id(tid);
-    return WriteRecordInProtobuf(proto_record);
-  }
-  FprintIndented(report_fp_, 0, "context_switch:\n");
-  FprintIndented(report_fp_, 1, "switch_on: %s\n", switch_on ? "true" : "false");
-  FprintIndented(report_fp_, 1, "time: %" PRIu64 "\n", time);
-  FprintIndented(report_fp_, 1, "thread_id: %u\n", tid);
-  return true;
-}
-
 bool ReportSampleCommand::WriteRecordInProtobuf(proto::Record& proto_record) {
   coded_os_->WriteLittleEndian32(proto_record.ByteSize());
   if (!proto_record.SerializeToCodedStream(coded_os_)) {
@@ -879,7 +816,7 @@ bool ReportSampleCommand::PrintSampleRecord(const SampleRecord& r,
       FprintIndented(report_fp_, 2, "file: %s\n", entries[i].dso->GetReportPath().data());
       FprintIndented(report_fp_, 2, "symbol: %s\n", entries[i].symbol->DemangledName());
       if (show_execution_type_) {
-        FprintIndented(report_fp_, 2, "execution_type: %s\n",
+        FprintIndented(report_fp_, 1, "execution_type: %s\n",
                        ProtoExecutionTypeToString(ToProtoExecutionType(entries[i].execution_type)));
       }
     }

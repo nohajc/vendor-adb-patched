@@ -131,24 +131,24 @@ static bool initGlobals() {
     }
 
     gTisTotalMapFd =
-            unique_fd{bpf_obj_get(BPF_FS_PATH "map_timeInState_total_time_in_state_map")};
+            unique_fd{bpf_obj_get(BPF_FS_PATH "map_time_in_state_total_time_in_state_map")};
     if (gTisTotalMapFd < 0) return false;
 
-    gTisMapFd = unique_fd{bpf_obj_get(BPF_FS_PATH "map_timeInState_uid_time_in_state_map")};
+    gTisMapFd = unique_fd{bpf_obj_get(BPF_FS_PATH "map_time_in_state_uid_time_in_state_map")};
     if (gTisMapFd < 0) return false;
 
     gConcurrentMapFd =
-            unique_fd{bpf_obj_get(BPF_FS_PATH "map_timeInState_uid_concurrent_times_map")};
+            unique_fd{bpf_obj_get(BPF_FS_PATH "map_time_in_state_uid_concurrent_times_map")};
     if (gConcurrentMapFd < 0) return false;
 
     gUidLastUpdateMapFd =
-            unique_fd{bpf_obj_get(BPF_FS_PATH "map_timeInState_uid_last_update_map")};
+            unique_fd{bpf_obj_get(BPF_FS_PATH "map_time_in_state_uid_last_update_map")};
     if (gUidLastUpdateMapFd < 0) return false;
 
-    gPidTisMapFd = unique_fd{mapRetrieveRO(BPF_FS_PATH "map_timeInState_pid_time_in_state_map")};
+    gPidTisMapFd = unique_fd{mapRetrieveRO(BPF_FS_PATH "map_time_in_state_pid_time_in_state_map")};
     if (gPidTisMapFd < 0) return false;
 
-    unique_fd trackedPidMapFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_pid_tracked_map"));
+    unique_fd trackedPidMapFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_pid_tracked_map"));
     if (trackedPidMapFd < 0) return false;
 
     gInitialized = true;
@@ -156,7 +156,7 @@ static bool initGlobals() {
 }
 
 static int retrieveProgramFd(const std::string &eventType, const std::string &eventName) {
-    std::string path = StringPrintf(BPF_FS_PATH "prog_timeInState_tracepoint_%s_%s",
+    std::string path = StringPrintf(BPF_FS_PATH "prog_time_in_state_tracepoint_%s_%s",
                                     eventType.c_str(), eventName.c_str());
     return retrieveProgram(path.c_str());
 }
@@ -200,7 +200,7 @@ bool startTrackingUidTimes() {
     if (!initGlobals()) return false;
     if (gTracking) return true;
 
-    unique_fd cpuPolicyFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_cpu_policy_map"));
+    unique_fd cpuPolicyFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_cpu_policy_map"));
     if (cpuPolicyFd < 0) return false;
 
     for (uint32_t i = 0; i < gPolicyCpus.size(); ++i) {
@@ -209,7 +209,7 @@ bool startTrackingUidTimes() {
         }
     }
 
-    unique_fd freqToIdxFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_freq_to_idx_map"));
+    unique_fd freqToIdxFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_freq_to_idx_map"));
     if (freqToIdxFd < 0) return false;
     freq_idx_key_t key;
     for (uint32_t i = 0; i < gNPolicies; ++i) {
@@ -224,23 +224,23 @@ bool startTrackingUidTimes() {
         }
     }
 
-    unique_fd cpuLastUpdateFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_cpu_last_update_map"));
+    unique_fd cpuLastUpdateFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_cpu_last_update_map"));
     if (cpuLastUpdateFd < 0) return false;
     std::vector<uint64_t> zeros(get_nprocs_conf(), 0);
     uint32_t zero = 0;
     if (writeToMapEntry(cpuLastUpdateFd, &zero, zeros.data(), BPF_ANY)) return false;
 
-    unique_fd nrActiveFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_nr_active_map"));
+    unique_fd nrActiveFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_nr_active_map"));
     if (nrActiveFd < 0) return false;
     if (writeToMapEntry(nrActiveFd, &zero, &zero, BPF_ANY)) return false;
 
-    unique_fd policyNrActiveFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_policy_nr_active_map"));
+    unique_fd policyNrActiveFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_policy_nr_active_map"));
     if (policyNrActiveFd < 0) return false;
     for (uint32_t i = 0; i < gNPolicies; ++i) {
         if (writeToMapEntry(policyNrActiveFd, &i, &zero, BPF_ANY)) return false;
     }
 
-    unique_fd policyFreqIdxFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_policy_freq_idx_map"));
+    unique_fd policyFreqIdxFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_policy_freq_idx_map"));
     if (policyFreqIdxFd < 0) return false;
     for (uint32_t i = 0; i < gNPolicies; ++i) {
         auto freqIdx = getPolicyFreqIdx(i);
@@ -300,11 +300,11 @@ std::optional<std::vector<std::vector<uint64_t>>> getUidCpuFreqTimes(uint32_t ui
     }
 
     std::vector<tis_val_t> vals(gNCpus);
+    time_key_t key = {.uid = uid};
     for (uint32_t i = 0; i <= (maxFreqCount - 1) / FREQS_PER_ENTRY; ++i) {
-        const time_key_t key = {.uid = uid, .bucket = i};
+        key.bucket = i;
         if (findMapEntry(gTisMapFd, &key, vals.data())) {
-            time_key_t tmpKey;
-            if (errno != ENOENT || getFirstMapKey(gTisMapFd, &tmpKey)) return {};
+            if (errno != ENOENT || getFirstMapKey(gTisMapFd, &key)) return {};
             continue;
         }
 
@@ -412,11 +412,10 @@ std::optional<concurrent_time_t> getUidConcurrentTimes(uint32_t uid, bool retry)
     concurrent_time_t ret = {.active = std::vector<uint64_t>(gNCpus, 0)};
     for (const auto &cpuList : gPolicyCpus) ret.policy.emplace_back(cpuList.size(), 0);
     std::vector<concurrent_val_t> vals(gNCpus);
-    for (uint32_t i = 0; i <= (gNCpus - 1) / CPUS_PER_ENTRY; ++i) {
-        const time_key_t key = {.uid = uid, .bucket = i};
+    time_key_t key = {.uid = uid};
+    for (key.bucket = 0; key.bucket <= (gNCpus - 1) / CPUS_PER_ENTRY; ++key.bucket) {
         if (findMapEntry(gConcurrentMapFd, &key, vals.data())) {
-            time_key_t tmpKey;
-            if (errno != ENOENT || getFirstMapKey(gConcurrentMapFd, &tmpKey)) return {};
+            if (errno != ENOENT || getFirstMapKey(gConcurrentMapFd, &key)) return {};
             continue;
         }
         auto offset = key.bucket * CPUS_PER_ENTRY;
@@ -560,10 +559,10 @@ bool startTrackingProcessCpuTimes(pid_t pid) {
     if (!gInitialized && !initGlobals()) return false;
 
     unique_fd trackedPidHashMapFd(
-            mapRetrieveWO(BPF_FS_PATH "map_timeInState_pid_tracked_hash_map"));
+            mapRetrieveWO(BPF_FS_PATH "map_time_in_state_pid_tracked_hash_map"));
     if (trackedPidHashMapFd < 0) return false;
 
-    unique_fd trackedPidMapFd(mapRetrieveWO(BPF_FS_PATH "map_timeInState_pid_tracked_map"));
+    unique_fd trackedPidMapFd(mapRetrieveWO(BPF_FS_PATH "map_time_in_state_pid_tracked_map"));
     if (trackedPidMapFd < 0) return false;
 
     for (uint32_t index = 0; index < MAX_TRACKED_PIDS; index++) {
@@ -590,7 +589,7 @@ bool startAggregatingTaskCpuTimes(pid_t pid, uint16_t aggregationKey) {
     if (!gInitialized && !initGlobals()) return false;
 
     unique_fd taskAggregationMapFd(
-            mapRetrieveWO(BPF_FS_PATH "map_timeInState_pid_task_aggregation_map"));
+            mapRetrieveWO(BPF_FS_PATH "map_time_in_state_pid_task_aggregation_map"));
     if (taskAggregationMapFd < 0) return false;
 
     return writeToMapEntry(taskAggregationMapFd, &pid, &aggregationKey, BPF_ANY) == 0;

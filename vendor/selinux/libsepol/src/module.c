@@ -82,7 +82,7 @@ static int policy_file_length(struct policy_file *fp, size_t *out)
 		break;
 	case PF_USE_MEMORY:
 		*out = fp->size;
-		break;
+		break;;
 	default:
 		*out = 0;
 		break;
@@ -132,6 +132,7 @@ int sepol_module_package_create(sepol_module_package_t ** p)
 	return rc;
 }
 
+hidden_def(sepol_module_package_create)
 
 /* Deallocates all memory associated with a module package, including
  * the pointer itself.  Does nothing if p is NULL.
@@ -149,6 +150,7 @@ void sepol_module_package_free(sepol_module_package_t * p)
 	free(p);
 }
 
+hidden_def(sepol_module_package_free)
 
 char *sepol_module_package_get_file_contexts(sepol_module_package_t * p)
 {
@@ -293,14 +295,11 @@ static int link_netfilter_contexts(sepol_module_package_t * base,
 	}
 	base->netfilter_contexts = base_context;
 	for (i = 0; i < num_modules; i++) {
-		if (modules[i]->netfilter_contexts_len > 0) {
-			memcpy(base->netfilter_contexts + base->netfilter_contexts_len,
-			       modules[i]->netfilter_contexts,
-			       modules[i]->netfilter_contexts_len);
-			base->netfilter_contexts_len +=
-			    modules[i]->netfilter_contexts_len;
-		}
-
+		memcpy(base->netfilter_contexts + base->netfilter_contexts_len,
+		       modules[i]->netfilter_contexts,
+		       modules[i]->netfilter_contexts_len);
+		base->netfilter_contexts_len +=
+		    modules[i]->netfilter_contexts_len;
 	}
 	return 0;
 }
@@ -409,14 +408,14 @@ static int module_package_read_offsets(sepol_module_package_t * mod,
 		goto err;
 	}
 
-	off = (size_t *) mallocarray(nsec + 1, sizeof(size_t));
+	off = (size_t *) malloc((nsec + 1) * sizeof(size_t));
 	if (!off) {
 		ERR(file->handle, "out of memory");
 		goto err;
 	}
 
 	free(buf);
-	buf = mallocarray(nsec, sizeof(uint32_t));
+	buf = malloc(sizeof(uint32_t) * nsec);
 	if (!buf) {
 		ERR(file->handle, "out of memory");
 		goto err;
@@ -799,9 +798,7 @@ int sepol_module_package_info(struct sepol_policy_file *spf, int *type,
 
 			len = le32_to_cpu(buf[0]);
 			if (str_read(name, file, len)) {
-				ERR(file->handle,
-				    "cannot read module name (at section %u): %m",
-				    i);
+				ERR(file->handle, "%s", strerror(errno));
 				goto cleanup;
 			}
 
@@ -814,9 +811,7 @@ int sepol_module_package_info(struct sepol_policy_file *spf, int *type,
 			}
 			len = le32_to_cpu(buf[0]);
 			if (str_read(version, file, len)) {
-				ERR(file->handle,
-				    "cannot read module version (at section %u): %m",
-				i);
+				ERR(file->handle, "%s", strerror(errno));
 				goto cleanup;
 			}
 			seen |= SEEN_MOD;

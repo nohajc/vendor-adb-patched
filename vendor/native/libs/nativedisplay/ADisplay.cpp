@@ -16,11 +16,10 @@
 
 #include <apex/display.h>
 #include <gui/SurfaceComposerClient.h>
-#include <ui/DisplayMode.h>
-#include <ui/DynamicDisplayInfo.h>
+#include <ui/DisplayConfig.h>
+#include <ui/DisplayInfo.h>
 #include <ui/GraphicTypes.h>
 #include <ui/PixelFormat.h>
-#include <ui/StaticDisplayInfo.h>
 
 #include <algorithm>
 #include <optional>
@@ -33,11 +32,6 @@ namespace android::display::impl {
  * Implementation of ADisplayConfig
  */
 struct DisplayConfigImpl {
-    /**
-     * The ID of the display configuration.
-     */
-    size_t id;
-
     /**
      * The width in pixels of the display configuration.
      */
@@ -140,36 +134,34 @@ int ADisplay_acquirePhysicalDisplays(ADisplay*** outDisplays) {
         return NO_INIT;
     }
 
-    std::vector<DisplayConfigImpl> modesPerDisplay[size];
-    int numModes = 0;
+    std::vector<DisplayConfigImpl> configsPerDisplay[size];
+    int numConfigs = 0;
     for (int i = 0; i < size; ++i) {
         const sp<IBinder> token = SurfaceComposerClient::getPhysicalDisplayToken(ids[i]);
 
-        ui::StaticDisplayInfo staticInfo;
-        if (const status_t status = SurfaceComposerClient::getStaticDisplayInfo(token, &staticInfo);
+        DisplayInfo info;
+        if (const status_t status = SurfaceComposerClient::getDisplayInfo(token, &info);
             status != OK) {
             return status;
         }
 
-        ui::DynamicDisplayInfo dynamicInfo;
-        if (const status_t status =
-                    SurfaceComposerClient::getDynamicDisplayInfo(token, &dynamicInfo);
+        Vector<DisplayConfig> configs;
+        if (const status_t status = SurfaceComposerClient::getDisplayConfigs(token, &configs);
             status != OK) {
             return status;
         }
-        const auto& modes = dynamicInfo.supportedDisplayModes;
-        if (modes.empty()) {
+        if (configs.empty()) {
             return NO_INIT;
         }
 
-        numModes += modes.size();
-        modesPerDisplay[i].reserve(modes.size());
-        for (int j = 0; j < modes.size(); ++j) {
-            const ui::DisplayMode& mode = modes[j];
-            modesPerDisplay[i].emplace_back(
-                    DisplayConfigImpl{static_cast<size_t>(mode.id), mode.resolution.getWidth(),
-                                      mode.resolution.getHeight(), staticInfo.density,
-                                      mode.refreshRate, mode.sfVsyncOffset, mode.appVsyncOffset});
+        numConfigs += configs.size();
+        configsPerDisplay[i].reserve(configs.size());
+        for (int j = 0; j < configs.size(); ++j) {
+            const DisplayConfig& config = configs[j];
+            configsPerDisplay[i].emplace_back(
+                    DisplayConfigImpl{config.resolution.getWidth(), config.resolution.getHeight(),
+                                      info.density, config.refreshRate, config.sfVsyncOffset,
+                                      config.appVsyncOffset});
         }
     }
 
@@ -200,7 +192,7 @@ int ADisplay_acquirePhysicalDisplays(ADisplay*** outDisplays) {
     // contiguous block of DisplayConfigImpls specific to that display.
     DisplayImpl** const impls = reinterpret_cast<DisplayImpl**>(
             malloc((sizeof(DisplayImpl) + sizeof(DisplayImpl*)) * size +
-                   sizeof(DisplayConfigImpl) * numModes));
+                   sizeof(DisplayConfigImpl) * numConfigs));
     DisplayImpl* const displayData = reinterpret_cast<DisplayImpl*>(impls + size);
     DisplayConfigImpl* configData = reinterpret_cast<DisplayConfigImpl*>(displayData + size);
 
@@ -208,7 +200,7 @@ int ADisplay_acquirePhysicalDisplays(ADisplay*** outDisplays) {
         const PhysicalDisplayId id = ids[i];
         const ADisplayType type = (internalId == id) ? ADisplayType::DISPLAY_TYPE_INTERNAL
                                                      : ADisplayType::DISPLAY_TYPE_EXTERNAL;
-        const std::vector<DisplayConfigImpl>& configs = modesPerDisplay[i];
+        const std::vector<DisplayConfigImpl>& configs = configsPerDisplay[i];
         memcpy(configData, configs.data(), sizeof(DisplayConfigImpl) * configs.size());
 
         displayData[i] = DisplayImpl{id,
@@ -265,22 +257,15 @@ int ADisplay_getCurrentConfig(ADisplay* display, ADisplayConfig** outConfig) {
     CHECK_NOT_NULL(display);
 
     sp<IBinder> token = getToken(display);
-    ui::DynamicDisplayInfo info;
-    if (const auto status = SurfaceComposerClient::getDynamicDisplayInfo(token, &info);
-        status != OK) {
-        return status;
+    const int index = SurfaceComposerClient::getActiveConfig(token);
+    if (index < 0) {
+        return index;
     }
 
     DisplayImpl* impl = reinterpret_cast<DisplayImpl*>(display);
-    for (size_t i = 0; i < impl->numConfigs; i++) {
-        auto* config = impl->configs + i;
-        if (config->id == info.activeDisplayModeId) {
-            *outConfig = reinterpret_cast<ADisplayConfig*>(config);
-            return OK;
-        }
-    }
 
-    return NAME_NOT_FOUND;
+    *outConfig = reinterpret_cast<ADisplayConfig*>(impl->configs + index);
+    return OK;
 }
 
 float ADisplayConfig_getDensity(ADisplayConfig* config) {

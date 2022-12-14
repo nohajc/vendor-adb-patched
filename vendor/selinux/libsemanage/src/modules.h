@@ -24,11 +24,18 @@
 
 #include <stdint.h>
 
-#include "semanage/modules.h"
+#include "module_internal.h"
 
-
+int semanage_module_install_pp(semanage_handle_t * sh,
+			    char *module_data, size_t data_len);
+int semanage_module_install_hll(semanage_handle_t * sh,
+			    char *module_data, size_t data_len, const char *name, const char *ext_lang);
+int semanage_module_upgrade(semanage_handle_t * sh,
+			    char *module_data, size_t data_len);
 int semanage_module_upgrade_file(semanage_handle_t * sh,
 				 const char *module_name);
+int semanage_module_install_base(semanage_handle_t * sh,
+				 char *module_data, size_t data_len);
 int semanage_module_install_base_file(semanage_handle_t * sh,
 				 const char *module_name);
 
@@ -101,8 +108,5 @@ int semanage_module_get_path(semanage_handle_t *sh,
 			     enum semanage_module_path_type type,
 			     char *path,
 			     size_t len);
-
-extern const size_t CHECKSUM_CONTENT_SIZE;
-void semanage_hash_to_checksum_string(const uint8_t *hash, char *checksum);
 
 #endif

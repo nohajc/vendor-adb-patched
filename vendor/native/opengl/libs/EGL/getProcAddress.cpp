@@ -16,12 +16,15 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <log/log.h>
 #include <stdlib.h>
+
+#include <log/log.h>
 
 #include "egldefs.h"
 
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
 #undef API_ENTRY
 #undef CALL_GL_EXTENSION_API
@@ -31,7 +34,6 @@ namespace android {
 #undef GL_EXTENSION_LIST
 #undef GET_TLS
 
-// clang-format off
 #if defined(__arm__)
 
     #define GET_TLS(reg) "mrc p15, 0, " #reg ", c13, c0, 3 \n"
@@ -237,13 +239,13 @@ namespace android {
     name(248) name(249) name(250) name(251) name(252) name(253) name(254) name(255)
 
 
-GL_EXTENSION_LIST(GL_EXTENSION)
+GL_EXTENSION_LIST( GL_EXTENSION )
 
-#define GL_EXTENSION_ARRAY(_n) GL_EXTENSION_NAME(_n),
-// clang-format on
+#define GL_EXTENSION_ARRAY(_n)  GL_EXTENSION_NAME(_n),
 
-extern const __eglMustCastToProperFunctionPointerType
-        gExtensionForwarders[MAX_NUMBER_OF_GL_EXTENSIONS] = {GL_EXTENSION_LIST(GL_EXTENSION_ARRAY)};
+extern const __eglMustCastToProperFunctionPointerType gExtensionForwarders[MAX_NUMBER_OF_GL_EXTENSIONS] = {
+        GL_EXTENSION_LIST( GL_EXTENSION_ARRAY )
+ };
 
 #undef GET_TLS
 #undef GL_EXTENSION_LIST
@@ -253,4 +255,7 @@ extern const __eglMustCastToProperFunctionPointerType
 #undef API_ENTRY
 #undef CALL_GL_EXTENSION_API
 
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------
+

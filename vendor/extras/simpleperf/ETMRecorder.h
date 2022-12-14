@@ -21,8 +21,6 @@
 #include <map>
 #include <memory>
 
-#include <android-base/expected.h>
-
 #include "event_type.h"
 #include "perf_event.h"
 #include "record.h"
@@ -36,7 +34,6 @@ struct ETMPerCpu {
   uint32_t trcidr4;
   uint32_t trcidr8;
   uint32_t trcauthstatus;
-  uint32_t trcdevarch;
 
   int GetMajorVersion() const;
   bool IsContextIDSupported() const;
@@ -57,8 +54,7 @@ class ETMRecorder {
   // If not found, return -1.
   int GetEtmEventType();
   std::unique_ptr<EventType> BuildEventType();
-  bool IsETMDriverAvailable();
-  android::base::expected<bool, std::string> CheckEtmSupport();
+  bool CheckEtmSupport();
   void SetEtmPerfEventAttr(perf_event_attr* attr);
   AuxTraceInfoRecord CreateAuxTraceInfoRecord();
   size_t GetAddrFilterPairs();

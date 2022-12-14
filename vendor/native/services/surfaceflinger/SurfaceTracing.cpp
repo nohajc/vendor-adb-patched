@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
 #undef LOG_TAG
 #define LOG_TAG "SurfaceTracing"
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
@@ -29,67 +32,65 @@
 
 namespace android {
 
-SurfaceTracing::SurfaceTracing(SurfaceFlinger& flinger) : mFlinger(flinger) {}
+SurfaceTracing::SurfaceTracing(SurfaceFlinger& flinger)
+      : mFlinger(flinger), mSfLock(flinger.mTracingLock) {}
 
-bool SurfaceTracing::enable() {
-    std::scoped_lock lock(mTraceLock);
-    if (mEnabled) {
-        return false;
+void SurfaceTracing::mainLoop() {
+    bool enabled = addFirstEntry();
+    while (enabled) {
+        LayersTraceProto entry = traceWhenNotified();
+        enabled = addTraceToBuffer(entry);
     }
-
-    if (flagIsSet(TRACE_SYNC)) {
-        runner = std::make_unique<SurfaceTracing::Runner>(mFlinger, mConfig);
-    } else {
-        runner = std::make_unique<SurfaceTracing::AsyncRunner>(mFlinger, mConfig,
-                                                               mFlinger.mTracingLock);
-    }
-    mEnabled = true;
-    return true;
 }
 
-bool SurfaceTracing::disable() {
-    std::scoped_lock lock(mTraceLock);
-    if (!mEnabled) {
-        return false;
+bool SurfaceTracing::addFirstEntry() {
+    LayersTraceProto entry;
+    {
+        std::scoped_lock lock(mSfLock);
+        entry = traceLayersLocked("tracing.enable");
     }
-    mEnabled = false;
-    runner->stop();
-    return true;
+    return addTraceToBuffer(entry);
 }
 
-bool SurfaceTracing::isEnabled() const {
+LayersTraceProto SurfaceTracing::traceWhenNotified() {
+    std::unique_lock<std::mutex> lock(mSfLock);
+    mCanStartTrace.wait(lock);
+    android::base::ScopedLockAssertion assumeLock(mSfLock);
+    LayersTraceProto entry = traceLayersLocked(mWhere);
+    mTracingInProgress = false;
+    mMissedTraceEntries = 0;
+    lock.unlock();
+    return entry;
+}
+
+bool SurfaceTracing::addTraceToBuffer(LayersTraceProto& entry) {
     std::scoped_lock lock(mTraceLock);
+    mBuffer.emplace(std::move(entry));
+    if (mWriteToFile) {
+        writeProtoFileLocked();
+        mWriteToFile = false;
+    }
     return mEnabled;
 }
 
-status_t SurfaceTracing::writeToFile() {
-    std::scoped_lock lock(mTraceLock);
-    if (!mEnabled) {
-        return STATUS_OK;
-    }
-    return runner->writeToFile();
-}
-
 void SurfaceTracing::notify(const char* where) {
-    std::scoped_lock lock(mTraceLock);
-    if (mEnabled) {
-        runner->notify(where);
-    }
+    std::scoped_lock lock(mSfLock);
+    notifyLocked(where);
 }
 
 void SurfaceTracing::notifyLocked(const char* where) {
-    std::scoped_lock lock(mTraceLock);
-    if (mEnabled) {
-        runner->notifyLocked(where);
+    mWhere = where;
+    if (mTracingInProgress) {
+        mMissedTraceEntries++;
     }
+    mTracingInProgress = true;
+    mCanStartTrace.notify_one();
 }
 
-void SurfaceTracing::dump(std::string& result) const {
+void SurfaceTracing::writeToFileAsync() {
     std::scoped_lock lock(mTraceLock);
-    base::StringAppendF(&result, "Tracing state: %s\n", mEnabled ? "enabled" : "disabled");
-    if (mEnabled) {
-        runner->dump(result);
-    }
+    mWriteToFile = true;
+    mCanStartTrace.notify_one();
 }
 
 void SurfaceTracing::LayersTraceBuffer::reset(size_t newSize) {
@@ -100,12 +101,12 @@ void SurfaceTracing::LayersTraceBuffer::reset(size_t newSize) {
 }
 
 void SurfaceTracing::LayersTraceBuffer::emplace(LayersTraceProto&& proto) {
-    size_t protoSize = static_cast<size_t>(proto.ByteSize());
+    auto protoSize = proto.ByteSize();
     while (mUsedInBytes + protoSize > mSizeInBytes) {
         if (mStorage.empty()) {
             return;
         }
-        mUsedInBytes -= static_cast<size_t>(mStorage.front().ByteSize());
+        mUsedInBytes -= mStorage.front().ByteSize();
         mStorage.pop();
     }
     mUsedInBytes += protoSize;
@@ -114,7 +115,7 @@ void SurfaceTracing::LayersTraceBuffer::emplace(LayersTraceProto&& proto) {
 }
 
 void SurfaceTracing::LayersTraceBuffer::flush(LayersTraceFileProto* fileProto) {
-    fileProto->mutable_entry()->Reserve(static_cast<int>(mStorage.size()));
+    fileProto->mutable_entry()->Reserve(mStorage.size());
 
     while (!mStorage.empty()) {
         auto entry = fileProto->add_entry();
@@ -123,142 +124,120 @@ void SurfaceTracing::LayersTraceBuffer::flush(LayersTraceFileProto* fileProto) {
     }
 }
 
-SurfaceTracing::Runner::Runner(SurfaceFlinger& flinger, SurfaceTracing::Config& config)
-      : mFlinger(flinger), mConfig(config) {
-    mBuffer.setSize(mConfig.bufferSize);
-}
+bool SurfaceTracing::enable() {
+    std::scoped_lock lock(mTraceLock);
 
-void SurfaceTracing::Runner::notify(const char* where) {
-    LayersTraceProto entry = traceLayers(where);
-    mBuffer.emplace(std::move(entry));
-}
-
-status_t SurfaceTracing::Runner::stop() {
-    return writeToFile();
-}
-
-LayersTraceFileProto SurfaceTracing::createLayersTraceFileProto() {
-    LayersTraceFileProto fileProto;
-    fileProto.set_magic_number(uint64_t(LayersTraceFileProto_MagicNumber_MAGIC_NUMBER_H) << 32 |
-                               LayersTraceFileProto_MagicNumber_MAGIC_NUMBER_L);
-    return fileProto;
-}
-
-status_t SurfaceTracing::Runner::writeToFile() {
-    ATRACE_CALL();
-
-    LayersTraceFileProto fileProto = createLayersTraceFileProto();
-    std::string output;
-
-    mBuffer.flush(&fileProto);
-    mBuffer.reset(mConfig.bufferSize);
-
-    if (!fileProto.SerializeToString(&output)) {
-        ALOGE("Could not save the proto file! Permission denied");
-        return PERMISSION_DENIED;
+    if (mEnabled) {
+        return false;
     }
 
-    // -rw-r--r--
-    const mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
-    if (!android::base::WriteStringToFile(output, DEFAULT_FILE_NAME, mode, getuid(), getgid(),
-                                          true)) {
-        ALOGE("Could not save the proto file! There are missing fields");
-        return PERMISSION_DENIED;
-    }
-
-    return NO_ERROR;
+    mBuffer.reset(mBufferSize);
+    mEnabled = true;
+    mThread = std::thread(&SurfaceTracing::mainLoop, this);
+    return true;
 }
 
-LayersTraceProto SurfaceTracing::Runner::traceLayers(const char* where) {
+status_t SurfaceTracing::writeToFile() {
+    std::thread thread;
+    {
+        std::scoped_lock lock(mTraceLock);
+        thread = std::move(mThread);
+    }
+    thread.join();
+    return mLastErr;
+}
+
+bool SurfaceTracing::disable() {
+    std::scoped_lock lock(mTraceLock);
+
+    if (!mEnabled) {
+        return false;
+    }
+
+    mEnabled = false;
+    mWriteToFile = true;
+    mCanStartTrace.notify_all();
+    return true;
+}
+
+bool SurfaceTracing::isEnabled() const {
+    std::scoped_lock lock(mTraceLock);
+    return mEnabled;
+}
+
+void SurfaceTracing::setBufferSize(size_t bufferSizeInByte) {
+    std::scoped_lock lock(mTraceLock);
+    mBufferSize = bufferSizeInByte;
+    mBuffer.setSize(bufferSizeInByte);
+}
+
+void SurfaceTracing::setTraceFlags(uint32_t flags) {
+    std::scoped_lock lock(mSfLock);
+    mTraceFlags = flags;
+}
+
+LayersTraceProto SurfaceTracing::traceLayersLocked(const char* where) {
     ATRACE_CALL();
 
     LayersTraceProto entry;
     entry.set_elapsed_realtime_nanos(elapsedRealtimeNano());
     entry.set_where(where);
-    LayersProto layers(mFlinger.dumpDrawingStateProto(mConfig.flags));
+    LayersProto layers(mFlinger.dumpDrawingStateProto(mTraceFlags));
 
-    if (flagIsSet(SurfaceTracing::TRACE_EXTRA)) {
+    if (flagIsSetLocked(SurfaceTracing::TRACE_EXTRA)) {
         mFlinger.dumpOffscreenLayersProto(layers);
     }
     entry.mutable_layers()->Swap(&layers);
 
-    if (flagIsSet(SurfaceTracing::TRACE_HWC)) {
+    if (mTraceFlags & SurfaceTracing::TRACE_HWC) {
         std::string hwcDump;
         mFlinger.dumpHwc(hwcDump);
         entry.set_hwc_blob(hwcDump);
     }
-    if (!flagIsSet(SurfaceTracing::TRACE_COMPOSITION)) {
+    if (!flagIsSetLocked(SurfaceTracing::TRACE_COMPOSITION)) {
         entry.set_excludes_composition_state(true);
     }
     entry.set_missed_entries(mMissedTraceEntries);
-    mFlinger.dumpDisplayProto(entry);
+
     return entry;
 }
 
-void SurfaceTracing::Runner::dump(std::string& result) const {
+void SurfaceTracing::writeProtoFileLocked() {
+    ATRACE_CALL();
+
+    LayersTraceFileProto fileProto;
+    std::string output;
+
+    fileProto.set_magic_number(uint64_t(LayersTraceFileProto_MagicNumber_MAGIC_NUMBER_H) << 32 |
+                               LayersTraceFileProto_MagicNumber_MAGIC_NUMBER_L);
+    mBuffer.flush(&fileProto);
+    mBuffer.reset(mBufferSize);
+
+    if (!fileProto.SerializeToString(&output)) {
+        ALOGE("Could not save the proto file! Permission denied");
+        mLastErr = PERMISSION_DENIED;
+    }
+
+    // -rw-r--r--
+    const mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+    if (!android::base::WriteStringToFile(output, kDefaultFileName, mode, getuid(), getgid(),
+                                          true)) {
+        ALOGE("Could not save the proto file! There are missing fields");
+        mLastErr = PERMISSION_DENIED;
+    }
+
+    mLastErr = NO_ERROR;
+}
+
+void SurfaceTracing::dump(std::string& result) const {
+    std::scoped_lock lock(mTraceLock);
+    base::StringAppendF(&result, "Tracing state: %s\n", mEnabled ? "enabled" : "disabled");
     base::StringAppendF(&result, "  number of entries: %zu (%.2fMB / %.2fMB)\n",
                         mBuffer.frameCount(), float(mBuffer.used()) / float(1_MB),
                         float(mBuffer.size()) / float(1_MB));
 }
 
-SurfaceTracing::AsyncRunner::AsyncRunner(SurfaceFlinger& flinger, SurfaceTracing::Config& config,
-                                         std::mutex& sfLock)
-      : SurfaceTracing::Runner(flinger, config), mSfLock(sfLock) {
-    mEnabled = true;
-    mThread = std::thread(&AsyncRunner::loop, this);
-}
-
-void SurfaceTracing::AsyncRunner::loop() {
-    while (mEnabled) {
-        LayersTraceProto entry;
-        bool entryAdded = traceWhenNotified(&entry);
-        if (entryAdded) {
-            mBuffer.emplace(std::move(entry));
-        }
-        if (mWriteToFile) {
-            Runner::writeToFile();
-            mWriteToFile = false;
-        }
-    }
-}
-
-bool SurfaceTracing::AsyncRunner::traceWhenNotified(LayersTraceProto* outProto) {
-    std::unique_lock<std::mutex> lock(mSfLock);
-    mCanStartTrace.wait(lock);
-    if (!mAddEntry) {
-        return false;
-    }
-    *outProto = traceLayers(mWhere);
-    mAddEntry = false;
-    mMissedTraceEntries = 0;
-    return true;
-}
-
-void SurfaceTracing::AsyncRunner::notify(const char* where) {
-    std::scoped_lock lock(mSfLock);
-    notifyLocked(where);
-}
-
-void SurfaceTracing::AsyncRunner::notifyLocked(const char* where) {
-    mWhere = where;
-    if (mAddEntry) {
-        mMissedTraceEntries++;
-    }
-    mAddEntry = true;
-    mCanStartTrace.notify_one();
-}
-
-status_t SurfaceTracing::AsyncRunner::writeToFile() {
-    mWriteToFile = true;
-    mCanStartTrace.notify_one();
-    return STATUS_OK;
-}
-
-status_t SurfaceTracing::AsyncRunner::stop() {
-    mEnabled = false;
-    mCanStartTrace.notify_one();
-    mThread.join();
-    return Runner::writeToFile();
-}
-
 } // namespace android
+
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic pop // ignored "-Wconversion"

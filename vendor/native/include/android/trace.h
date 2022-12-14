@@ -90,7 +90,7 @@ void ATrace_beginAsyncSection(const char* sectionName, int32_t cookie) __INTRODU
  *
  * Available since API level 29.
  *
- * \param sectionName The method name to appear in the trace.
+ * \param methodName The method name to appear in the trace.
  * \param cookie Unique identifier for distinguishing simultaneous events
  */
 void ATrace_endAsyncSection(const char* sectionName, int32_t cookie) __INTRODUCED_IN(29);

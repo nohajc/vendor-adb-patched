@@ -66,9 +66,8 @@
 #include <openssl/stack.h>
 #include <openssl/x509.h>
 
-#include "../asn1/internal.h"
+#include "../asn1/asn1_locl.h"
 #include "../internal.h"
-#include "internal.h"
 
 
 typedef STACK_OF(X509_NAME_ENTRY) STACK_OF_X509_NAME_ENTRY;
@@ -261,13 +260,17 @@ static int x509_name_ex_d2i(ASN1_VALUE **val,
 static int x509_name_ex_i2d(ASN1_VALUE **val, unsigned char **out,
                             const ASN1_ITEM *it, int tag, int aclass)
 {
+    int ret;
     X509_NAME *a = (X509_NAME *)*val;
-    if (a->modified &&
-        (!x509_name_encode(a) ||
-         !x509_name_canon(a))) {
-        return -1;
+    if (a->modified) {
+        ret = x509_name_encode(a);
+        if (ret < 0)
+            return ret;
+        ret = x509_name_canon(a);
+        if (ret < 0)
+            return ret;
     }
-    int ret = a->bytes->length;
+    ret = a->bytes->length;
     if (out != NULL) {
         OPENSSL_memcpy(*out, a->bytes->data, ret);
         *out += ret;
@@ -303,29 +306,22 @@ static int x509_name_encode(X509_NAME *a)
             goto memerr;
     }
     ASN1_VALUE *intname_val = (ASN1_VALUE *)intname;
-    len =
-        ASN1_item_ex_i2d(&intname_val, NULL, ASN1_ITEM_rptr(X509_NAME_INTERNAL),
-                         /*tag=*/-1, /*aclass=*/0);
-    if (len <= 0) {
-      goto err;
-    }
+    len = ASN1_item_ex_i2d(&intname_val, NULL,
+                           ASN1_ITEM_rptr(X509_NAME_INTERNAL), -1, -1);
     if (!BUF_MEM_grow(a->bytes, len))
         goto memerr;
     p = (unsigned char *)a->bytes->data;
-    if (ASN1_item_ex_i2d(&intname_val, &p, ASN1_ITEM_rptr(X509_NAME_INTERNAL),
-                         /*tag=*/-1, /*aclass=*/0) <= 0) {
-        goto err;
-    }
+    ASN1_item_ex_i2d(&intname_val,
+                     &p, ASN1_ITEM_rptr(X509_NAME_INTERNAL), -1, -1);
     sk_STACK_OF_X509_NAME_ENTRY_pop_free(intname,
                                          local_sk_X509_NAME_ENTRY_free);
     a->modified = 0;
-    return 1;
+    return len;
  memerr:
-    OPENSSL_PUT_ERROR(X509, ERR_R_MALLOC_FAILURE);
-err:
     sk_STACK_OF_X509_NAME_ENTRY_pop_free(intname,
                                          local_sk_X509_NAME_ENTRY_free);
-    return 0;
+    OPENSSL_PUT_ERROR(X509, ERR_R_MALLOC_FAILURE);
+    return -1;
 }
 
 /*
@@ -507,8 +503,8 @@ static int i2d_name_canon(STACK_OF(STACK_OF_X509_NAME_ENTRY) * _intname,
     len = 0;
     for (i = 0; i < sk_ASN1_VALUE_num(intname); i++) {
         v = sk_ASN1_VALUE_value(intname, i);
-        ltmp = ASN1_item_ex_i2d(&v, in, ASN1_ITEM_rptr(X509_NAME_ENTRIES),
-                                /*tag=*/-1, /*aclass=*/0);
+        ltmp = ASN1_item_ex_i2d(&v, in,
+                                ASN1_ITEM_rptr(X509_NAME_ENTRIES), -1, -1);
         if (ltmp < 0)
             return ltmp;
         len += ltmp;
@@ -524,6 +520,8 @@ int X509_NAME_set(X509_NAME **xn, X509_NAME *name)
     *xn = name;
     return 1;
 }
+
+IMPLEMENT_ASN1_SET_OF(X509_NAME_ENTRY)
 
 int X509_NAME_ENTRY_set(const X509_NAME_ENTRY *ne)
 {

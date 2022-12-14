@@ -45,9 +45,7 @@ status_t Surface::writeToParcel(Parcel* parcel, bool nameAlreadyWritten) const {
         if (res != OK) return res;
     }
 
-    res = IGraphicBufferProducer::exportToParcel(graphicBufferProducer, parcel);
-    if (res != OK) return res;
-    return parcel->writeStrongBinder(surfaceControlHandle);
+    return IGraphicBufferProducer::exportToParcel(graphicBufferProducer, parcel);
 }
 
 status_t Surface::readFromParcel(const Parcel* parcel) {
@@ -70,7 +68,6 @@ status_t Surface::readFromParcel(const Parcel* parcel, bool nameAlreadyRead) {
     }
 
     graphicBufferProducer = IGraphicBufferProducer::createFromParcel(parcel);
-    surfaceControlHandle = parcel->readStrongBinder();
     return OK;
 }
 

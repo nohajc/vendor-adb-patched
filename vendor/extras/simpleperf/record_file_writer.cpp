@@ -210,9 +210,7 @@ bool RecordFileWriter::ReadDataSection(const std::function<void(const Record*)>&
       return false;
     }
     read_pos += header.size;
-    std::unique_ptr<Record> r = ReadRecordFromBuffer(event_attr_, header.type, record_buf.data(),
-                                                     record_buf.data() + header.size);
-    CHECK(r);
+    std::unique_ptr<Record> r = ReadRecordFromBuffer(event_attr_, header.type, record_buf.data());
     if (r->type() == PERF_RECORD_AUXTRACE) {
       auto auxtrace = static_cast<AuxTraceRecord*>(r.get());
       auxtrace->location.file_offset = data_section_offset_ + read_pos;

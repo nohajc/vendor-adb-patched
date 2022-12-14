@@ -13,24 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#pragma once
+#ifndef FRAMEWORK_NATIVE_CMDS_IDLCLI_VIBRATOR_H_
+#define FRAMEWORK_NATIVE_CMDS_IDLCLI_VIBRATOR_H_
 
-#include <future>
-
-#include <aidl/android/hardware/vibrator/BnVibratorCallback.h>
 #include <aidl/android/hardware/vibrator/IVibrator.h>
-#include <aidl/android/hardware/vibrator/IVibratorManager.h>
 #include <android/binder_manager.h>
-#include <android/binder_process.h>
 #include <android/hardware/vibrator/1.3/IVibrator.h>
 
-#include "IdlCli.h"
 #include "utils.h"
+
+#include "log/log.h"
 
 namespace android {
 
 using hardware::Return;
-using idlcli::IdlCli;
 
 static constexpr int NUM_TRIES = 2;
 
@@ -47,34 +43,20 @@ inline ndk::ScopedAStatus NullptrStatus() {
 }
 
 template <typename I>
-inline auto getService(std::string name) {
-    const auto instance = std::string() + I::descriptor + "/" + name;
+inline auto getService() {
+    return I::getService();
+}
+
+template <>
+inline auto getService<aidl::android::hardware::vibrator::IVibrator>() {
+    const auto instance =
+            std::string() + aidl::android::hardware::vibrator::IVibrator::descriptor + "/default";
     auto vibBinder = ndk::SpAIBinder(AServiceManager_getService(instance.c_str()));
-    return I::fromBinder(vibBinder);
-}
-
-template <>
-inline auto getService<android::hardware::vibrator::V1_0::IVibrator>(std::string name) {
-    return android::hardware::vibrator::V1_0::IVibrator::getService(name);
-}
-
-template <>
-inline auto getService<android::hardware::vibrator::V1_1::IVibrator>(std::string name) {
-    return android::hardware::vibrator::V1_1::IVibrator::getService(name);
-}
-
-template <>
-inline auto getService<android::hardware::vibrator::V1_2::IVibrator>(std::string name) {
-    return android::hardware::vibrator::V1_2::IVibrator::getService(name);
-}
-
-template <>
-inline auto getService<android::hardware::vibrator::V1_3::IVibrator>(std::string name) {
-    return android::hardware::vibrator::V1_3::IVibrator::getService(name);
+    return aidl::android::hardware::vibrator::IVibrator::fromBinder(vibBinder);
 }
 
 template <typename I>
-using shared_ptr = std::result_of_t<decltype(getService<I>)&(std::string)>;
+using shared_ptr = std::result_of_t<decltype(getService<I>)&()>;
 
 template <typename I>
 class HalWrapper {
@@ -82,8 +64,7 @@ public:
     static std::unique_ptr<HalWrapper> Create() {
         // Assume that if getService returns a nullptr, HAL is not available on the
         // device.
-        const auto name = IdlCli::Get().getName();
-        auto hal = getService<I>(name.empty() ? "default" : name);
+        auto hal = getService<I>();
         return hal ? std::unique_ptr<HalWrapper>(new HalWrapper(std::move(hal))) : nullptr;
     }
 
@@ -120,19 +101,9 @@ namespace V1_2 = ::android::hardware::vibrator::V1_2;
 namespace V1_3 = ::android::hardware::vibrator::V1_3;
 namespace aidl = ::aidl::android::hardware::vibrator;
 
-class VibratorCallback : public aidl::BnVibratorCallback {
-public:
-    ndk::ScopedAStatus onComplete() override {
-        mPromise.set_value();
-        return ndk::ScopedAStatus::ok();
-    }
-    void waitForComplete() { mPromise.get_future().wait(); }
-
-private:
-    std::promise<void> mPromise;
-};
-
 } // namespace vibrator
 } // namespace idlcli
 
 } // namespace android
+
+#endif // FRAMEWORK_NATIVE_CMDS_IDLCLI_VIBRATOR_H_

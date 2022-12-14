@@ -28,6 +28,7 @@ extern int yyparse(void);
 extern void yyrestart(FILE *);
 extern queue_t id_queue;
 extern unsigned int policydb_errors;
+extern unsigned long policydb_lineno;
 extern policydb_t *policydbp;
 extern int mlspol;
 extern void set_source_file(const char *name);
@@ -36,7 +37,7 @@ int read_source_policy(policydb_t * p, const char *file, const char *progname)
 {
 	yyin = fopen(file, "r");
 	if (!yyin) {
-		fprintf(stderr, "%s:  unable to open %s:  %s\n", progname, file, strerror(errno));
+		fprintf(stderr, "%s:  unable to open %s\n", progname, file);
 		return -1;
 	}
 	set_source_file(file);
@@ -47,7 +48,6 @@ int read_source_policy(policydb_t * p, const char *file, const char *progname)
 	}
 
 	policydbp = p;
-	policydbp->name = strdup(file);
 	mlspol = p->mls;
 
 	init_parser(1);

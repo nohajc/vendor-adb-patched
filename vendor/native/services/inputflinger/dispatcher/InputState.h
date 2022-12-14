@@ -51,11 +51,11 @@ public:
     bool trackMotion(const MotionEntry& entry, int32_t action, int32_t flags);
 
     // Synthesizes cancelation events for the current state and resets the tracked state.
-    std::vector<std::unique_ptr<EventEntry>> synthesizeCancelationEvents(
-            nsecs_t currentTime, const CancelationOptions& options);
+    std::vector<EventEntry*> synthesizeCancelationEvents(nsecs_t currentTime,
+                                                         const CancelationOptions& options);
 
     // Synthesizes down events for the current state.
-    std::vector<std::unique_ptr<EventEntry>> synthesizePointerDownEvents(nsecs_t currentTime);
+    std::vector<EventEntry*> synthesizePointerDownEvents(nsecs_t currentTime);
 
     // Clears the current state.
     void clear();

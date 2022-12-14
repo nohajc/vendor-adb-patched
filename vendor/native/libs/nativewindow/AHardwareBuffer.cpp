@@ -207,11 +207,7 @@ int AHardwareBuffer_lockPlanes(AHardwareBuffer* buffer, uint64_t usage,
       if (result == 0) {
         outPlanes->planeCount = 3;
         outPlanes->planes[0].data = yuvData.y;
-        if (format == AHARDWAREBUFFER_FORMAT_YCbCr_P010) {
-            outPlanes->planes[0].pixelStride = 2;
-        } else {
-            outPlanes->planes[0].pixelStride = 1;
-        }
+        outPlanes->planes[0].pixelStride = 1;
         outPlanes->planes[0].rowStride = yuvData.ystride;
         outPlanes->planes[1].data = yuvData.cb;
         outPlanes->planes[1].pixelStride = yuvData.chroma_step;
@@ -401,16 +397,6 @@ int AHardwareBuffer_isSupported(const AHardwareBuffer_Desc* desc) {
     return 0;
 }
 
-int AHardwareBuffer_getId(const AHardwareBuffer* buffer, uint64_t* outId) {
-    if (!buffer || !outId) return BAD_VALUE;
-
-    const GraphicBuffer* gb = AHardwareBuffer_to_GraphicBuffer(buffer);
-    if (!gb) return BAD_VALUE;
-
-    *outId = gb->getId();
-
-    return OK;
-}
 
 // ----------------------------------------------------------------------------
 // VNDK functions
@@ -592,8 +578,6 @@ bool AHardwareBuffer_isValidPixelFormat(uint32_t format) {
             "HAL and AHardwareBuffer pixel format don't match");
     static_assert(HAL_PIXEL_FORMAT_YCBCR_422_I == AHARDWAREBUFFER_FORMAT_YCbCr_422_I,
             "HAL and AHardwareBuffer pixel format don't match");
-    static_assert(HAL_PIXEL_FORMAT_YCBCR_P010 == AHARDWAREBUFFER_FORMAT_YCbCr_P010,
-            "HAL and AHardwareBuffer pixel format don't match");
 
     switch (format) {
         case AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM:
@@ -623,7 +607,6 @@ bool AHardwareBuffer_isValidPixelFormat(uint32_t format) {
         case AHARDWAREBUFFER_FORMAT_YCbCr_422_SP:
         case AHARDWAREBUFFER_FORMAT_YCrCb_420_SP:
         case AHARDWAREBUFFER_FORMAT_YCbCr_422_I:
-        case AHARDWAREBUFFER_FORMAT_YCbCr_P010:
             return true;
 
         default:
@@ -640,7 +623,6 @@ bool AHardwareBuffer_formatIsYuv(uint32_t format) {
         case AHARDWAREBUFFER_FORMAT_YCbCr_422_SP:
         case AHARDWAREBUFFER_FORMAT_YCrCb_420_SP:
         case AHARDWAREBUFFER_FORMAT_YCbCr_422_I:
-        case AHARDWAREBUFFER_FORMAT_YCbCr_P010:
             return true;
         default:
             return false;

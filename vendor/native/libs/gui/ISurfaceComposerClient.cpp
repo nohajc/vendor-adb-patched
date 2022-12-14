@@ -50,12 +50,12 @@ public:
     status_t createSurface(const String8& name, uint32_t width, uint32_t height, PixelFormat format,
                            uint32_t flags, const sp<IBinder>& parent, LayerMetadata metadata,
                            sp<IBinder>* handle, sp<IGraphicBufferProducer>* gbp,
-                           int32_t* outLayerId, uint32_t* outTransformHint) override {
+                           uint32_t* outTransformHint) override {
         return callRemote<decltype(&ISurfaceComposerClient::createSurface)>(Tag::CREATE_SURFACE,
                                                                             name, width, height,
                                                                             format, flags, parent,
                                                                             std::move(metadata),
-                                                                            handle, gbp, outLayerId,
+                                                                            handle, gbp,
                                                                             outTransformHint);
     }
 
@@ -63,14 +63,14 @@ public:
                                      PixelFormat format, uint32_t flags,
                                      const sp<IGraphicBufferProducer>& parent,
                                      LayerMetadata metadata, sp<IBinder>* handle,
-                                     sp<IGraphicBufferProducer>* gbp, int32_t* outLayerId,
+                                     sp<IGraphicBufferProducer>* gbp,
                                      uint32_t* outTransformHint) override {
         return callRemote<decltype(
                 &ISurfaceComposerClient::createWithSurfaceParent)>(Tag::CREATE_WITH_SURFACE_PARENT,
                                                                    name, width, height, format,
                                                                    flags, parent,
                                                                    std::move(metadata), handle, gbp,
-                                                                   outLayerId, outTransformHint);
+                                                                   outTransformHint);
     }
 
     status_t clearLayerFrameStats(const sp<IBinder>& handle) const override {
@@ -85,11 +85,10 @@ public:
                                                               outStats);
     }
 
-    status_t mirrorSurface(const sp<IBinder>& mirrorFromHandle, sp<IBinder>* outHandle,
-                           int32_t* outLayerId) override {
+    status_t mirrorSurface(const sp<IBinder>& mirrorFromHandle, sp<IBinder>* outHandle) override {
         return callRemote<decltype(&ISurfaceComposerClient::mirrorSurface)>(Tag::MIRROR_SURFACE,
                                                                             mirrorFromHandle,
-                                                                            outHandle, outLayerId);
+                                                                            outHandle);
     }
 };
 

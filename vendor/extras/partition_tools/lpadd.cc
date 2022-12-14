@@ -59,15 +59,12 @@ static int usage(const char* program) {
     std::cerr << "\n";
     std::cerr << "Extra options:\n";
     std::cerr << "  --readonly                    The partition should be mapped read-only.\n";
-    std::cerr << "  --replace                     The partition contents should be replaced with\n"
-              << "                                the input image.\n";
     std::cerr << "\n";
     return EX_USAGE;
 }
 
 enum class OptionCode : int {
     kReadonly = 1,
-    kReplace = 2,
 
     // Special options.
     kHelp = (int)'h',
@@ -109,7 +106,7 @@ class SuperHelper final {
 
     bool Open();
     bool AddPartition(const std::string& partition_name, const std::string& group_name,
-                      uint32_t attributes, const std::string& image_path, bool replace);
+                      uint32_t attributes, const std::string& image_path);
     bool Finalize();
 
   private:
@@ -162,19 +159,10 @@ bool SuperHelper::Open() {
 }
 
 bool SuperHelper::AddPartition(const std::string& partition_name, const std::string& group_name,
-                               uint32_t attributes, const std::string& image_path, bool replace) {
+                               uint32_t attributes, const std::string& image_path) {
     if (!image_path.empty() && was_empty_) {
         std::cerr << "Cannot add a partition image to an empty super file.\n";
         return false;
-    }
-
-    if (replace) {
-        auto partition = builder_->FindPartition(partition_name);
-        if (!partition) {
-            std::cerr << "Could not find partition to replace: " << partition_name << "\n";
-            return false;
-        }
-        builder_->RemovePartition(partition_name);
     }
 
     auto partition = builder_->AddPartition(partition_name, group_name, attributes);
@@ -411,7 +399,7 @@ bool SuperHelper::Finalize() {
     sparse_file_verbose(sf.get());
 
     std::cout << "Writing sparse super image... " << std::endl;
-    if (sparse_file_read(sf.get(), super_fd_, SPARSE_READ_MODE_NORMAL, false) != 0) {
+    if (sparse_file_read(sf.get(), super_fd_, false, false) != 0) {
         std::cerr << "Could not import super partition for sparsing.\n";
         return false;
     }
@@ -435,12 +423,10 @@ static void ErrorLogger(android::base::LogId, android::base::LogSeverity severit
 int main(int argc, char* argv[]) {
     struct option options[] = {
             {"readonly", no_argument, nullptr, (int)OptionCode::kReadonly},
-            {"replace", no_argument, nullptr, (int)OptionCode::kReplace},
             {nullptr, 0, nullptr, 0},
     };
 
     bool readonly = false;
-    bool replace = false;
 
     int rv, index;
     while ((rv = getopt_long(argc, argv, "h", options, &index)) != -1) {
@@ -450,9 +436,6 @@ int main(int argc, char* argv[]) {
                 return EX_OK;
             case OptionCode::kReadonly:
                 readonly = true;
-                break;
-            case OptionCode::kReplace:
-                replace = true;
                 break;
             default:
                 return usage(argv[0]);
@@ -489,7 +472,7 @@ int main(int argc, char* argv[]) {
     if (readonly) {
         attributes |= LP_PARTITION_ATTR_READONLY;
     }
-    if (!super.AddPartition(partition_name, group_name, attributes, image_path, replace)) {
+    if (!super.AddPartition(partition_name, group_name, attributes, image_path)) {
         return EX_SOFTWARE;
     }
     if (!super.Finalize()) {

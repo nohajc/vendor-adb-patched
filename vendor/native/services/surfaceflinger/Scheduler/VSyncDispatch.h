@@ -16,10 +16,8 @@
 
 #pragma once
 
-#include <utils/Log.h>
 #include <utils/Timers.h>
 #include <functional>
-#include <optional>
 #include <string>
 
 #include "StrongTyping.h"
@@ -28,8 +26,7 @@ namespace android::scheduler {
 class TimeKeeper;
 class VSyncTracker;
 
-using ScheduleResult = std::optional<nsecs_t>;
-
+enum class ScheduleResult { Scheduled, CannotSchedule, Error };
 enum class CancelResult { Cancelled, TooLate, Error };
 
 /*
@@ -43,13 +40,11 @@ public:
 
     /*
      * A callback that can be registered to be awoken at a given time relative to a vsync event.
-     * \param [in] vsyncTime:        The timestamp of the vsync the callback is for.
-     * \param [in] targetWakeupTime: The timestamp of intended wakeup time of the cb.
-     * \param [in] readyTime:        The timestamp of intended time where client needs to finish
-     *                               its work by.
+     * \param [in] vsyncTime The timestamp of the vsync the callback is for.
+     * \param [in] targetWakeupTime The timestamp of intended wakeup time of the cb.
+     *
      */
-    using Callback =
-            std::function<void(nsecs_t vsyncTime, nsecs_t targetWakeupTime, nsecs_t readyTime)>;
+    using Callback = std::function<void(nsecs_t vsyncTime, nsecs_t targetWakeupTime)>;
 
     /*
      * Registers a callback that will be called at designated points on the vsync timeline.
@@ -76,58 +71,33 @@ public:
     virtual void unregisterCallback(CallbackToken token) = 0;
 
     /*
-     * Timing information about a scheduled callback
-     *
-     * @workDuration:  The time needed for the client to perform its work
-     * @readyDuration: The time needed for the client to be ready before a vsync event.
-     *                 For external (non-SF) clients, not only do we need to account for their
-     *                 workDuration, but we also need to account for the time SF will take to
-     *                 process their buffer/transaction. In this case, readyDuration will be set
-     *                 to the SF duration in order to provide enough end-to-end time, and to be
-     *                 able to provide the ready-by time (deadline) on the callback.
-     *                 For internal clients, we don't need to add additional padding, so
-     *                 readyDuration will typically be 0.
-     * @earliestVsync: The targeted display time. This will be snapped to the closest
-     *                 predicted vsync time after earliestVsync.
-     *
-     * callback will be dispatched at 'workDuration + readyDuration' nanoseconds before a vsync
-     * event.
-     */
-    struct ScheduleTiming {
-        nsecs_t workDuration = 0;
-        nsecs_t readyDuration = 0;
-        nsecs_t earliestVsync = 0;
-
-        bool operator==(const ScheduleTiming& other) const {
-            return workDuration == other.workDuration && readyDuration == other.readyDuration &&
-                    earliestVsync == other.earliestVsync;
-        }
-
-        bool operator!=(const ScheduleTiming& other) const { return !(*this == other); }
-    };
-
-    /*
      * Schedules the registered callback to be dispatched.
      *
-     * The callback will be dispatched at 'workDuration + readyDuration' nanoseconds before a vsync
-     * event.
+     * The callback will be dispatched at 'workDuration' nanoseconds before a vsync event.
      *
      * The caller designates the earliest vsync event that should be targeted by the earliestVsync
      * parameter.
-     * The callback will be scheduled at (workDuration + readyDuration - predictedVsync), where
-     * predictedVsync is the first vsync event time where ( predictedVsync >= earliestVsync ).
+     * The callback will be scheduled at (workDuration - predictedVsync), where predictedVsync
+     * is the first vsync event time where ( predictedVsync >= earliestVsync ).
      *
-     * If (workDuration + readyDuration - earliestVsync) is in the past, or if a callback has
-     * already been dispatched for the predictedVsync, an error will be returned.
+     * If (workDuration - earliestVsync) is in the past, or if a callback has already been
+     * dispatched for the predictedVsync, an error will be returned.
      *
      * It is valid to reschedule a callback to a different time.
      *
      * \param [in] token           The callback to schedule.
-     * \param [in] scheduleTiming  The timing information for this schedule call
-     * \return                     The expected callback time if a callback was scheduled.
-     *                             std::nullopt if the callback is not registered.
+     * \param [in] workDuration    The time before the actual vsync time to invoke the callback
+     *                             associated with token.
+     * \param [in] earliestVsync   The targeted display time. This will be snapped to the closest
+     *                             predicted vsync time after earliestVsync.
+     * \return                     A ScheduleResult::Scheduled if callback was scheduled.
+     *                             A ScheduleResult::CannotSchedule
+     *                             if (workDuration - earliestVsync) is in the past, or
+     *                             if a callback was dispatched for the predictedVsync already.
+     *                             A ScheduleResult::Error if there was another error.
      */
-    virtual ScheduleResult schedule(CallbackToken token, ScheduleTiming scheduleTiming) = 0;
+    virtual ScheduleResult schedule(CallbackToken token, nsecs_t workDuration,
+                                    nsecs_t earliestVsync) = 0;
 
     /* Cancels a scheduled callback, if possible.
      *
@@ -159,7 +129,7 @@ public:
     ~VSyncCallbackRegistration();
 
     // See documentation for VSyncDispatch::schedule.
-    ScheduleResult schedule(VSyncDispatch::ScheduleTiming scheduleTiming);
+    ScheduleResult schedule(nsecs_t workDuration, nsecs_t earliestVsync);
 
     // See documentation for VSyncDispatch::cancel.
     CancelResult cancel();

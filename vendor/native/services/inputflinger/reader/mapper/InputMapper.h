@@ -22,7 +22,6 @@
 #include "InputListener.h"
 #include "InputReaderContext.h"
 #include "StylusState.h"
-#include "VibrationElement.h"
 
 namespace android {
 
@@ -63,24 +62,9 @@ public:
     virtual int32_t getSwitchState(uint32_t sourceMask, int32_t switchCode);
     virtual bool markSupportedKeyCodes(uint32_t sourceMask, size_t numCodes,
                                        const int32_t* keyCodes, uint8_t* outFlags);
-    virtual void vibrate(const VibrationSequence& sequence, ssize_t repeat, int32_t token);
+    virtual void vibrate(const nsecs_t* pattern, size_t patternSize, ssize_t repeat, int32_t token);
     virtual void cancelVibrate(int32_t token);
-    virtual bool isVibrating();
-    virtual std::vector<int32_t> getVibratorIds();
-    virtual void cancelTouch(nsecs_t when, nsecs_t readTime);
-    virtual bool enableSensor(InputDeviceSensorType sensorType,
-                              std::chrono::microseconds samplingPeriod,
-                              std::chrono::microseconds maxBatchReportLatency);
-    virtual void disableSensor(InputDeviceSensorType sensorType);
-    virtual void flushSensor(InputDeviceSensorType sensorType);
-
-    virtual std::optional<int32_t> getBatteryCapacity() { return std::nullopt; }
-    virtual std::optional<int32_t> getBatteryStatus() { return std::nullopt; }
-
-    virtual bool setLightColor(int32_t lightId, int32_t color) { return true; }
-    virtual bool setLightPlayerId(int32_t lightId, int32_t playerId) { return true; }
-    virtual std::optional<int32_t> getLightColor(int32_t lightId) { return std::nullopt; }
-    virtual std::optional<int32_t> getLightPlayerId(int32_t lightId) { return std::nullopt; }
+    virtual void cancelTouch(nsecs_t when);
 
     virtual int32_t getMetaState();
     virtual void updateMetaState(int32_t keyCode);
@@ -88,7 +72,6 @@ public:
     virtual void updateExternalStylusState(const StylusState& state);
 
     virtual std::optional<int32_t> getAssociatedDisplayId() { return std::nullopt; }
-    virtual void updateLedState(bool reset) {}
 
 protected:
     InputDeviceContext& mDeviceContext;

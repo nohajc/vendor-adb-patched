@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include <android-base/stringprintf.h>
 #include <system/graphics.h>
 #include <ui/Rect.h>
 
@@ -148,15 +147,6 @@ Rect Rect::reduce(const Rect& exclude) const {
     }
 
     return result;
-}
-
-std::string to_string(const android::Rect& rect) {
-    return android::base::StringPrintf("Rect(%d, %d, %d, %d)", rect.left, rect.top, rect.right,
-                                       rect.bottom);
-}
-
-void PrintTo(const Rect& rect, ::std::ostream* os) {
-    *os << to_string(rect);
 }
 
 }; // namespace android

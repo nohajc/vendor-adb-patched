@@ -44,9 +44,9 @@
 #$(call add-clean-step, find $(OUT_DIR) -type f -name "IGTalkSession*" -print0 | xargs -0 rm -f)
 #$(call add-clean-step, rm -rf $(PRODUCT_OUT)/data/*)
 
-# Remove gpuMem.o
+# Remove gpu_mem.o
 $(call add-clean-step, rm -rf $(OUT_DIR)/soong/.intermediates/frameworks/native/services/gpuservice/bpf)
-$(call add-clean-step, rm -rf $(PRODUCT_OUT)/obj/FAKE/gpuMem.o_intermediates)
-$(call add-clean-step, rm -rf $(PRODUCT_OUT)/obj/ETC/gpuMem.o_gpuMem.o_intermediates)
-$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/etc/bpf/gpuMem.o)
-$(call add-clean-step, rm -rf $(PRODUCT_OUT)/fake_packages/gpuMem.o-timestamp)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/obj/FAKE/gpu_mem.o_intermediates)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/obj/ETC/gpu_mem.o_gpu_mem.o_intermediates)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/etc/bpf/gpu_mem.o)
+$(call add-clean-step, rm -rf $(PRODUCT_OUT)/fake_packages/gpu_mem.o-timestamp)

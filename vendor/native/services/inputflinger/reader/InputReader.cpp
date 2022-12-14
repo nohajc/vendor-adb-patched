@@ -38,26 +38,6 @@ using android::base::StringPrintf;
 
 namespace android {
 
-/**
- * Determines if the identifiers passed are a sub-devices. Sub-devices are physical devices
- * that expose multiple input device paths such a keyboard that also has a touchpad input.
- * These are separate devices with unique descriptors in EventHub, but InputReader should
- * create a single InputDevice for them.
- * Sub-devices are detected by the following criteria:
- * 1. The vendor, product, bus, version, and unique id match
- * 2. The location matches. The location is used to distinguish a single device with multiple
- *    inputs versus the same device plugged into multiple ports.
- */
-
-static bool isSubDevice(const InputDeviceIdentifier& identifier1,
-                        const InputDeviceIdentifier& identifier2) {
-    return (identifier1.vendor == identifier2.vendor &&
-            identifier1.product == identifier2.product && identifier1.bus == identifier2.bus &&
-            identifier1.version == identifier2.version &&
-            identifier1.uniqueId == identifier2.uniqueId &&
-            identifier1.location == identifier2.location);
-}
-
 // --- InputReader ---
 
 InputReader::InputReader(std::shared_ptr<EventHubInterface> eventHub,
@@ -67,7 +47,6 @@ InputReader::InputReader(std::shared_ptr<EventHubInterface> eventHub,
         mEventHub(eventHub),
         mPolicy(policy),
         mGlobalMetaState(0),
-        mLedMetaState(AMETA_NUM_LOCK_ON),
         mGeneration(1),
         mNextInputDeviceId(END_RESERVED_ID),
         mDisableVirtualKeysTimeout(LLONG_MIN),
@@ -76,7 +55,7 @@ InputReader::InputReader(std::shared_ptr<EventHubInterface> eventHub,
     mQueuedListener = new QueuedInputListener(listener);
 
     { // acquire lock
-        std::scoped_lock _l(mLock);
+        AutoMutex _l(mLock);
 
         refreshConfigurationLocked(0);
         updateGlobalMetaStateLocked();
@@ -109,7 +88,7 @@ void InputReader::loopOnce() {
     bool inputDevicesChanged = false;
     std::vector<InputDeviceInfo> inputDevices;
     { // acquire lock
-        std::scoped_lock _l(mLock);
+        AutoMutex _l(mLock);
 
         oldGeneration = mGeneration;
         timeoutMillis = -1;
@@ -128,8 +107,8 @@ void InputReader::loopOnce() {
     size_t count = mEventHub->getEvents(timeoutMillis, mEventBuffer, EVENT_BUFFER_SIZE);
 
     { // acquire lock
-        std::scoped_lock _l(mLock);
-        mReaderIsAliveCondition.notify_all();
+        AutoMutex _l(mLock);
+        mReaderIsAliveCondition.broadcast();
 
         if (count) {
             processEventsLocked(mEventBuffer, count);
@@ -148,7 +127,7 @@ void InputReader::loopOnce() {
 
         if (oldGeneration != mGeneration) {
             inputDevicesChanged = true;
-            inputDevices = getInputDevicesLocked();
+            getInputDevicesLocked(inputDevices);
         }
     } // release lock
 
@@ -237,15 +216,8 @@ void InputReader::addDeviceLocked(nsecs_t when, int32_t eventHubId) {
     }
     bumpGenerationLocked();
 
-    if (device->getClasses().test(InputDeviceClass::EXTERNAL_STYLUS)) {
-        notifyExternalStylusPresenceChangedLocked();
-    }
-
-    // Sensor input device is noisy, to save power disable it by default.
-    // Input device is classified as SENSOR when any sub device is a SENSOR device, check Eventhub
-    // device class to disable SENSOR sub device only.
-    if (mEventHub->getDeviceClasses(eventHubId).test(InputDeviceClass::SENSOR)) {
-        mEventHub->disableDevice(eventHubId);
+    if (device->getClasses() & INPUT_DEVICE_CLASS_EXTERNAL_STYLUS) {
+        notifyExternalStylusPresenceChanged();
     }
 }
 
@@ -284,8 +256,8 @@ void InputReader::removeDeviceLocked(nsecs_t when, int32_t eventHubId) {
 
     device->removeEventHubDevice(eventHubId);
 
-    if (device->getClasses().test(InputDeviceClass::EXTERNAL_STYLUS)) {
-        notifyExternalStylusPresenceChangedLocked();
+    if (device->getClasses() & INPUT_DEVICE_CLASS_EXTERNAL_STYLUS) {
+        notifyExternalStylusPresenceChanged();
     }
 
     if (device->hasEventHubDevices()) {
@@ -297,9 +269,8 @@ void InputReader::removeDeviceLocked(nsecs_t when, int32_t eventHubId) {
 std::shared_ptr<InputDevice> InputReader::createDeviceLocked(
         int32_t eventHubId, const InputDeviceIdentifier& identifier) {
     auto deviceIt = std::find_if(mDevices.begin(), mDevices.end(), [identifier](auto& devicePair) {
-        const InputDeviceIdentifier identifier2 =
-                devicePair.second->getDeviceInfo().getIdentifier();
-        return isSubDevice(identifier, identifier2);
+        return devicePair.second->getDescriptor().size() && identifier.descriptor.size() &&
+                devicePair.second->getDescriptor() == identifier.descriptor;
     });
 
     std::shared_ptr<InputDevice> device;
@@ -331,7 +302,7 @@ void InputReader::processEventsForDeviceLocked(int32_t eventHubId, const RawEven
     device->process(rawEvents, count);
 }
 
-InputDevice* InputReader::findInputDeviceLocked(int32_t deviceId) {
+InputDevice* InputReader::findInputDevice(int32_t deviceId) {
     auto deviceIt =
             std::find_if(mDevices.begin(), mDevices.end(), [deviceId](const auto& devicePair) {
                 return devicePair.second->getId() == deviceId;
@@ -368,34 +339,22 @@ void InputReader::refreshConfigurationLocked(uint32_t changes) {
     mPolicy->getReaderConfiguration(&mConfig);
     mEventHub->setExcludedDevices(mConfig.excludedDeviceNames);
 
-    if (!changes) return;
+    if (changes) {
+        ALOGI("Reconfiguring input devices, changes=%s",
+              InputReaderConfiguration::changesToString(changes).c_str());
+        nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
 
-    ALOGI("Reconfiguring input devices, changes=%s",
-          InputReaderConfiguration::changesToString(changes).c_str());
-    nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
-
-    if (changes & InputReaderConfiguration::CHANGE_DISPLAY_INFO) {
-        updatePointerDisplayLocked();
-    }
-
-    if (changes & InputReaderConfiguration::CHANGE_MUST_REOPEN) {
-        mEventHub->requestReopenDevices();
-    } else {
-        for (auto& devicePair : mDevices) {
-            std::shared_ptr<InputDevice>& device = devicePair.second;
-            device->configure(now, &mConfig, changes);
+        if (changes & InputReaderConfiguration::CHANGE_DISPLAY_INFO) {
+            updatePointerDisplayLocked();
         }
-    }
 
-    if (changes & InputReaderConfiguration::CHANGE_POINTER_CAPTURE) {
-        if (mCurrentPointerCaptureRequest == mConfig.pointerCaptureRequest) {
-            ALOGV("Skipping notifying pointer capture changes: "
-                  "There was no change in the pointer capture state.");
+        if (changes & InputReaderConfiguration::CHANGE_MUST_REOPEN) {
+            mEventHub->requestReopenDevices();
         } else {
-            mCurrentPointerCaptureRequest = mConfig.pointerCaptureRequest;
-            const NotifyPointerCaptureChangedArgs args(mContext.getNextId(), now,
-                                                       mCurrentPointerCaptureRequest);
-            mQueuedListener->notifyPointerCaptureChanged(&args);
+            for (auto& devicePair : mDevices) {
+                std::shared_ptr<InputDevice>& device = devicePair.second;
+                device->configure(now, &mConfig, changes);
+            }
         }
     }
 }
@@ -413,32 +372,22 @@ int32_t InputReader::getGlobalMetaStateLocked() {
     return mGlobalMetaState;
 }
 
-void InputReader::updateLedMetaStateLocked(int32_t metaState) {
-    mLedMetaState = metaState;
-    for (auto& devicePair : mDevices) {
-        std::shared_ptr<InputDevice>& device = devicePair.second;
-        device->updateLedState(false);
-    }
-}
-
-int32_t InputReader::getLedMetaStateLocked() {
-    return mLedMetaState;
-}
-
-void InputReader::notifyExternalStylusPresenceChangedLocked() {
+void InputReader::notifyExternalStylusPresenceChanged() {
     refreshConfigurationLocked(InputReaderConfiguration::CHANGE_EXTERNAL_STYLUS_PRESENCE);
 }
 
 void InputReader::getExternalStylusDevicesLocked(std::vector<InputDeviceInfo>& outDevices) {
     for (auto& devicePair : mDevices) {
         std::shared_ptr<InputDevice>& device = devicePair.second;
-        if (device->getClasses().test(InputDeviceClass::EXTERNAL_STYLUS) && !device->isIgnored()) {
-            outDevices.push_back(device->getDeviceInfo());
+        if (device->getClasses() & INPUT_DEVICE_CLASS_EXTERNAL_STYLUS && !device->isIgnored()) {
+            InputDeviceInfo info;
+            device->getDeviceInfo(&info);
+            outDevices.push_back(info);
         }
     }
 }
 
-void InputReader::dispatchExternalStylusStateLocked(const StylusState& state) {
+void InputReader::dispatchExternalStylusState(const StylusState& state) {
     for (auto& devicePair : mDevices) {
         std::shared_ptr<InputDevice>& device = devicePair.second;
         device->updateExternalStylusState(state);
@@ -512,37 +461,37 @@ int32_t InputReader::bumpGenerationLocked() {
     return ++mGeneration;
 }
 
-std::vector<InputDeviceInfo> InputReader::getInputDevices() const {
-    std::scoped_lock _l(mLock);
-    return getInputDevicesLocked();
+void InputReader::getInputDevices(std::vector<InputDeviceInfo>& outInputDevices) {
+    AutoMutex _l(mLock);
+    getInputDevicesLocked(outInputDevices);
 }
 
-std::vector<InputDeviceInfo> InputReader::getInputDevicesLocked() const {
-    std::vector<InputDeviceInfo> outInputDevices;
-    outInputDevices.reserve(mDeviceToEventHubIdsMap.size());
+void InputReader::getInputDevicesLocked(std::vector<InputDeviceInfo>& outInputDevices) {
+    outInputDevices.clear();
 
     for (const auto& [device, eventHubIds] : mDeviceToEventHubIdsMap) {
         if (!device->isIgnored()) {
-            outInputDevices.push_back(device->getDeviceInfo());
+            InputDeviceInfo info;
+            device->getDeviceInfo(&info);
+            outInputDevices.push_back(info);
         }
     }
-    return outInputDevices;
 }
 
 int32_t InputReader::getKeyCodeState(int32_t deviceId, uint32_t sourceMask, int32_t keyCode) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
     return getStateLocked(deviceId, sourceMask, keyCode, &InputDevice::getKeyCodeState);
 }
 
 int32_t InputReader::getScanCodeState(int32_t deviceId, uint32_t sourceMask, int32_t scanCode) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
     return getStateLocked(deviceId, sourceMask, scanCode, &InputDevice::getScanCodeState);
 }
 
 int32_t InputReader::getSwitchState(int32_t deviceId, uint32_t sourceMask, int32_t switchCode) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
     return getStateLocked(deviceId, sourceMask, switchCode, &InputDevice::getSwitchState);
 }
@@ -551,7 +500,7 @@ int32_t InputReader::getStateLocked(int32_t deviceId, uint32_t sourceMask, int32
                                     GetStateFunc getStateFunc) {
     int32_t result = AKEY_STATE_UNKNOWN;
     if (deviceId >= 0) {
-        InputDevice* device = findInputDeviceLocked(deviceId);
+        InputDevice* device = findInputDevice(deviceId);
         if (device && !device->isIgnored() && sourcesMatchMask(device->getSources(), sourceMask)) {
             result = (device->*getStateFunc)(sourceMask, code);
         }
@@ -574,8 +523,7 @@ int32_t InputReader::getStateLocked(int32_t deviceId, uint32_t sourceMask, int32
 }
 
 void InputReader::toggleCapsLockState(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
-    InputDevice* device = findInputDeviceLocked(deviceId);
+    InputDevice* device = findInputDevice(deviceId);
     if (!device) {
         ALOGW("Ignoring toggleCapsLock for unknown deviceId %" PRId32 ".", deviceId);
         return;
@@ -590,7 +538,7 @@ void InputReader::toggleCapsLockState(int32_t deviceId) {
 
 bool InputReader::hasKeys(int32_t deviceId, uint32_t sourceMask, size_t numCodes,
                           const int32_t* keyCodes, uint8_t* outFlags) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
     memset(outFlags, 0, numCodes);
     return markSupportedKeyCodesLocked(deviceId, sourceMask, numCodes, keyCodes, outFlags);
@@ -601,7 +549,7 @@ bool InputReader::markSupportedKeyCodesLocked(int32_t deviceId, uint32_t sourceM
                                               uint8_t* outFlags) {
     bool result = false;
     if (deviceId >= 0) {
-        InputDevice* device = findInputDeviceLocked(deviceId);
+        InputDevice* device = findInputDevice(deviceId);
         if (device && !device->isIgnored() && sourcesMatchMask(device->getSources(), sourceMask)) {
             result = device->markSupportedKeyCodes(sourceMask, numCodes, keyCodes, outFlags);
         }
@@ -617,7 +565,7 @@ bool InputReader::markSupportedKeyCodesLocked(int32_t deviceId, uint32_t sourceM
 }
 
 void InputReader::requestRefreshConfiguration(uint32_t changes) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
     if (changes) {
         bool needWake = !mConfigurationChangesToRefresh;
@@ -629,161 +577,28 @@ void InputReader::requestRefreshConfiguration(uint32_t changes) {
     }
 }
 
-void InputReader::vibrate(int32_t deviceId, const VibrationSequence& sequence, ssize_t repeat,
-                          int32_t token) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
+void InputReader::vibrate(int32_t deviceId, const nsecs_t* pattern, size_t patternSize,
+                          ssize_t repeat, int32_t token) {
+    AutoMutex _l(mLock);
+    InputDevice* device = findInputDevice(deviceId);
     if (device) {
-        device->vibrate(sequence, repeat, token);
+        device->vibrate(pattern, patternSize, repeat, token);
     }
 }
 
 void InputReader::cancelVibrate(int32_t deviceId, int32_t token) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
-    InputDevice* device = findInputDeviceLocked(deviceId);
+    InputDevice* device = findInputDevice(deviceId);
     if (device) {
         device->cancelVibrate(token);
     }
 }
 
-bool InputReader::isVibrating(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->isVibrating();
-    }
-    return false;
-}
-
-std::vector<int32_t> InputReader::getVibratorIds(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->getVibratorIds();
-    }
-    return {};
-}
-
-void InputReader::disableSensor(int32_t deviceId, InputDeviceSensorType sensorType) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        device->disableSensor(sensorType);
-    }
-}
-
-bool InputReader::enableSensor(int32_t deviceId, InputDeviceSensorType sensorType,
-                               std::chrono::microseconds samplingPeriod,
-                               std::chrono::microseconds maxBatchReportLatency) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->enableSensor(sensorType, samplingPeriod, maxBatchReportLatency);
-    }
-    return false;
-}
-
-void InputReader::flushSensor(int32_t deviceId, InputDeviceSensorType sensorType) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        device->flushSensor(sensorType);
-    }
-}
-
-std::optional<int32_t> InputReader::getBatteryCapacity(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->getBatteryCapacity();
-    }
-    return std::nullopt;
-}
-
-std::optional<int32_t> InputReader::getBatteryStatus(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->getBatteryStatus();
-    }
-    return std::nullopt;
-}
-
-std::vector<InputDeviceLightInfo> InputReader::getLights(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device == nullptr) {
-        return {};
-    }
-
-    return device->getDeviceInfo().getLights();
-}
-
-std::vector<InputDeviceSensorInfo> InputReader::getSensors(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device == nullptr) {
-        return {};
-    }
-
-    return device->getDeviceInfo().getSensors();
-}
-
-bool InputReader::setLightColor(int32_t deviceId, int32_t lightId, int32_t color) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->setLightColor(lightId, color);
-    }
-    return false;
-}
-
-bool InputReader::setLightPlayerId(int32_t deviceId, int32_t lightId, int32_t playerId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->setLightPlayerId(lightId, playerId);
-    }
-    return false;
-}
-
-std::optional<int32_t> InputReader::getLightColor(int32_t deviceId, int32_t lightId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->getLightColor(lightId);
-    }
-    return std::nullopt;
-}
-
-std::optional<int32_t> InputReader::getLightPlayerId(int32_t deviceId, int32_t lightId) {
-    std::scoped_lock _l(mLock);
-
-    InputDevice* device = findInputDeviceLocked(deviceId);
-    if (device) {
-        return device->getLightPlayerId(lightId);
-    }
-    return std::nullopt;
-}
-
 bool InputReader::isInputDeviceEnabled(int32_t deviceId) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
-    InputDevice* device = findInputDeviceLocked(deviceId);
+    InputDevice* device = findInputDevice(deviceId);
     if (device) {
         return device->isEnabled();
     }
@@ -792,9 +607,9 @@ bool InputReader::isInputDeviceEnabled(int32_t deviceId) {
 }
 
 bool InputReader::canDispatchToDisplay(int32_t deviceId, int32_t displayId) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
-    InputDevice* device = findInputDeviceLocked(deviceId);
+    InputDevice* device = findInputDevice(deviceId);
     if (!device) {
         ALOGW("Ignoring invalid device id %" PRId32 ".", deviceId);
         return false;
@@ -820,7 +635,7 @@ bool InputReader::canDispatchToDisplay(int32_t deviceId, int32_t displayId) {
 }
 
 void InputReader::dump(std::string& dump) {
-    std::scoped_lock _l(mLock);
+    AutoMutex _l(mLock);
 
     mEventHub->dump(dump);
     dump += "\n";
@@ -895,9 +710,11 @@ void InputReader::dump(std::string& dump) {
 
 void InputReader::monitor() {
     // Acquire and release the lock to ensure that the reader has not deadlocked.
-    std::unique_lock<std::mutex> lock(mLock);
+    mLock.lock();
     mEventHub->wake();
-    mReaderIsAliveCondition.wait(lock);
+    mReaderIsAliveCondition.wait(mLock);
+    mLock.unlock();
+
     // Check the EventHub
     mEventHub->monitor();
 }
@@ -915,16 +732,6 @@ void InputReader::ContextImpl::updateGlobalMetaState() {
 int32_t InputReader::ContextImpl::getGlobalMetaState() {
     // lock is already held by the input loop
     return mReader->getGlobalMetaStateLocked();
-}
-
-void InputReader::ContextImpl::updateLedMetaState(int32_t metaState) {
-    // lock is already held by the input loop
-    mReader->updateLedMetaStateLocked(metaState);
-}
-
-int32_t InputReader::ContextImpl::getLedMetaState() {
-    // lock is already held by the input loop
-    return mReader->getLedMetaStateLocked();
 }
 
 void InputReader::ContextImpl::disableVirtualKeysUntil(nsecs_t time) {
@@ -965,7 +772,7 @@ void InputReader::ContextImpl::getExternalStylusDevices(std::vector<InputDeviceI
 }
 
 void InputReader::ContextImpl::dispatchExternalStylusState(const StylusState& state) {
-    mReader->dispatchExternalStylusStateLocked(state);
+    mReader->dispatchExternalStylusState(state);
 }
 
 InputReaderPolicyInterface* InputReader::ContextImpl::getPolicy() {

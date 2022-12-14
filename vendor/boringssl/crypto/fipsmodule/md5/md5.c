@@ -119,31 +119,33 @@ int MD5_Final(uint8_t out[MD5_DIGEST_LENGTH], MD5_CTX *c) {
 #define H(b, c, d) ((b) ^ (c) ^ (d))
 #define I(b, c, d) (((~(d)) | (b)) ^ (c))
 
+#define ROTATE(a, n) (((a) << (n)) | ((a) >> (32 - (n))))
+
 #define R0(a, b, c, d, k, s, t)            \
   do {                                     \
     (a) += ((k) + (t) + F((b), (c), (d))); \
-    (a) = CRYPTO_rotl_u32(a, s);           \
+    (a) = ROTATE(a, s);                    \
     (a) += (b);                            \
   } while (0)
 
 #define R1(a, b, c, d, k, s, t)            \
   do {                                     \
     (a) += ((k) + (t) + G((b), (c), (d))); \
-    (a) = CRYPTO_rotl_u32(a, s);           \
+    (a) = ROTATE(a, s);                    \
     (a) += (b);                            \
   } while (0)
 
 #define R2(a, b, c, d, k, s, t)            \
   do {                                     \
     (a) += ((k) + (t) + H((b), (c), (d))); \
-    (a) = CRYPTO_rotl_u32(a, s);           \
+    (a) = ROTATE(a, s);                    \
     (a) += (b);                            \
   } while (0)
 
 #define R3(a, b, c, d, k, s, t)            \
   do {                                     \
     (a) += ((k) + (t) + I((b), (c), (d))); \
-    (a) = CRYPTO_rotl_u32(a, s);           \
+    (a) = ROTATE(a, s);                    \
     (a) += (b);                            \
   } while (0)
 
@@ -278,6 +280,7 @@ static void md5_block_data_order(uint32_t *state, const uint8_t *data,
 #undef G
 #undef H
 #undef I
+#undef ROTATE
 #undef R0
 #undef R1
 #undef R2

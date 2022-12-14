@@ -60,11 +60,6 @@ void AParcel_delete(AParcel* parcel) __INTRODUCED_IN(29);
 /**
  * Sets the position within the parcel.
  *
- * This must be called with a position that has been previously returned from
- * AParcel_getDataPosition. If writes are made after setting the data position, they must
- * be made in the exact same sequence used before resetting data position. Writing over
- * objects such as binders or file descriptors is not supported.
- *
  * Available since API level 29.
  *
  * \param parcel The parcel of which to set the position.
@@ -1169,45 +1164,6 @@ binder_status_t AParcel_appendFrom(const AParcel* from, AParcel* to, int32_t sta
  * \return A parcel which is not related to any IBinder objects.
  */
 AParcel* AParcel_create() __INTRODUCED_IN(31);
-
-/**
- * Marshals the raw bytes of the Parcel to a buffer.
- *
- * Available since API level 33.
- *
- * The parcel must not contain any binders or file descriptors.
- *
- * The data you retrieve here must not be placed in any kind of persistent storage. (on local disk,
- * across a network, etc). For that, you should use standard serialization or another kind of
- * general serialization mechanism. The Parcel marshalled representation is highly optimized for
- * local IPC, and as such does not attempt to maintain compatibility with data created in different
- * versions of the platform.
- *
- * \param parcel The parcel of which to get the data.
- * \param buffer The buffer to copy the raw bytes to.
- * \param start The start position in the buffer to copy from.
- * \param len The size of the data to copy, buffer size must be larger or equal to this.
- *
- * \return STATUS_OK on success, STATUS_INVALID_OPERATION if parcel contains binders or file
- * descriptors. STATUS_BAD_VALUE if the buffer size is less than parcel size.
- */
-binder_status_t AParcel_marshal(const AParcel* parcel, uint8_t* buffer, size_t start, size_t len)
-        __INTRODUCED_IN(33);
-
-/**
- * Set the data in the parcel to the raw bytes from the buffer.
- *
- * Available since API level 33.
- *
- * \param parcel The parcel to set data.
- * \param buffer The data buffer to set.
- * \param len The size of the data to set.
- *
- * \return STATUS_OK on success.
- */
-binder_status_t AParcel_unmarshal(AParcel* parcel, const uint8_t* buffer, size_t len)
-        __INTRODUCED_IN(33);
-
 #ifdef __cplusplus
 }
 #endif

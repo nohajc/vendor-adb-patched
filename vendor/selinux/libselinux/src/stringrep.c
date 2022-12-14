@@ -180,6 +180,7 @@ void selinux_flush_class_cache(void)
 	discover_class_cache = NULL;
 }
 
+hidden_def(selinux_flush_class_cache)
 
 security_class_t string_to_security_class(const char *s)
 {
@@ -229,7 +230,7 @@ access_vector_t string_to_av_perm(security_class_t tclass, const char *s)
 		size_t i;
 		for (i = 0; i < MAXVECTORS && node->perms[i] != NULL; i++)
 			if (strcmp(node->perms[i],s) == 0)
-				return map_perm(tclass, UINT32_C(1)<<i);
+				return map_perm(tclass, 1<<i);
 	}
 
 	errno = EINVAL;
@@ -261,7 +262,7 @@ const char *security_av_perm_to_string(security_class_t tclass,
 	node = get_class_cache_entry_value(tclass);
 	if (av && node)
 		for (i = 0; i<MAXVECTORS; i++)
-			if ((UINT32_C(1)<<i) & av)
+			if ((1<<i) & av)
 				return node->perms[i];
 
 	return NULL;
@@ -279,7 +280,7 @@ int security_av_string(security_class_t tclass, access_vector_t av, char **res)
 	/* first pass computes the required length */
 	for (i = 0; tmp; tmp >>= 1, i++) {
 		if (tmp & 1) {
-			str = security_av_perm_to_string(tclass, av & (UINT32_C(1)<<i));
+			str = security_av_perm_to_string(tclass, av & (1<<i));
 			if (str)
 				len += strlen(str) + 1;
 		}
@@ -303,7 +304,7 @@ int security_av_string(security_class_t tclass, access_vector_t av, char **res)
 	ptr += sprintf(ptr, "{ ");
 	for (i = 0; tmp; tmp >>= 1, i++) {
 		if (tmp & 1) {
-			str = security_av_perm_to_string(tclass, av & (UINT32_C(1)<<i));
+			str = security_av_perm_to_string(tclass, av & (1<<i));
 			if (str)
 				ptr += sprintf(ptr, "%s ", str);
 		}

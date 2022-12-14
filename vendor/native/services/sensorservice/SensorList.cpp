@@ -57,12 +57,6 @@ String8 SensorList::getName(int handle) const {
             mNonSensor.getName());
 }
 
-String8 SensorList::getStringType(int handle) const {
-    return getOne<String8>(
-            handle, [] (const Entry& e) -> String8 {return e.si->getSensor().getStringType();},
-            mNonSensor.getStringType());
-}
-
 sp<SensorInterface> SensorList::getInterface(int handle) const {
     return getOne<sp<SensorInterface>>(
             handle, [] (const Entry& e) -> sp<SensorInterface> {return e.si;}, nullptr);

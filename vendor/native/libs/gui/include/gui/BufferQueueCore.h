@@ -354,9 +354,6 @@ private:
     // mTransformHintInUse is to cache the mTransformHint used by the producer.
     uint32_t mTransformHintInUse;
 
-    // This allows the consumer to acquire an additional buffer if that buffer is not droppable and
-    // will eventually be released or acquired by the consumer.
-    bool mAllowExtraAcquire = false;
 }; // class BufferQueueCore
 
 } // namespace android

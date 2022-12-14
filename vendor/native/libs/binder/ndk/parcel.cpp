@@ -673,32 +673,4 @@ AParcel* AParcel_create() {
     return new AParcel(nullptr);
 }
 
-binder_status_t AParcel_marshal(const AParcel* parcel, uint8_t* buffer, size_t start, size_t len) {
-    if (parcel->get()->objectsCount()) {
-        return STATUS_INVALID_OPERATION;
-    }
-    int32_t dataSize = AParcel_getDataSize(parcel);
-    if (len > static_cast<size_t>(dataSize) || start > static_cast<size_t>(dataSize) - len) {
-        return STATUS_BAD_VALUE;
-    }
-    const uint8_t* internalBuffer = parcel->get()->data();
-    memcpy(buffer, internalBuffer + start, len);
-    return STATUS_OK;
-}
-
-binder_status_t AParcel_unmarshal(AParcel* parcel, const uint8_t* buffer, size_t len) {
-    status_t status = parcel->get()->setDataSize(len);
-    if (status != ::android::OK) {
-        return PruneStatusT(status);
-    }
-    parcel->get()->setDataPosition(0);
-
-    void* raw = parcel->get()->writeInplace(len);
-    if (raw == nullptr) {
-        return STATUS_NO_MEMORY;
-    }
-    memcpy(raw, buffer, len);
-    return STATUS_OK;
-}
-
 // @END

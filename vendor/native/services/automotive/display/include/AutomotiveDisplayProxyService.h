@@ -20,7 +20,7 @@
 #include <gui/ISurfaceComposer.h>
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
-#include <ui/DisplayMode.h>
+#include <ui/DisplayConfig.h>
 #include <ui/DisplayState.h>
 #include <tuple>
 #include <vector>

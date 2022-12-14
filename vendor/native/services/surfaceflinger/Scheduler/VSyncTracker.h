@@ -17,7 +17,6 @@
 #pragma once
 
 #include <utils/Timers.h>
-#include "Fps.h"
 #include "VSyncDispatch.h"
 
 namespace android::scheduler {
@@ -68,14 +67,6 @@ public:
     virtual void resetModel() = 0;
 
     virtual bool needsMoreSamples() const = 0;
-
-    /*
-     * Checks if a vsync timestamp is in phase for a frame rate
-     *
-     * \param [in] timePoint  A vsync timestamp
-     * \param [in] frameRate  The frame rate to check for
-     */
-    virtual bool isVSyncInPhase(nsecs_t timePoint, Fps frameRate) const = 0;
 
     virtual void dump(std::string& result) const = 0;
 

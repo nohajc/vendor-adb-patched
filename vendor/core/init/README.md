@@ -77,43 +77,6 @@ monolithic init .rc files.  This additionally will aid in merge
 conflict resolution when multiple services are added to the system, as
 each one will go into a separate file.
 
-Versioned RC files within APEXs
--------------------------------
-
-With the arrival of mainline on Android Q, the individual mainline
-modules carry their own init.rc files within their boundaries. Init
-processes these files according to the naming pattern `/apex/*/etc/*rc`.
-
-Because APEX modules must run on more than one release of Android,
-they may require different parameters as part of the services they
-define. This is achieved, starting in Android T, by incorporating
-the SDK version information in the name of the init file.  The suffix
-is changed from `.rc` to `.#rc` where # is the first SDK where that
-RC file is accepted. An init file specific to SDK=31 might be named
-`init.31rc`. With this scheme, an APEX may include multiple init files. An
-example is appropriate.
-
-For an APEX module with the following files in /apex/sample-module/apex/etc/:
-
-   1. init.rc
-   2. init.32rc
-   4. init.35rc
-
-The selection rule chooses the highest `.#rc` value that does not
-exceed the SDK of the currently running system. The unadorned `.rc`
-is interpreted as sdk=0.
-
-When this APEX is installed on a device with SDK <=31, the system will
-process init.rc.  When installed on a device running SDK 32, 33, or 34,
-it will use init.32rc.  When installed on a device running SDKs >= 35,
-it will choose init.35rc
-
-This versioning scheme is used only for the init files within APEX
-modules; it does not apply to the init files stored in /system/etc/init,
-/vendor/etc/init, or other directories.
-
-This naming scheme is available after Android S.
-
 Actions
 -------
 Actions are named sequences of commands.  Actions have a trigger which
@@ -314,6 +277,8 @@ runs the service.
   CLD_EXITED or an status other than '0', reboot the system with the target specified in
   _target_. _target_ takes the same format as the parameter to sys.powerctl. This is particularly
   intended to be used with the `exec_start` builtin for any must-have checks during boot.
+  A service being stopped by init (e.g. using the `stop` or `class_reset` commands) is not
+  considered a failure for the purpose of this setting.
 
 `restart_period <seconds>`
 > If a non-oneshot service exits, it will be restarted at its start time plus
@@ -487,6 +452,11 @@ Commands
   not already running.  See the start entry for more information on
   starting services.
 
+`class_start_post_data <serviceclass>`
+> Like `class_start`, but only considers services that were started
+  after /data was mounted, and that were running at the time
+ `class_reset_post_data` was called. Only used for FDE devices.
+
 `class_stop <serviceclass>`
 > Stop and disable all services of the specified class if they are
   currently running.
@@ -496,9 +466,12 @@ Commands
   currently running, without disabling them. They can be restarted
   later using `class_start`.
 
-`class_restart [--only-enabled] <serviceclass>`
-> Restarts all services of the specified class. If `--only-enabled` is
-  specified, then disabled services are skipped.
+`class_reset_post_data <serviceclass>`
+> Like `class_reset`, but only considers services that were started
+  after /data was mounted. Only used for FDE devices.
+
+`class_restart <serviceclass>`
+> Restarts all services of the specified class.
 
 `copy <src> <dst>`
 > Copies a file. Similar to write, but useful for binary/large
@@ -599,19 +572,16 @@ provides the `aidl_lazy_test_1` interface.
   Properties are expanded within _level_.
 
 `mark_post_data`
-> Used to mark the point right after /data is mounted.
+> Used to mark the point right after /data is mounted. Used to implement the
+  `class_reset_post_data` and `class_start_post_data` commands.
 
 `mkdir <path> [<mode>] [<owner>] [<group>] [encryption=<action>] [key=<key>]`
 > Create a directory at _path_, optionally with the given mode, owner, and
   group. If not provided, the directory is created with permissions 755 and
   owned by the root user and root group. If provided, the mode, owner and group
   will be updated if the directory exists already.
-  If the directory does not exist, it will receive the security context from
-  the current SELinux policy or its parent if not specified in the policy. If
-  the directory exists, its security context will not be changed (even if
-  different from the policy).
 
-  > _action_ can be one of:
+ > _action_ can be one of:
   * `None`: take no encryption action; directory will be encrypted if parent is.
   * `Require`: encrypt directory, abort boot process if encryption fails
   * `Attempt`: try to set an encryption policy, but continue if it fails
@@ -645,10 +615,9 @@ provides the `aidl_lazy_test_1` interface.
   configurations. Intended to be used only once when apexd notifies the mount
   event by setting `apexd.status` to ready.
 
-`restart [--only-if-running] <service>`
+`restart <service>`
 > Stops and restarts a running service, does nothing if the service is currently
-  restarting, otherwise, it just starts the service. If "--only-if-running" is
-  specified, the service is only restarted if it is already running.
+  restarting, otherwise, it just starts the service.
 
 `restorecon <path> [ <path>\* ]`
 > Restore the file named by _path_ to the security context specified
@@ -726,13 +695,10 @@ provides the `aidl_lazy_test_1` interface.
   fstab.${ro.hardware} or fstab.${ro.hardware.platform} will be scanned for
   under /odm/etc, /vendor/etc, or / at runtime, in that order.
 
-`verity_update_state`
+`verity_update_state <mount-point>`
 > Internal implementation detail used to update dm-verity state and
   set the partition._mount-point_.verified properties used by adb remount
-  because fs\_mgr can't set them directly itself. This is required since
-  Android 12, because CtsNativeVerifiedBootTestCases will read property
-  "partition.${partition}.verified.hash_alg" to check that sha1 is not used.
-  See https://r.android.com/1546980 for more details.
+  because fs\_mgr can't set them directly itself.
 
 `wait <path> [ <timeout> ]`
 > Poll for the existence of the given file and return when found,
@@ -808,18 +774,13 @@ Init provides state information with the following properties.
 `init.svc.<name>`
 > State of a named service ("stopped", "stopping", "running", "restarting")
 
-`dev.mnt.dev.<mount_point>`, `dev.mnt.blk.<mount_point>`, `dev.mnt.rootdisk.<mount_point>`
+`dev.mnt.blk.<mount_point>`
 > Block device base name associated with a *mount_point*.
   The *mount_point* has / replaced by . and if referencing the root mount point
-  "/", it will use "/root".
-  `dev.mnt.dev.<mount_point>` indicates a block device attached to filesystems.
-    (e.g., dm-N or sdaN/mmcblk0pN to access `/sys/fs/ext4/${dev.mnt.dev.<mount_point>}/`)
-
-  `dev.mnt.blk.<mount_point>` indicates the disk partition to the above block device.
-    (e.g., sdaN / mmcblk0pN to access `/sys/class/block/${dev.mnt.blk.<mount_point>}/`)
-
-  `dev.mnt.rootdisk.<mount_point>` indicates the root disk to contain the above disk partition.
-    (e.g., sda / mmcblk0 to access `/sys/class/block/${dev.mnt.rootdisk.<mount_point>}/queue`)
+  "/", it will use "/root", specifically `dev.mnt.blk.root`.
+  Meant for references to `/sys/device/block/${dev.mnt.blk.<mount_point>}/` and
+  `/sys/fs/ext4/${dev.mnt.blk.<mount_point>}/` to tune the block device
+  characteristics in a device agnostic manner.
 
 Init responds to properties that begin with `ctl.`.  These properties take the format of
 `ctl.[<target>_]<command>` and the _value_ of the system property is used as a parameter.  The
@@ -1043,7 +1004,7 @@ located at /init within the recovery ramdisk. These devices first switch root to
 /first_stage_ramdisk to remove the recovery components from the environment, then proceed the same
 as 2). Note that the decision to boot normally into Android instead of booting
 into recovery mode is made if androidboot.force_normal_boot=1 is present in the
-kernel commandline, or in bootconfig with Android S and later.
+kernel commandline.
 
 Once first stage init finishes it execs /system/bin/init with the "selinux_setup" argument. This
 phase is where SELinux is optionally compiled and loaded onto the system. selinux.cpp contains more

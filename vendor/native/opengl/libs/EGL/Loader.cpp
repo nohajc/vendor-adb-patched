@@ -17,23 +17,27 @@
 //#define LOG_NDEBUG 0
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
-#include "EGL/Loader.h"
-
-#include <android-base/properties.h>
-#include <android/dlext.h>
-#include <dirent.h>
-#include <dlfcn.h>
-#include <graphicsenv/GraphicsEnv.h>
-#include <log/log.h>
-#include <utils/Timers.h>
-#include <vndksupport/linker.h>
+#include <EGL/Loader.h>
 
 #include <string>
 
-#include "EGL/eglext_angle.h"
+#include <dirent.h>
+#include <dlfcn.h>
+
+#include <android-base/properties.h>
+#include <android/dlext.h>
+#include <log/log.h>
+#include <utils/Timers.h>
+
+#ifndef __ANDROID_VNDK__
+#include <graphicsenv/GraphicsEnv.h>
+#endif
+#include <vndksupport/linker.h>
+
 #include "egl_platform_entries.h"
 #include "egl_trace.h"
 #include "egldefs.h"
+#include <EGL/eglext_angle.h>
 
 namespace android {
 
@@ -155,11 +159,13 @@ static bool should_unload_system_driver(egl_connection_t* cnx) {
         return true;
     }
 
+#ifndef __ANDROID_VNDK__
     // Return true if updated driver namespace is set.
     ns = android::GraphicsEnv::getInstance().getDriverNamespace();
     if (ns) {
         return true;
     }
+#endif
 
     return false;
 }
@@ -270,7 +276,7 @@ void* Loader::open(egl_connection_t* cnx)
         // will set cnx->useAngle appropriately.
         // Do this here so that we use ANGLE path when driver is ANGLE (e.g. loaded as native),
         // not just loading ANGLE as option.
-        init_angle_backend(hnd->dso[2], cnx);
+        init_angle_backend(hnd->dso[0], cnx);
     }
 
     LOG_ALWAYS_FATAL_IF(!hnd,
@@ -364,7 +370,7 @@ void Loader::init_api(void* dso,
             f = (__eglMustCastToProperFunctionPointerType)gl_unimplemented;
 
             /*
-             * GL_EXT_debug_marker is special, we always report it as
+             * GL_EXT_debug_label is special, we always report it as
              * supported, it's handled by GLES_trace. If GLES_trace is not
              * enabled, then these are no-ops.
              */
@@ -514,8 +520,6 @@ static void* load_updated_driver(const char* kind, android_namespace_t* ns) {
         if (so) {
             return so;
         }
-        ALOGE("Could not load %s from updatable gfx driver namespace: %s.", name.c_str(),
-              dlerror());
     }
     return nullptr;
 }
@@ -553,8 +557,12 @@ Loader::driver_t* Loader::attempt_to_load_angle(egl_connection_t* cnx) {
 }
 
 void Loader::init_angle_backend(void* dso, egl_connection_t* cnx) {
-    void* pANGLEGetDisplayPlatform = dlsym(dso, "ANGLEGetDisplayPlatform");
-    if (pANGLEGetDisplayPlatform) {
+    void* eglCreateDeviceANGLE = nullptr;
+
+    ALOGV("dso: %p", dso);
+    eglCreateDeviceANGLE = dlsym(dso, "eglCreateDeviceANGLE");
+    ALOGV("eglCreateDeviceANGLE: %p", eglCreateDeviceANGLE);
+    if (eglCreateDeviceANGLE) {
         ALOGV("ANGLE GLES library in use");
         cnx->useAngle = true;
     } else {
@@ -565,7 +573,7 @@ void Loader::init_angle_backend(void* dso, egl_connection_t* cnx) {
 
 Loader::driver_t* Loader::attempt_to_load_updated_driver(egl_connection_t* cnx) {
     ATRACE_CALL();
-
+#ifndef __ANDROID_VNDK__
     android_namespace_t* ns = android::GraphicsEnv::getInstance().getDriverNamespace();
     if (!ns) {
         return nullptr;
@@ -595,6 +603,9 @@ Loader::driver_t* Loader::attempt_to_load_updated_driver(egl_connection_t* cnx) 
         hnd->set(dso, GLESv2);
     }
     return hnd;
+#else
+    return nullptr;
+#endif
 }
 
 Loader::driver_t* Loader::attempt_to_load_system_driver(egl_connection_t* cnx, const char* suffix,

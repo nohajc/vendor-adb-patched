@@ -75,14 +75,13 @@ cc_library_static {
         "SimpleLogBuffer.cpp",
     ],
     static_libs: ["liblog"],
-    shared_libs: ["libbinder"],
     logtags: ["event.logtags"],
 
     export_include_dirs: ["."],
 }
 
-cc_defaults {
-    name: "logd_binary_defaults",
+cc_binary {
+    name: "logd",
     defaults: ["logd_defaults"],
     init_rc: ["logd.rc"],
 
@@ -94,7 +93,6 @@ cc_defaults {
         "LogReader.cpp",
         "LogAudit.cpp",
         "LogKlog.cpp",
-        "TrustyLog.cpp",
         "libaudit.cpp",
         "PkgIds.cpp",
     ],
@@ -111,20 +109,6 @@ cc_defaults {
         "libprocessgroup",
         "libcap",
     ],
-}
-
-cc_binary {
-    name: "logd",
-    defaults: ["logd_binary_defaults"],
-}
-
-cc_binary {
-    name: "logd.microdroid",
-    stem: "logd",
-    defaults: ["logd_binary_defaults"],
-    bootstrap: true,
-    installable: false,
-    visibility: ["//packages/modules/Virtualization/microdroid"],
 }
 
 cc_binary {

@@ -34,7 +34,6 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <vector>
 
 #include <libusb-1.0/libusb.h>
 
@@ -314,13 +313,8 @@ struct LibusbConnection : public Connection {
         libusb_fill_bulk_transfer(write->transfer, device_handle_.get(), write_endpoint_,
                                   reinterpret_cast<unsigned char*>(write->block.data()),
                                   write->block.size(), &write_cb, write.get(), 0);
-        int rc = libusb_submit_transfer(write->transfer);
-        if (rc == 0) {
-            writes_[write->id] = std::move(write);
-        } else {
-            LOG(ERROR) << "libusb_submit_transfer failed: " << libusb_strerror(static_cast<libusb_error>(rc));
-            libusb_free_transfer(write->transfer);
-        }
+        libusb_submit_transfer(write->transfer);
+        writes_[write->id] = std::move(write);
     }
 
     bool Write(std::unique_ptr<apacket> packet) final {
@@ -469,8 +463,6 @@ struct LibusbConnection : public Connection {
         return true;
     }
 
-    std::string GetUsbDeviceAddress() const { return std::string("usb:") + device_address_; }
-
     std::string GetSerial() {
         std::string serial;
 
@@ -552,26 +544,6 @@ struct LibusbConnection : public Connection {
         return true;
     }
 
-    void CancelReadTransfer(ReadBlock* read_block) REQUIRES(read_mutex_) {
-        if (!read_block->transfer) {
-            return;
-        }
-
-        if (!read_block->active) {
-            // There is no read_cb pending. Clean it up right now.
-            Cleanup(read_block);
-            return;
-        }
-
-        int rc = libusb_cancel_transfer(read_block->transfer);
-        if (rc != 0) {
-            LOG(WARNING) << "libusb_cancel_transfer failed: " << libusb_error_name(rc);
-            // There is no read_cb pending. Clean it up right now.
-            Cleanup(read_block);
-            return;
-        }
-    }
-
     void CloseDevice() {
         // This is rather messy, because of the lifecyle of libusb_transfers.
         //
@@ -594,35 +566,37 @@ struct LibusbConnection : public Connection {
             std::unique_lock<std::mutex> lock(write_mutex_);
             ScopedLockAssertion assumed_locked(write_mutex_);
 
-            std::erase_if(writes_, [](const auto& write_item) {
-                auto const& [id, write_block] = write_item;
-                int rc = libusb_cancel_transfer(write_block->transfer);
-                if (rc != 0) {
-                    // libusb_cancel_transfer failed for some reason. We will
-                    // never get a callback for this transfer. So we need to
-                    // remove it from the list or we will hang below.
-                    LOG(INFO) << "libusb_cancel_transfer failed: " << libusb_error_name(rc);
-                    libusb_free_transfer(write_block->transfer);
-                    return true;
+            if (!writes_.empty()) {
+                for (auto& [id, write] : writes_) {
+                    libusb_cancel_transfer(write->transfer);
                 }
-                // Wait for the write_cb to fire before removing.
-                return false;
-            });
 
-            // Wait here until the write callbacks have all fired and removed
-            // the remaining writes_.
-            destruction_cv_.wait(lock, [this]() {
-                ScopedLockAssertion assumed_locked(write_mutex_);
-                return writes_.empty();
-            });
+                destruction_cv_.wait(lock, [this]() {
+                    ScopedLockAssertion assumed_locked(write_mutex_);
+                    return writes_.empty();
+                });
+            }
         }
 
         {
             std::unique_lock<std::mutex> lock(read_mutex_);
             ScopedLockAssertion assumed_locked(read_mutex_);
 
-            CancelReadTransfer(&header_read_);
-            CancelReadTransfer(&payload_read_);
+            if (header_read_.transfer) {
+                if (header_read_.active) {
+                    libusb_cancel_transfer(header_read_.transfer);
+                } else {
+                    Cleanup(&header_read_);
+                }
+            }
+
+            if (payload_read_.transfer) {
+                if (payload_read_.active) {
+                    libusb_cancel_transfer(payload_read_.transfer);
+                } else {
+                    Cleanup(&payload_read_);
+                }
+            }
 
             destruction_cv_.wait(lock, [this]() {
                 ScopedLockAssertion assumed_locked(read_mutex_);
@@ -634,10 +608,7 @@ struct LibusbConnection : public Connection {
         }
 
         if (device_handle_) {
-            int rc = libusb_release_interface(device_handle_.get(), interface_num_);
-            if (rc != 0) {
-                LOG(WARNING) << "libusb_release_interface failed: " << libusb_error_name(rc);
-            }
+            libusb_release_interface(device_handle_.get(), interface_num_);
             device_handle_.reset();
         }
     }
@@ -689,8 +660,7 @@ struct LibusbConnection : public Connection {
 
     virtual void Reset() override final {
         LOG(INFO) << "resetting " << transport_->serial_name();
-        int rc = libusb_reset_device(device_handle_.get());
-        if (rc == 0) {
+        if (libusb_reset_device(device_handle_.get()) == 0) {
             libusb_device* device = libusb_ref_device(device_.get());
 
             Stop();
@@ -699,8 +669,6 @@ struct LibusbConnection : public Connection {
                 process_device(device);
                 libusb_unref_device(device);
             });
-        } else {
-            LOG(ERROR) << "libusb_reset_device failed: " << libusb_error_name(rc);
         }
     }
 
@@ -724,14 +692,10 @@ struct LibusbConnection : public Connection {
 
         auto device_desc = connection->GetDeviceDescriptor();
         if (!device_desc) {
-            LOG(INFO) << "ignoring device " << connection->GetUsbDeviceAddress()
-                      << ": not an adb interface. (GetDeviceDescriptor)";
             return {};
         }
 
         if (!connection->FindInterface(&device_desc.value())) {
-            LOG(INFO) << "ignoring device " << connection->GetUsbDeviceAddress()
-                      << ": not an adb interface. (FindInterface)";
             return {};
         }
 
@@ -749,19 +713,11 @@ struct LibusbConnection : public Connection {
 #else
         // We need to open the device to get its serial on Windows and OS X.
         if (!connection->OpenDevice(nullptr)) {
-            LOG(INFO) << "ignoring device " << connection->GetUsbDeviceAddress()
-                      << ": not an adb interface. (OpenDevice)";
             return {};
         }
         connection->serial_ = connection->GetSerial();
         connection->CloseDevice();
 #endif
-        if (!transport_server_owns_device(connection->GetUsbDeviceAddress(), connection->serial_)) {
-            LOG(INFO) << "ignoring device " << connection->GetUsbDeviceAddress() << " serial "
-                      << connection->serial_ << ": this server owns '" << transport_get_one_device()
-                      << "'";
-            return {};
-        }
 
         return connection;
     }
@@ -806,6 +762,7 @@ static void process_device(libusb_device* device_raw) {
     unique_device device(libusb_ref_device(device_raw));
     auto connection_opt = LibusbConnection::Create(std::move(device));
     if (!connection_opt) {
+        LOG(INFO) << "ignoring device: not an adb interface";
         return;
     }
 

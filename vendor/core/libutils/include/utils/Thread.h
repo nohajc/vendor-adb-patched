@@ -42,9 +42,7 @@ class Thread : virtual public RefBase
 {
 public:
     // Create a Thread object, but doesn't create or start the associated
-    // thread. See the run() method. This object must be used with RefBase/sp,
-    // like any other RefBase object, because they are conventionally promoted
-    // from bare pointers (Thread::run is particularly problematic here).
+    // thread. See the run() method.
     explicit            Thread(bool canCallJava = true);
     virtual             ~Thread();
 

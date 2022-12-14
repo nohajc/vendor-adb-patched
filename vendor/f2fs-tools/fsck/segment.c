@@ -537,6 +537,7 @@ static void update_largest_extent(struct f2fs_sb_info *sbi, nid_t ino)
 		cur_blk += count;
 		dn.ofs_in_node += count;
 		remained_blkentries -= count;
+		ASSERT(remained_blkentries >= 0);
 	}
 
 exit:
@@ -554,7 +555,7 @@ exit:
 
 int f2fs_build_file(struct f2fs_sb_info *sbi, struct dentry *de)
 {
-	int fd, n = -1;
+	int fd, n;
 	pgoff_t off = 0;
 	u8 buffer[BLOCK_SZ];
 	struct node_info ni;

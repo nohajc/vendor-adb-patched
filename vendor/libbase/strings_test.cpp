@@ -83,52 +83,6 @@ TEST(strings, split_any_with_empty_part) {
   ASSERT_EQ("bar", parts[2]);
 }
 
-TEST(strings, tokenize_empty) {
-  std::vector<std::string> parts = android::base::Tokenize("", " ");
-  ASSERT_EQ(0U, parts.size());
-}
-
-TEST(strings, tokenize_all_delimiter) {
-  std::vector<std::string> parts = android::base::Tokenize("  \t ", " \t");
-  ASSERT_EQ(0U, parts.size());
-}
-
-TEST(strings, tokenize_trivial) {
-  std::vector<std::string> parts = android::base::Tokenize("foo", "\t");
-  ASSERT_EQ(1U, parts.size());
-  ASSERT_EQ("foo", parts[0]);
-}
-
-TEST(strings, tokenize_single) {
-  std::vector<std::string> parts = android::base::Tokenize("foo\t", "\t");
-  ASSERT_EQ(1U, parts.size());
-  ASSERT_EQ("foo", parts[0]);
-}
-
-TEST(strings, tokenize_simple) {
-  std::vector<std::string> parts = android::base::Tokenize("foo   bar baz", " ");
-  ASSERT_EQ(3U, parts.size());
-  ASSERT_EQ("foo", parts[0]);
-  ASSERT_EQ("bar", parts[1]);
-  ASSERT_EQ("baz", parts[2]);
-}
-
-TEST(strings, tokenize_any) {
-  std::vector<std::string> parts = android::base::Tokenize("foo \tbar\t\t baz", " \t");
-  ASSERT_EQ(3U, parts.size());
-  ASSERT_EQ("foo", parts[0]);
-  ASSERT_EQ("bar", parts[1]);
-  ASSERT_EQ("baz", parts[2]);
-}
-
-TEST(strings, tokenize_beginning_trailing_delimiters) {
-  std::vector<std::string> parts = android::base::Tokenize(" foo bar baz \t", " \t");
-  ASSERT_EQ(3U, parts.size());
-  ASSERT_EQ("foo", parts[0]);
-  ASSERT_EQ("bar", parts[1]);
-  ASSERT_EQ("baz", parts[2]);
-}
-
 TEST(strings, trim_empty) {
   ASSERT_EQ("", android::base::Trim(""));
 }
@@ -155,22 +109,6 @@ TEST(strings, trim_no_trim_middle) {
 
 TEST(strings, trim_other_whitespace) {
   ASSERT_EQ("foo", android::base::Trim("\v\tfoo\n\f"));
-}
-
-TEST(strings, trim_build_implicit_string_conversion) {
-  struct Foo {
-    operator std::string() { return " foo "; }
-    explicit operator std::string_view() { return " foo "; }
-  };
-  ASSERT_EQ("foo", android::base::Trim(Foo()));
-}
-
-TEST(strings, trim_build_implicit_string_view_conversion) {
-  struct Foo {
-    explicit operator std::string() { return " foo "; }
-    operator std::string_view() { return " foo "; }
-  };
-  ASSERT_EQ("foo", android::base::Trim(Foo()));
 }
 
 TEST(strings, join_nothing) {
@@ -415,8 +353,4 @@ TEST(strings, StringReplace_true) {
   // Shorter replacement.
   ASSERT_EQ("xxyzx", android::base::StringReplace("abcxyzabc", "abc", "x", true));
   ASSERT_EQ("<xx>", android::base::StringReplace("<abcabc>", "abc", "x", true));
-}
-
-TEST(strings, ErrnoNumberAsString) {
-  EXPECT_EQ("No such file or directory", android::base::ErrnoNumberAsString(ENOENT));
 }

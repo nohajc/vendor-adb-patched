@@ -39,34 +39,9 @@ cc_library_static {
         "com.android.media.swcodec",
         "com.android.neuralnetworks",
     ],
-
     min_sdk_version: "29",
 
     export_include_dirs: ["include"],
-    target:  {
-        windows: {
-            enabled: true,
-        }
-    }
-}
-
-cc_library_headers {
-    name: "libmath_headers",
-    export_include_dirs: ["include"],
-    host_supported: true,
-    vendor_available: true,
-
-    apex_available: [
-        "//apex_available:anyapex",
-        "//apex_available:platform",
-    ],
-    min_sdk_version: "apex_inherit",
-
-    target:  {
-        windows: {
-            enabled: true,
-        }
-    }
 }
 
 subdirs = ["tests"]

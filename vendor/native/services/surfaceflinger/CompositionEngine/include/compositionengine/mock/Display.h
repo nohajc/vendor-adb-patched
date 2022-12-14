@@ -32,7 +32,7 @@ public:
     Display();
     virtual ~Display();
 
-    MOCK_CONST_METHOD0(getId, DisplayId());
+    MOCK_CONST_METHOD0(getId, const std::optional<DisplayId>&());
     MOCK_CONST_METHOD0(isSecure, bool());
     MOCK_CONST_METHOD0(isVirtual, bool());
 

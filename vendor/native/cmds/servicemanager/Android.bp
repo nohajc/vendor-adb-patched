@@ -44,24 +44,6 @@ cc_binary {
     defaults: ["servicemanager_defaults"],
     init_rc: ["servicemanager.rc"],
     srcs: ["main.cpp"],
-    bootstrap: true,
-}
-
-cc_binary {
-    name: "servicemanager.microdroid",
-    defaults: ["servicemanager_defaults"],
-    init_rc: ["servicemanager.microdroid.rc"],
-    srcs: ["main.cpp"],
-    bootstrap: true,
-}
-
-cc_binary {
-    name: "servicemanager.recovery",
-    stem: "servicemanager",
-    recovery: true,
-    defaults: ["servicemanager_defaults"],
-    init_rc: ["servicemanager.recovery.rc"],
-    srcs: ["main.cpp"],
 }
 
 cc_binary {
@@ -86,36 +68,4 @@ cc_test {
         "test_sm.cpp",
     ],
     static_libs: ["libgmock"],
-}
-
-cc_fuzz {
-    name: "servicemanager_fuzzer",
-    defaults: ["servicemanager_defaults"],
-    host_supported: true,
-    static_libs: [
-        "libbase",
-        "libbinder_random_parcel",
-        "libcutils",
-    ],
-    target: {
-        android: {
-            shared_libs: [
-                "libbinder_ndk",
-                "libbinder",
-            ],
-        },
-        host: {
-            static_libs: [
-                "libbinder_ndk",
-                "libbinder",
-            ],
-        },
-    },
-    srcs: ["ServiceManagerFuzzer.cpp"],
-    fuzz_config: {
-        cc: [
-            "smoreland@google.com",
-            "waghpawan@google.com",
-        ],
-    },
 }

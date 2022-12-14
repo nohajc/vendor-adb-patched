@@ -33,32 +33,21 @@ license {
     ],
 }
 
-cc_defaults {
-    name: "libsepol_defaults",
-    cflags: [
-      "-D_GNU_SOURCE",
-      "-Wall",
-      "-Werror",
-      "-W",
-      "-Wundef",
-      "-Wshadow",
-      "-Wno-error=missing-noreturn",
-      "-Wmissing-format-attribute",
-    ],
-    target: {
-        bionic: {
-            cflags: ["-DHAVE_REALLOCARRAY"]
-        },
-        musl: {
-            cflags: ["-DHAVE_REALLOCARRAY"]
-        }
-    }
-}
+common_CFLAGS = [
+    "-D_GNU_SOURCE",
+    "-Wall",
+    "-Werror",
+    "-W",
+    "-Wundef",
+    "-Wshadow",
+    "-Wno-error=missing-noreturn",
+    "-Wmissing-format-attribute",
+]
 
 cc_library {
     name: "libsepol",
-    defaults: ["libsepol_defaults"],
     host_supported: true,
+    cflags: common_CFLAGS,
     srcs: [
         "src/assertion.c",
         "src/avrule_block.c",
@@ -91,9 +80,9 @@ cc_library {
         "src/policydb.c",
         "src/policydb_convert.c",
         "src/policydb_public.c",
-        "src/policydb_validate.c",
         "src/port_record.c",
         "src/ports.c",
+        "src/roles.c",
         "src/services.c",
         "src/sidtab.c",
         "src/symtab.c",
@@ -146,7 +135,7 @@ cc_library {
 
 cc_binary_host {
     name: "chkcon",
-    defaults: ["libsepol_defaults"],
     srcs: ["utils/chkcon.c"],
     shared_libs: ["libsepol"],
+    cflags: common_CFLAGS,
 }

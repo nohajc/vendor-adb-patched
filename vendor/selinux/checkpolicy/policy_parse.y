@@ -46,6 +46,7 @@
 #include <sepol/policydb/policydb.h>
 #include <sepol/policydb/services.h>
 #include <sepol/policydb/conditional.h>
+#include <sepol/policydb/flask.h>
 #include <sepol/policydb/hierarchy.h>
 #include <sepol/policydb/polcaps.h>
 #include "queue.h"
@@ -890,26 +891,10 @@ filename		: FILENAME
 			{ yytext[strlen(yytext) - 1] = '\0'; if (insert_id(yytext + 1,0)) return -1; }
 			;
 number			: NUMBER 
-			{ unsigned long x;
-			  errno = 0;
-			  x = strtoul(yytext, NULL, 0);
-			  if (errno)
-			      return -1;
-#if ULONG_MAX > UINT_MAX
-			  if (x > UINT_MAX)
-			      return -1;
-#endif
-			  $$ = (unsigned int) x;
-			}
+			{ $$ = strtoul(yytext,NULL,0); }
 			;
 number64		: NUMBER
-			{ unsigned long long x;
-			  errno = 0;
-			  x = strtoull(yytext, NULL, 0);
-			  if (errno)
-			      return -1;
-			  $$ = (uint64_t) x;
-			}
+			{ $$ = strtoull(yytext,NULL,0); }
 			;
 ipv6_addr		: IPV6_ADDR
 			{ if (insert_id(yytext,0)) return -1; }

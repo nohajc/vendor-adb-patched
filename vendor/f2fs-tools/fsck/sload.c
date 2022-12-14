@@ -28,10 +28,9 @@ typedef void (*fs_config_f)(const char *path, int dir,
 			    unsigned *uid, unsigned *gid,
 			    unsigned *mode, uint64_t *capabilities);
 
-#ifndef _WIN32
 static fs_config_f fs_config_func = NULL;
 
-#ifdef HAVE_SELINUX_ANDROID_H
+#ifdef WITH_ANDROID
 #include <selinux/android.h>
 #include <private/android_filesystem_config.h>
 #include <private/canned_fs_config.h>
@@ -63,7 +62,6 @@ static int f2fs_make_directory(struct f2fs_sb_info *sbi,
 
 	return ret;
 }
-#endif
 
 #ifdef HAVE_LIBSELINUX
 static int set_selinux_xattr(struct f2fs_sb_info *sbi, const char *path,
@@ -101,7 +99,6 @@ static int set_selinux_xattr(struct f2fs_sb_info *sbi, const char *path,
 #define set_selinux_xattr(...)	0
 #endif
 
-#ifndef _WIN32
 static int set_perms_and_caps(struct dentry *de)
 {
 	uint64_t capabilities = 0;
@@ -294,14 +291,6 @@ out_free:
 	free(dentries);
 	return 0;
 }
-#else
-static int build_directory(struct f2fs_sb_info *sbi, const char *full_path,
-			const char *dir_path, const char *target_out_dir,
-			nid_t dir_ino)
-{
-	return -1;
-}
-#endif
 
 static int configure_files(void)
 {
@@ -324,7 +313,7 @@ static int configure_files(void)
 #endif
 skip:
 #endif
-#ifdef HAVE_SELINUX_ANDROID_H
+#ifdef WITH_ANDROID
 	/* Load the FS config */
 	if (c.fs_config_file) {
 		int ret = load_canned_fs_config(c.fs_config_file);

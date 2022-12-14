@@ -124,12 +124,6 @@ typedef void (*AStorageManager_obbCallbackFunc)(const char* filename, const int3
 
 /**
  * Attempts to mount an OBB file. This is an asynchronous operation.
- *
- * Since API level 33, this function can only be used to mount unencrypted OBBs,
- * i.e. the {@code key} parameter must be {@code null} or an empty string. Note
- * that even before API level 33, mounting encrypted OBBs didn't work on many
- * Android device implementations. Applications should not assume any particular
- * behavior when {@code key} is nonempty.
  */
 void AStorageManager_mountObb(AStorageManager* mgr, const char* filename, const char* key,
         AStorageManager_obbCallbackFunc cb, void* data);

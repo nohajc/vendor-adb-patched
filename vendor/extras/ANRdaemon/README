@@ -7,7 +7,7 @@ global control /d/trace/trace_on. The raw trace file is stored at
 
 The daemon will be started at boot time and will be running with the following
 settings:
-$ anrd -t 9990 sched gfx am
+$ ANRdaemon -t 9990 sched gfx am
 This means tracing will be enabled above 99.90% CPU utilization and will trace
 sched, gfx and am modules (See -h for more info).
 

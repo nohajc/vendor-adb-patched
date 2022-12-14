@@ -39,7 +39,6 @@ public:
         TRACK_RECORDER                        = IBinder::FIRST_CALL_TRANSACTION + 4,
         RECORDER_EVENT                        = IBinder::FIRST_CALL_TRANSACTION + 5,
         RELEASE_RECORDER                      = IBinder::FIRST_CALL_TRANSACTION + 6,
-        PLAYER_SESSION_ID                     = IBinder::FIRST_CALL_TRANSACTION + 7,
     };
 
     DECLARE_META_INTERFACE(AudioManager)
@@ -47,17 +46,14 @@ public:
     // The parcels created by these methods must be kept in sync with the
     // corresponding methods from IAudioService.aidl and objects it imports.
     virtual audio_unique_id_t trackPlayer(player_type_t playerType, audio_usage_t usage,
-                audio_content_type_t content, const sp<IBinder>& player,
-                audio_session_t sessionId) = 0;
+                audio_content_type_t content, const sp<IBinder>& player) = 0;
     /*oneway*/ virtual status_t playerAttributes(audio_unique_id_t piid, audio_usage_t usage,
                 audio_content_type_t content)= 0;
-    /*oneway*/ virtual status_t playerEvent(audio_unique_id_t piid, player_state_t event,
-                audio_port_handle_t deviceId) = 0;
+    /*oneway*/ virtual status_t playerEvent(audio_unique_id_t piid, player_state_t event) = 0;
     /*oneway*/ virtual status_t releasePlayer(audio_unique_id_t piid) = 0;
     virtual audio_unique_id_t trackRecorder(const sp<IBinder>& recorder) = 0;
     /*oneway*/ virtual status_t recorderEvent(audio_unique_id_t riid, recorder_state_t event) = 0;
     /*oneway*/ virtual status_t releaseRecorder(audio_unique_id_t riid) = 0;
-    /*oneway*/ virtual status_t playerSessionId(audio_unique_id_t piid, audio_session_t sessionId) = 0;
 };
 
 // ----------------------------------------------------------------------------

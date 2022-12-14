@@ -42,7 +42,7 @@ PERMS     = 3
 ROLE      = 4
 DEST_TYPE = 5
 
-# String representations of the above constants
+# String represenations of the above constants
 field_to_str = ["source", "target", "object", "permission", "role", "destination" ]
 str_to_field = { "source" : SRC_TYPE, "target" : TGT_TYPE, "object" : OBJ_CLASS,
                 "permission" : PERMS, "role" : ROLE, "destination" : DEST_TYPE }
@@ -407,9 +407,10 @@ class XpermSet():
 
         # print single value without braces
         if len(self.ranges) == 1 and self.ranges[0][0] == self.ranges[0][1]:
-            return compl + hex(self.ranges[0][0])
+            return compl + str(self.ranges[0][0])
 
-        vals = map(lambda x: hex(x[0]) if x[0] == x[1] else "%s-%s" % (hex(x[0]), hex(x[1]), ), self.ranges)
+        vals = map(lambda x: str(x[0]) if x[0] == x[1] else "%s-%s" % x,
+                   self.ranges)
 
         return "%s{ %s }" % (compl, " ".join(vals))
 

@@ -35,11 +35,11 @@ bool IsInNativeAbi() {
     pclose(fp);
     std::string s = buf;
     in_native_abi = 1;
-    if (GetTargetArch() == ARCH_X86_32 || GetTargetArch() == ARCH_X86_64) {
+    if (GetBuildArch() == ARCH_X86_32 || GetBuildArch() == ARCH_X86_64) {
       if (s.find("86") == std::string::npos) {
         in_native_abi = 0;
       }
-    } else if (GetTargetArch() == ARCH_ARM || GetTargetArch() == ARCH_ARM64) {
+    } else if (GetBuildArch() == ARCH_ARM || GetBuildArch() == ARCH_ARM64) {
       if (s.find("arm") == std::string::npos && s.find("aarch64") == std::string::npos) {
         in_native_abi = 0;
       }
@@ -48,7 +48,30 @@ bool IsInNativeAbi() {
   return in_native_abi == 1;
 }
 
-#if defined(__linux__)
+static bool InCloudAndroid() {
+#if defined(__i386__) || defined(__x86_64__)
+#if defined(__ANDROID__)
+  std::string prop_value = android::base::GetProperty("ro.build.flavor", "");
+  if (android::base::StartsWith(prop_value, "cf_x86_phone") ||
+      android::base::StartsWith(prop_value, "aosp_cf_x86_phone") ||
+      android::base::StartsWith(prop_value, "cf_x86_64_phone") ||
+      android::base::StartsWith(prop_value, "aosp_cf_x86_64_phone")) {
+    return true;
+  }
+  // aosp_x86* builds may also run on cloud Android. Detect it by checking
+  /// if cpu-cycles isn't supported.
+  if (android::base::StartsWith(prop_value, "aosp_x86")) {
+    const simpleperf::EventType* type = simpleperf::FindEventTypeByName("cpu-cycles", false);
+    CHECK(type != nullptr);
+    perf_event_attr attr = CreateDefaultPerfEventAttr(*type);
+    return !IsEventAttrSupported(attr, "cpu-cycles");
+  }
+#endif
+#endif
+  return false;
+}
+
+#if defined(__arm__)
 // Check if we can get a non-zero instruction event count by monitoring current thread.
 static bool HasNonZeroInstructionEventCount() {
   const simpleperf::EventType* type = simpleperf::FindEventTypeByName("instructions", false);
@@ -70,38 +93,22 @@ static bool HasNonZeroInstructionEventCount() {
   }
   return false;
 }
+#endif  // defined(__arm__)
 
 bool HasHardwareCounter() {
   static int has_hw_counter = -1;
   if (has_hw_counter == -1) {
-    has_hw_counter = 1;
-    auto arch = GetTargetArch();
-    std::string fingerprint = android::base::GetProperty("ro.system.build.fingerprint", "");
-    bool is_emulator = android::base::StartsWith(fingerprint, "google/sdk_gphone") ||
-                       android::base::StartsWith(fingerprint, "generic/cf");
-
-    if (arch == ARCH_X86_64 || arch == ARCH_X86_32 || is_emulator) {
-      // On x86 and x86_64, it's likely to run on an emulator or vm without hardware perf
-      // counters. It's hard to enumerate them all. So check the support at runtime.
-      const simpleperf::EventType* type = simpleperf::FindEventTypeByName("cpu-cycles", false);
-      CHECK(type != nullptr);
-      perf_event_attr attr = CreateDefaultPerfEventAttr(*type);
-      has_hw_counter = IsEventAttrSupported(attr, "cpu-cycles") ? 1 : 0;
-    } else if (arch == ARCH_ARM) {
-      // For arm32 devices, external non-invasive debug signal controls PMU counters. Once it is
-      // disabled for security reason, we always get zero values for PMU counters. And we want to
-      // skip hardware counter tests once we detect it.
-      has_hw_counter &= HasNonZeroInstructionEventCount() ? 1 : 0;
-    }
+    // Cloud Android doesn't have hardware counters.
+    has_hw_counter = InCloudAndroid() ? 0 : 1;
+#if defined(__arm__)
+    // For arm32 devices, external non-invasive debug signal controls PMU counters. Once it is
+    // disabled for security reason, we always get zero values for PMU counters. And we want to
+    // skip hardware counter tests once we detect it.
+    has_hw_counter &= HasNonZeroInstructionEventCount() ? 1 : 0;
+#endif
   }
   return has_hw_counter == 1;
 }
-
-#else   // !defined(__linux__)
-bool HasHardwareCounter() {
-  return false;
-}
-#endif  // !defined(__linux__)
 
 bool HasPmuCounter() {
   static int has_pmu_counter = -1;

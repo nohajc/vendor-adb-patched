@@ -32,7 +32,7 @@ constexpr LayerStack NO_LAYER_STACK = static_cast<LayerStack>(-1);
 struct DisplayState {
     LayerStack layerStack = NO_LAYER_STACK;
     Rotation orientation = ROTATION_0;
-    Size layerStackSpaceRect;
+    Size viewport;
 };
 
 static_assert(std::is_trivially_copyable_v<DisplayState>);

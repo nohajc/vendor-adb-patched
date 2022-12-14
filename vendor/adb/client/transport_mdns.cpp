@@ -137,10 +137,21 @@ std::optional<discovery::Config> GetConfigForAllInterfaces() {
 
     discovery::Config config;
     for (const auto interface : interface_infos) {
-        if (interface.GetIpAddressV4() || interface.GetIpAddressV6()) {
-            config.network_info.push_back({interface});
-            LOG(VERBOSE) << "Listening on interface [" << interface << "]";
+        discovery::Config::NetworkInfo::AddressFamilies supported_address_families =
+                discovery::Config::NetworkInfo::kNoAddressFamily;
+        if (interface.GetIpAddressV4()) {
+            supported_address_families |= discovery::Config::NetworkInfo::kUseIpV4;
         }
+        if (interface.GetIpAddressV6()) {
+            supported_address_families |= discovery::Config::NetworkInfo::kUseIpV6;
+        }
+        if (supported_address_families == discovery::Config::NetworkInfo::kNoAddressFamily) {
+            LOG(INFO) << "Interface [" << interface << "] doesn't support ipv4 or ipv6."
+                      << " Ignoring interface.";
+            continue;
+        }
+        config.network_info.push_back({interface, supported_address_families});
+        LOG(VERBOSE) << "Listening on interface [" << interface << "]";
     }
 
     if (config.network_info.empty()) {

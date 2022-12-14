@@ -31,8 +31,6 @@
 
 #include <android-base/stringprintf.h>
 
-#include <binder/IPCThreadState.h>
-
 #include <cutils/compiler.h>
 #include <cutils/sched_policy.h>
 
@@ -41,13 +39,8 @@
 #include <utils/Errors.h>
 #include <utils/Trace.h>
 
-#include "DisplayHardware/DisplayMode.h"
-#include "FrameTimeline.h"
-
 #include "EventThread.h"
-
-#undef LOG_TAG
-#define LOG_TAG "EventThread"
+#include "HwcStrongTypes.h"
 
 using namespace std::chrono_literals;
 
@@ -68,8 +61,6 @@ std::string toString(VSyncRequest request) {
             return "VSyncRequest::None";
         case VSyncRequest::Single:
             return "VSyncRequest::Single";
-        case VSyncRequest::SingleSuppressCallback:
-            return "VSyncRequest::SingleSuppressCallback";
         default:
             return StringPrintf("VSyncRequest::Periodic{period=%d}", vsyncPeriod(request));
     }
@@ -83,16 +74,18 @@ std::string toString(const EventThreadConnection& connection) {
 std::string toString(const DisplayEventReceiver::Event& event) {
     switch (event.header.type) {
         case DisplayEventReceiver::DISPLAY_EVENT_HOTPLUG:
-            return StringPrintf("Hotplug{displayId=%s, %s}",
-                                to_string(event.header.displayId).c_str(),
+            return StringPrintf("Hotplug{displayId=%" ANDROID_PHYSICAL_DISPLAY_ID_FORMAT ", %s}",
+                                event.header.displayId,
                                 event.hotplug.connected ? "connected" : "disconnected");
         case DisplayEventReceiver::DISPLAY_EVENT_VSYNC:
-            return StringPrintf("VSync{displayId=%s, count=%u, expectedVSyncTimestamp=%" PRId64 "}",
-                                to_string(event.header.displayId).c_str(), event.vsync.count,
+            return StringPrintf("VSync{displayId=%" ANDROID_PHYSICAL_DISPLAY_ID_FORMAT
+                                ", count=%u, expectedVSyncTimestamp=%" PRId64 "}",
+                                event.header.displayId, event.vsync.count,
                                 event.vsync.expectedVSyncTimestamp);
-        case DisplayEventReceiver::DISPLAY_EVENT_MODE_CHANGE:
-            return StringPrintf("ModeChanged{displayId=%s, modeId=%u}",
-                                to_string(event.header.displayId).c_str(), event.modeChange.modeId);
+        case DisplayEventReceiver::DISPLAY_EVENT_CONFIG_CHANGED:
+            return StringPrintf("ConfigChanged{displayId=%" ANDROID_PHYSICAL_DISPLAY_ID_FORMAT
+                                ", configId=%u}",
+                                event.header.displayId, event.config.configId);
         default:
             return "Event{}";
     }
@@ -107,56 +100,30 @@ DisplayEventReceiver::Event makeHotplug(PhysicalDisplayId displayId, nsecs_t tim
 }
 
 DisplayEventReceiver::Event makeVSync(PhysicalDisplayId displayId, nsecs_t timestamp,
-                                      uint32_t count, nsecs_t expectedVSyncTimestamp,
-                                      nsecs_t deadlineTimestamp, int64_t vsyncId) {
+                                      uint32_t count, nsecs_t expectedVSyncTimestamp) {
     DisplayEventReceiver::Event event;
     event.header = {DisplayEventReceiver::DISPLAY_EVENT_VSYNC, displayId, timestamp};
     event.vsync.count = count;
     event.vsync.expectedVSyncTimestamp = expectedVSyncTimestamp;
-    event.vsync.deadlineTimestamp = deadlineTimestamp;
-    event.vsync.vsyncId = vsyncId;
     return event;
 }
 
-DisplayEventReceiver::Event makeModeChanged(DisplayModePtr mode) {
+DisplayEventReceiver::Event makeConfigChanged(PhysicalDisplayId displayId,
+                                              HwcConfigIndexType configId, nsecs_t vsyncPeriod) {
     DisplayEventReceiver::Event event;
-    event.header = {DisplayEventReceiver::DISPLAY_EVENT_MODE_CHANGE, mode->getPhysicalDisplayId(),
-                    systemTime()};
-    event.modeChange.modeId = mode->getId().value();
-    event.modeChange.vsyncPeriod = mode->getVsyncPeriod();
+    event.header = {DisplayEventReceiver::DISPLAY_EVENT_CONFIG_CHANGED, displayId, systemTime()};
+    event.config.configId = configId.value();
+    event.config.vsyncPeriod = vsyncPeriod;
     return event;
-}
-
-DisplayEventReceiver::Event makeFrameRateOverrideEvent(PhysicalDisplayId displayId,
-                                                       FrameRateOverride frameRateOverride) {
-    return DisplayEventReceiver::Event{
-            .header =
-                    DisplayEventReceiver::Event::Header{
-                            .type = DisplayEventReceiver::DISPLAY_EVENT_FRAME_RATE_OVERRIDE,
-                            .displayId = displayId,
-                            .timestamp = systemTime(),
-                    },
-            .frameRateOverride = frameRateOverride,
-    };
-}
-
-DisplayEventReceiver::Event makeFrameRateOverrideFlushEvent(PhysicalDisplayId displayId) {
-    return DisplayEventReceiver::Event{
-            .header = DisplayEventReceiver::Event::Header{
-                    .type = DisplayEventReceiver::DISPLAY_EVENT_FRAME_RATE_OVERRIDE_FLUSH,
-                    .displayId = displayId,
-                    .timestamp = systemTime(),
-            }};
 }
 
 } // namespace
 
-EventThreadConnection::EventThreadConnection(
-        EventThread* eventThread, uid_t callingUid, ResyncCallback resyncCallback,
-        ISurfaceComposer::EventRegistrationFlags eventRegistration)
+EventThreadConnection::EventThreadConnection(EventThread* eventThread,
+                                             ResyncCallback resyncCallback,
+                                             ISurfaceComposer::ConfigChanged configChanged)
       : resyncCallback(std::move(resyncCallback)),
-        mOwnerUid(callingUid),
-        mEventRegistration(eventRegistration),
+        mConfigChanged(configChanged),
         mEventThread(eventThread),
         mChannel(gui::BitTube::DefaultSize) {}
 
@@ -187,25 +154,8 @@ void EventThreadConnection::requestNextVsync() {
 }
 
 status_t EventThreadConnection::postEvent(const DisplayEventReceiver::Event& event) {
-    constexpr auto toStatus = [](ssize_t size) {
-        return size < 0 ? status_t(size) : status_t(NO_ERROR);
-    };
-
-    if (event.header.type == DisplayEventReceiver::DISPLAY_EVENT_FRAME_RATE_OVERRIDE ||
-        event.header.type == DisplayEventReceiver::DISPLAY_EVENT_FRAME_RATE_OVERRIDE_FLUSH) {
-        mPendingEvents.emplace_back(event);
-        if (event.header.type == DisplayEventReceiver::DISPLAY_EVENT_FRAME_RATE_OVERRIDE) {
-            return status_t(NO_ERROR);
-        }
-
-        auto size = DisplayEventReceiver::sendEvents(&mChannel, mPendingEvents.data(),
-                                                     mPendingEvents.size());
-        mPendingEvents.clear();
-        return toStatus(size);
-    }
-
-    auto size = DisplayEventReceiver::sendEvents(&mChannel, &event, 1);
-    return toStatus(size);
+    ssize_t size = DisplayEventReceiver::sendEvents(&mChannel, &event, 1);
+    return size < 0 ? status_t(size) : status_t(NO_ERROR);
 }
 
 // ---------------------------------------------------------------------------
@@ -215,20 +165,10 @@ EventThread::~EventThread() = default;
 namespace impl {
 
 EventThread::EventThread(std::unique_ptr<VSyncSource> vsyncSource,
-                         android::frametimeline::TokenManager* tokenManager,
-                         InterceptVSyncsCallback interceptVSyncsCallback,
-                         ThrottleVsyncCallback throttleVsyncCallback,
-                         GetVsyncPeriodFunction getVsyncPeriodFunction)
+                         InterceptVSyncsCallback interceptVSyncsCallback)
       : mVSyncSource(std::move(vsyncSource)),
-        mTokenManager(tokenManager),
         mInterceptVSyncsCallback(std::move(interceptVSyncsCallback)),
-        mThrottleVsyncCallback(std::move(throttleVsyncCallback)),
-        mGetVsyncPeriodFunction(std::move(getVsyncPeriodFunction)),
         mThreadName(mVSyncSource->getName()) {
-
-    LOG_ALWAYS_FATAL_IF(getVsyncPeriodFunction == nullptr,
-            "getVsyncPeriodFunction must not be null");
-
     mVSyncSource->setCallback(this);
 
     mThread = std::thread([this]() NO_THREAD_SAFETY_ANALYSIS {
@@ -262,18 +202,15 @@ EventThread::~EventThread() {
     mThread.join();
 }
 
-void EventThread::setDuration(std::chrono::nanoseconds workDuration,
-                              std::chrono::nanoseconds readyDuration) {
+void EventThread::setPhaseOffset(nsecs_t phaseOffset) {
     std::lock_guard<std::mutex> lock(mMutex);
-    mVSyncSource->setDuration(workDuration, readyDuration);
+    mVSyncSource->setPhaseOffset(phaseOffset);
 }
 
 sp<EventThreadConnection> EventThread::createEventConnection(
-        ResyncCallback resyncCallback,
-        ISurfaceComposer::EventRegistrationFlags eventRegistration) const {
-    return new EventThreadConnection(const_cast<EventThread*>(this),
-                                     IPCThreadState::self()->getCallingUid(),
-                                     std::move(resyncCallback), eventRegistration);
+        ResyncCallback resyncCallback, ISurfaceComposer::ConfigChanged configChanged) const {
+    return new EventThreadConnection(const_cast<EventThread*>(this), std::move(resyncCallback),
+                                     configChanged);
 }
 
 status_t EventThread::registerDisplayEventConnection(const sp<EventThreadConnection>& connection) {
@@ -325,8 +262,6 @@ void EventThread::requestNextVsync(const sp<EventThreadConnection>& connection) 
     if (connection->vsyncRequest == VSyncRequest::None) {
         connection->vsyncRequest = VSyncRequest::Single;
         mCondition.notify_all();
-    } else if (connection->vsyncRequest == VSyncRequest::SingleSuppressCallback) {
-        connection->vsyncRequest = VSyncRequest::Single;
     }
 }
 
@@ -350,21 +285,12 @@ void EventThread::onScreenAcquired() {
     mCondition.notify_all();
 }
 
-void EventThread::onVSyncEvent(nsecs_t timestamp, nsecs_t expectedVSyncTimestamp,
-                               nsecs_t deadlineTimestamp) {
+void EventThread::onVSyncEvent(nsecs_t timestamp, nsecs_t expectedVSyncTimestamp) {
     std::lock_guard<std::mutex> lock(mMutex);
 
     LOG_FATAL_IF(!mVSyncState);
-    const int64_t vsyncId = [&] {
-        if (mTokenManager != nullptr) {
-            return mTokenManager->generateTokenForPredictions(
-                    {timestamp, deadlineTimestamp, expectedVSyncTimestamp});
-        }
-        return FrameTimelineInfo::INVALID_VSYNC_ID;
-    }();
-
     mPendingEvents.push_back(makeVSync(mVSyncState->displayId, timestamp, ++mVSyncState->count,
-                                       expectedVSyncTimestamp, deadlineTimestamp, vsyncId));
+                                       expectedVSyncTimestamp));
     mCondition.notify_all();
 }
 
@@ -375,22 +301,11 @@ void EventThread::onHotplugReceived(PhysicalDisplayId displayId, bool connected)
     mCondition.notify_all();
 }
 
-void EventThread::onModeChanged(DisplayModePtr mode) {
+void EventThread::onConfigChanged(PhysicalDisplayId displayId, HwcConfigIndexType configId,
+                                  nsecs_t vsyncPeriod) {
     std::lock_guard<std::mutex> lock(mMutex);
 
-    mPendingEvents.push_back(makeModeChanged(mode));
-    mCondition.notify_all();
-}
-
-void EventThread::onFrameRateOverridesChanged(PhysicalDisplayId displayId,
-                                              std::vector<FrameRateOverride> overrides) {
-    std::lock_guard<std::mutex> lock(mMutex);
-
-    for (auto frameRateOverride : overrides) {
-        mPendingEvents.push_back(makeFrameRateOverrideEvent(displayId, frameRateOverride));
-    }
-    mPendingEvents.push_back(makeFrameRateOverrideFlushEvent(displayId));
-
+    mPendingEvents.push_back(makeConfigChanged(displayId, configId, vsyncPeriod));
     mCondition.notify_all();
 }
 
@@ -497,18 +412,9 @@ void EventThread::threadMain(std::unique_lock<std::mutex>& lock) {
 
                 LOG_FATAL_IF(!mVSyncState);
                 const auto now = systemTime(SYSTEM_TIME_MONOTONIC);
-                const auto deadlineTimestamp = now + timeout.count();
-                const auto expectedVSyncTime = deadlineTimestamp + timeout.count();
-                const int64_t vsyncId = [&] {
-                    if (mTokenManager != nullptr) {
-                        return mTokenManager->generateTokenForPredictions(
-                                {now, deadlineTimestamp, expectedVSyncTime});
-                    }
-                    return FrameTimelineInfo::INVALID_VSYNC_ID;
-                }();
+                const auto expectedVSyncTime = now + timeout.count();
                 mPendingEvents.push_back(makeVSync(mVSyncState->displayId, now,
-                                                   ++mVSyncState->count, expectedVSyncTime,
-                                                   deadlineTimestamp, vsyncId));
+                                                   ++mVSyncState->count, expectedVSyncTime));
             }
         }
     }
@@ -516,51 +422,26 @@ void EventThread::threadMain(std::unique_lock<std::mutex>& lock) {
 
 bool EventThread::shouldConsumeEvent(const DisplayEventReceiver::Event& event,
                                      const sp<EventThreadConnection>& connection) const {
-    const auto throttleVsync = [&] {
-        return mThrottleVsyncCallback &&
-                mThrottleVsyncCallback(event.vsync.expectedVSyncTimestamp, connection->mOwnerUid);
-    };
-
     switch (event.header.type) {
         case DisplayEventReceiver::DISPLAY_EVENT_HOTPLUG:
             return true;
 
-        case DisplayEventReceiver::DISPLAY_EVENT_MODE_CHANGE: {
-            return connection->mEventRegistration.test(
-                    ISurfaceComposer::EventRegistration::modeChanged);
+        case DisplayEventReceiver::DISPLAY_EVENT_CONFIG_CHANGED: {
+            return connection->mConfigChanged == ISurfaceComposer::eConfigChangedDispatch;
         }
 
         case DisplayEventReceiver::DISPLAY_EVENT_VSYNC:
             switch (connection->vsyncRequest) {
                 case VSyncRequest::None:
                     return false;
-                case VSyncRequest::SingleSuppressCallback:
+                case VSyncRequest::Single:
                     connection->vsyncRequest = VSyncRequest::None;
-                    return false;
-                case VSyncRequest::Single: {
-                    if (throttleVsync()) {
-                        return false;
-                    }
-                    connection->vsyncRequest = VSyncRequest::SingleSuppressCallback;
                     return true;
-                }
                 case VSyncRequest::Periodic:
-                    if (throttleVsync()) {
-                        return false;
-                    }
                     return true;
                 default:
-                    // We don't throttle vsync if the app set a vsync request rate
-                    // since there is no easy way to do that and this is a very
-                    // rare case
                     return event.vsync.count % vsyncPeriod(connection->vsyncRequest) == 0;
             }
-
-        case DisplayEventReceiver::DISPLAY_EVENT_FRAME_RATE_OVERRIDE:
-            [[fallthrough]];
-        case DisplayEventReceiver::DISPLAY_EVENT_FRAME_RATE_OVERRIDE_FLUSH:
-            return connection->mEventRegistration.test(
-                    ISurfaceComposer::EventRegistration::frameRateOverride);
 
         default:
             return false;
@@ -570,11 +451,7 @@ bool EventThread::shouldConsumeEvent(const DisplayEventReceiver::Event& event,
 void EventThread::dispatchEvent(const DisplayEventReceiver::Event& event,
                                 const DisplayEventConsumers& consumers) {
     for (const auto& consumer : consumers) {
-        DisplayEventReceiver::Event copy = event;
-        if (event.header.type == DisplayEventReceiver::DISPLAY_EVENT_VSYNC) {
-            copy.vsync.frameInterval = mGetVsyncPeriodFunction(consumer->mOwnerUid);
-        }
-        switch (consumer->postEvent(copy)) {
+        switch (consumer->postEvent(event)) {
             case NO_ERROR:
                 break;
 
@@ -596,8 +473,8 @@ void EventThread::dump(std::string& result) const {
 
     StringAppendF(&result, "%s: state=%s VSyncState=", mThreadName, toCString(mState));
     if (mVSyncState) {
-        StringAppendF(&result, "{displayId=%s, count=%u%s}\n",
-                      to_string(mVSyncState->displayId).c_str(), mVSyncState->count,
+        StringAppendF(&result, "{displayId=%" ANDROID_PHYSICAL_DISPLAY_ID_FORMAT ", count=%u%s}\n",
+                      mVSyncState->displayId, mVSyncState->count,
                       mVSyncState->synthetic ? ", synthetic" : "");
     } else {
         StringAppendF(&result, "none\n");

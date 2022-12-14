@@ -9,8 +9,7 @@ package {
 
 apex_defaults {
     name: "com.android.adbd-defaults",
-
-    defaults: ["r-launched-dcla-enabled-apex-module"],
+    updatable: true,
 
     binaries: ["adbd"],
     compile_multilib: "both",
@@ -32,10 +31,31 @@ apex_defaults {
     compressible: true,
 }
 
+soong_config_module_type_import {
+    from: "system/apex/Android.bp",
+    module_types: ["library_linking_strategy_apex_defaults"],
+}
+
+// TODO(b/178585590): delete after testing linking strategy
+library_linking_strategy_apex_defaults {
+    name: "adbd_manifest_defaults",
+    soong_config_variables: {
+        library_linking_strategy: {
+            prefer_static: {
+                min_sdk_version: "30",
+            },
+            conditions_default: {
+                min_sdk_version: "current",
+            },
+        },
+    },
+}
+
 apex {
     name: "com.android.adbd",
     defaults: [
         "com.android.adbd-defaults",
+        "adbd_manifest_defaults",
     ],
 }
 
@@ -44,6 +64,7 @@ apex_test {
     name: "test_com.android.adbd",
     defaults: ["com.android.adbd-defaults"],
     manifest: "test_apex_manifest.json",
+    min_sdk_version: "30",
     file_contexts: ":com.android.adbd-file_contexts",
     installable: false,
 }

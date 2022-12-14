@@ -21,7 +21,6 @@ cc_library {
     name: "libext4_utils",
     host_supported: true,
     ramdisk_available: true,
-    vendor_ramdisk_available: true,
     recovery_available: true,
     srcs: [
         "ext4_utils.cpp",
@@ -72,9 +71,13 @@ python_binary_host {
     ],
 
     version: {
-        py3: {
+        py2: {
             enabled: true,
             embedded_launcher: true,
+        },
+        py3: {
+            enabled: false,
+            embedded_launcher: false,
         },
     },
 
@@ -97,7 +100,6 @@ filegroup {
         "mke2fs.conf",
     ],
     visibility: [
-        "//development/build",
         "//system/apex/apexer",
     ],
 }

@@ -32,14 +32,6 @@ enum class BinderDebugContext {
     VNDBINDER,
 };
 
-/**
- * pid is the pid of the service
- */
 status_t getBinderPidInfo(BinderDebugContext context, pid_t pid, BinderPidInfo* pidInfo);
-/**
- * pid is typically the pid of this process that is making the query
- */
-status_t getBinderClientPids(BinderDebugContext context, pid_t pid, pid_t servicePid,
-                             int32_t handle, std::vector<pid_t>* pids);
 
 } // namespace  android

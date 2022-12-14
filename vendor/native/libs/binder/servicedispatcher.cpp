@@ -23,12 +23,9 @@
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
-#include <android/debug/BnAdbCallback.h>
-#include <android/debug/IAdbManager.h>
 #include <android/os/BnServiceManager.h>
 #include <android/os/IServiceManager.h>
 #include <binder/IServiceManager.h>
-#include <binder/ProcessState.h>
 #include <binder/RpcServer.h>
 
 using android::BBinder;
@@ -36,7 +33,6 @@ using android::defaultServiceManager;
 using android::OK;
 using android::RpcServer;
 using android::sp;
-using android::status_t;
 using android::statusToString;
 using android::String16;
 using android::base::Basename;
@@ -51,9 +47,7 @@ using std::string_view_literals::operator""sv;
 
 namespace {
 
-const char* kLocalInetAddress = "127.0.0.1";
 using ServiceRetriever = decltype(&android::IServiceManager::checkService);
-using android::debug::IAdbManager;
 
 int Usage(const char* program) {
     auto basename = Basename(program);
@@ -90,9 +84,10 @@ int Dispatch(const char* name, const ServiceRetriever& serviceRetriever) {
         LOG(ERROR) << "Cannot create RpcServer";
         return EX_SOFTWARE;
     }
+    rpcServer->iUnderstandThisCodeIsExperimentalAndIWillNotUseItInProduction();
     unsigned int port;
-    if (status_t status = rpcServer->setupInetServer(kLocalInetAddress, 0, &port); status != OK) {
-        LOG(ERROR) << "setupInetServer failed: " << statusToString(status);
+    if (!rpcServer->setupInetServer(0, &port)) {
+        LOG(ERROR) << "setupInetServer failed";
         return EX_SOFTWARE;
     }
     auto socket = rpcServer->releaseServer();
@@ -156,11 +151,6 @@ public:
                                              std::optional<std::string>* _aidl_return) override {
         return mImpl->updatableViaApex(name, _aidl_return);
     }
-    android::binder::Status getConnectionInfo(
-            const std::string& name,
-            std::optional<android::os::ConnectionInfo>* _aidl_return) override {
-        return mImpl->getConnectionInfo(name, _aidl_return);
-    }
     android::binder::Status registerClientCallback(
             const std::string&, const android::sp<android::IBinder>&,
             const android::sp<android::os::IClientCallback>&) override {
@@ -206,10 +196,11 @@ int wrapServiceManager(const ServiceRetriever& serviceRetriever) {
     service = ServiceManagerProxyToNative::asBinder(interface);
 
     auto rpcServer = RpcServer::make();
+    rpcServer->iUnderstandThisCodeIsExperimentalAndIWillNotUseItInProduction();
     rpcServer->setRootObject(service);
     unsigned int port;
-    if (status_t status = rpcServer->setupInetServer(kLocalInetAddress, 0, &port); status != OK) {
-        LOG(ERROR) << "Unable to set up inet server: " << statusToString(status);
+    if (!rpcServer->setupInetServer(0, &port)) {
+        LOG(ERROR) << "Unable to set up inet server";
         return EX_SOFTWARE;
     }
     LOG(INFO) << "Finish wrapping servicemanager with RPC on port " << port;
@@ -218,25 +209,6 @@ int wrapServiceManager(const ServiceRetriever& serviceRetriever) {
 
     LOG(FATAL) << "Wrapped servicemanager exits; this should not happen!";
     __builtin_unreachable();
-}
-
-class AdbCallback : public android::debug::BnAdbCallback {
-public:
-    android::binder::Status onDebuggingChanged(bool enabled,
-                                               android::debug::AdbTransportType) override {
-        if (!enabled) {
-            LOG(ERROR) << "ADB debugging disabled, exiting.";
-            exit(EX_SOFTWARE);
-        }
-        return android::binder::Status::ok();
-    }
-};
-
-void exitOnAdbDebuggingDisabled() {
-    auto adb = android::waitForService<IAdbManager>(String16("adb"));
-    CHECK(adb != nullptr) << "Unable to retrieve service adb";
-    auto status = adb->registerCallback(sp<AdbCallback>::make());
-    CHECK(status.isOk()) << "Unable to call IAdbManager::registerCallback: " << status;
 }
 
 // Log to logd. For warning and more severe messages, also log to stderr.
@@ -278,10 +250,6 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-
-    android::ProcessState::self()->setThreadPoolMaxThreadCount(1);
-    android::ProcessState::self()->startThreadPool();
-    exitOnAdbDebuggingDisabled();
 
     if (optind + 1 != argc) return Usage(argv[0]);
     auto name = argv[optind];

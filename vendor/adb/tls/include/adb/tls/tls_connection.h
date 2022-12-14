@@ -18,7 +18,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <functional>
+
 #include <string_view>
 #include <vector>
 

@@ -113,20 +113,14 @@ AdbConnectionClientContext* adbconnection_client_new(
     return nullptr;
   }
 
-  bool expectProfileableAndArch = false;
-#if defined(__BIONIC__)
-  expectProfileableAndArch = android_get_device_api_level() >= __ANDROID_API_S__;
-#endif
-  if (expectProfileableAndArch) {
-    if (!profileable) {
-      LOG(ERROR) << "AdbConnectionClientInfo missing required field profileable";
-      return nullptr;
-    }
+  if (!profileable) {
+    LOG(ERROR) << "AdbConnectionClientInfo missing required field profileable";
+    return nullptr;
+  }
 
-    if (!architecture) {
-      LOG(ERROR) << "AdbConnectionClientInfo missing required field architecture";
-      return nullptr;
-    }
+  if (!architecture) {
+    LOG(ERROR) << "AdbConnectionClientInfo missing required field architecture";
+    return nullptr;
   }
 
   ctx->control_socket_.reset(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0));

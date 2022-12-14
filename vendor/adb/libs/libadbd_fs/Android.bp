@@ -36,6 +36,4 @@ cc_library {
             enabled: false,
         }
     },
-    // This doesn't need to depend on libbuildversion.
-    use_version_lib: false,
 }

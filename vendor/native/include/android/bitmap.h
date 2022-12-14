@@ -241,7 +241,6 @@ typedef struct AHardwareBuffer AHardwareBuffer;
  *
  *  Available since API level 30.
  *
- *  @param env Handle to the JNI environment pointer.
  *  @param bitmap Handle to an android.graphics.Bitmap.
  *  @param outBuffer On success, is set to a pointer to the
  *         {@link AHardwareBuffer} associated with bitmap. This acquires

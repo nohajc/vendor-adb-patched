@@ -33,7 +33,6 @@
 
 #include <memory>
 #include <optional>
-#include <span>
 #include <vector>
 
 #if defined(__APPLE__)
@@ -52,15 +51,11 @@
 #include <android-base/strings.h>
 #include <android-base/utf8.h>
 #include <log/log.h>
-
-#include "entry_name_utils-inl.h"
-#include "incfs_support/signal_handling.h"
-#include "incfs_support/util.h"
-#include "zip_archive_common.h"
-#include "zip_archive_private.h"
 #include "zlib.h"
 
-#define INCFS_SUPPORT_DISABLED
+#include "entry_name_utils-inl.h"
+#include "zip_archive_common.h"
+#include "zip_archive_private.h"
 
 // Used to turn on crc checks - verify that the content CRC matches the values
 // specified in the local file header and the central directory.
@@ -214,12 +209,10 @@ static ZipError FindCentralDirectoryInfoForZip64(const char* debugFileName, ZipA
   return kSuccess;
 }
 
-static ZipError FindCentralDirectoryInfo(const char* debug_file_name,
-                                         ZipArchive* archive,
-                                         off64_t file_length,
-                                         std::span<uint8_t> scan_buffer,
+static ZipError FindCentralDirectoryInfo(const char* debug_file_name, ZipArchive* archive,
+                                         off64_t file_length, uint32_t read_amount,
                                          CentralDirectoryInfo* cdInfo) {
-  const auto read_amount = static_cast<uint32_t>(scan_buffer.size());
+  std::vector<uint8_t> scan_buffer(read_amount);
   const off64_t search_start = file_length - read_amount;
 
   if (!archive->mapped_zip.ReadAtOffset(scan_buffer.data(), read_amount, search_start)) {
@@ -329,20 +322,11 @@ static ZipError MapCentralDirectory(const char* debug_file_name, ZipArchive* arc
   }
 
   CentralDirectoryInfo cdInfo = {};
-  std::vector<uint8_t> scan_buffer(read_amount);
-
-  SCOPED_SIGBUS_HANDLER({
-    incfs::util::clearAndFree(scan_buffer);
-    return kIoError;
-  });
-
-  if (auto result = FindCentralDirectoryInfo(debug_file_name, archive,
-                                             file_length, scan_buffer, &cdInfo);
+  if (auto result =
+          FindCentralDirectoryInfo(debug_file_name, archive, file_length, read_amount, &cdInfo);
       result != kSuccess) {
     return result;
   }
-
-  scan_buffer.clear();
 
   if (cdInfo.num_records == 0) {
 #if defined(__ANDROID__)
@@ -481,8 +465,6 @@ static ZipError ParseZip64ExtendedInfoInExtraField(
  * Returns 0 on success.
  */
 static ZipError ParseZipArchive(ZipArchive* archive) {
-  SCOPED_SIGBUS_HANDLER(return kIoError);
-
   const uint8_t* const cd_ptr = archive->central_directory.GetBasePtr();
   const size_t cd_length = archive->central_directory.GetMapLength();
   const uint64_t num_entries = archive->num_entries;
@@ -665,8 +647,6 @@ void CloseArchive(ZipArchiveHandle archive) {
 }
 
 static int32_t ValidateDataDescriptor(MappedZipFile& mapped_zip, const ZipEntry64* entry) {
-  SCOPED_SIGBUS_HANDLER(return kIoError);
-
   // Maximum possible size for data descriptor: 2 * 4 + 2 * 8 = 24 bytes
   // The zip format doesn't specify the size of data descriptor. But we won't read OOB here even
   // if the descriptor isn't present. Because the size cd + eocd in the end of the zipfile is
@@ -717,14 +697,6 @@ static int32_t ValidateDataDescriptor(MappedZipFile& mapped_zip, const ZipEntry6
 
 static int32_t FindEntry(const ZipArchive* archive, std::string_view entryName,
                          const uint64_t nameOffset, ZipEntry64* data) {
-  std::vector<uint8_t> name_buf;
-  std::vector<uint8_t> local_extra_field;
-  SCOPED_SIGBUS_HANDLER({
-    incfs::util::clearAndFree(name_buf);
-    incfs::util::clearAndFree(local_extra_field);
-    return kIoError;
-  });
-
   // Recover the start of the central directory entry from the filename
   // pointer.  The filename is the first entry past the fixed-size data,
   // so we can just subtract back from that.
@@ -822,7 +794,7 @@ static int32_t FindEntry(const ZipArchive* archive, std::string_view entryName,
     return kInvalidOffset;
   }
 
-  name_buf.resize(name_length);
+  std::vector<uint8_t> name_buf(name_length);
   if (!archive->mapped_zip.ReadAtOffset(name_buf.data(), name_buf.size(), name_offset)) {
     ALOGW("Zip: failed reading lfh name from offset %" PRId64, static_cast<int64_t>(name_offset));
     return kIoError;
@@ -849,7 +821,7 @@ static int32_t FindEntry(const ZipArchive* archive, std::string_view entryName,
       return kInvalidOffset;
     }
 
-    local_extra_field.resize(lfh_extra_field_size);
+    std::vector<uint8_t> local_extra_field(lfh_extra_field_size);
     if (!archive->mapped_zip.ReadAtOffset(local_extra_field.data(), lfh_extra_field_size,
                                           lfh_extra_field_offset)) {
       ALOGW("Zip: failed reading lfh extra field from offset %" PRId64, lfh_extra_field_offset);
@@ -984,7 +956,7 @@ int32_t StartIteration(ZipArchiveHandle archive, void** cookie_ptr,
   }
 
   archive->cd_entry_map->ResetIteration();
-  *cookie_ptr = new IterationHandle(archive, std::move(matcher));
+  *cookie_ptr = new IterationHandle(archive, matcher);
   return 0;
 }
 
@@ -1074,8 +1046,6 @@ int32_t Next(void* cookie, ZipEntry64* data, std::string_view* name) {
     return kInvalidHandle;
   }
 
-  SCOPED_SIGBUS_HANDLER(return kIoError);
-
   auto entry = archive->cd_entry_map->Next(archive->central_directory.GetBasePtr());
   while (entry != std::pair<std::string_view, uint64_t>()) {
     const auto [entry_name, offset] = entry;
@@ -1098,16 +1068,15 @@ int32_t Next(void* cookie, ZipEntry64* data, std::string_view* name) {
 // the data appended to it.
 class MemoryWriter : public zip_archive::Writer {
  public:
-  static std::optional<MemoryWriter> Create(uint8_t* buf, size_t size,
-                                            const ZipEntry64* entry) {
+  static std::unique_ptr<MemoryWriter> Create(uint8_t* buf, size_t size, const ZipEntry64* entry) {
     const uint64_t declared_length = entry->uncompressed_length;
     if (declared_length > size) {
       ALOGW("Zip: file size %" PRIu64 " is larger than the buffer size %zu.", declared_length,
             size);
-      return {};
+      return nullptr;
     }
 
-    return std::make_optional<MemoryWriter>(buf, size);
+    return std::unique_ptr<MemoryWriter>(new MemoryWriter(buf, size));
   }
 
   virtual bool Append(uint8_t* buf, size_t buf_size) override {
@@ -1122,9 +1091,9 @@ class MemoryWriter : public zip_archive::Writer {
     return true;
   }
 
+ private:
   MemoryWriter(uint8_t* buf, size_t size) : Writer(), buf_(buf), size_(size), bytes_written_(0) {}
 
- private:
   uint8_t* const buf_{nullptr};
   const size_t size_;
   size_t bytes_written_;
@@ -1140,18 +1109,18 @@ class FileWriter : public zip_archive::Writer {
   // is truncated to the correct length (no truncation if |fd| references a
   // block device).
   //
-  // Returns a valid FileWriter on success, |nullopt| if an error occurred.
-  static std::optional<FileWriter> Create(int fd, const ZipEntry64* entry) {
+  // Returns a valid FileWriter on success, |nullptr| if an error occurred.
+  static std::unique_ptr<FileWriter> Create(int fd, const ZipEntry64* entry) {
     const uint64_t declared_length = entry->uncompressed_length;
     const off64_t current_offset = lseek64(fd, 0, SEEK_CUR);
     if (current_offset == -1) {
       ALOGW("Zip: unable to seek to current location on fd %d: %s", fd, strerror(errno));
-      return {};
+      return nullptr;
     }
 
     if (declared_length > SIZE_MAX || declared_length > INT64_MAX) {
       ALOGW("Zip: file size %" PRIu64 " is too large to extract.", declared_length);
-      return {};
+      return nullptr;
     }
 
 #if defined(__linux__)
@@ -1169,7 +1138,7 @@ class FileWriter : public zip_archive::Writer {
       if (result == -1 && errno == ENOSPC) {
         ALOGW("Zip: unable to allocate %" PRIu64 " bytes at offset %" PRId64 ": %s",
               declared_length, static_cast<int64_t>(current_offset), strerror(errno));
-        return {};
+        return nullptr;
       }
     }
 #endif  // __linux__
@@ -1177,7 +1146,7 @@ class FileWriter : public zip_archive::Writer {
     struct stat sb;
     if (fstat(fd, &sb) == -1) {
       ALOGW("Zip: unable to fstat file: %s", strerror(errno));
-      return {};
+      return nullptr;
     }
 
     // Block device doesn't support ftruncate(2).
@@ -1186,11 +1155,18 @@ class FileWriter : public zip_archive::Writer {
       if (result == -1) {
         ALOGW("Zip: unable to truncate file to %" PRId64 ": %s",
               static_cast<int64_t>(declared_length + current_offset), strerror(errno));
-        return {};
+        return nullptr;
       }
     }
 
-    return std::make_optional<FileWriter>(fd, declared_length);
+    return std::unique_ptr<FileWriter>(new FileWriter(fd, declared_length));
+  }
+
+  FileWriter(FileWriter&& other) noexcept
+      : fd_(other.fd_),
+        declared_length_(other.declared_length_),
+        total_bytes_written_(other.total_bytes_written_) {
+    other.fd_ = -1;
   }
 
   virtual bool Append(uint8_t* buf, size_t buf_size) override {
@@ -1210,6 +1186,7 @@ class FileWriter : public zip_archive::Writer {
     return result;
   }
 
+ private:
   explicit FileWriter(const int fd = -1, const uint64_t declared_length = 0)
       : Writer(),
         fd_(fd),
@@ -1218,7 +1195,6 @@ class FileWriter : public zip_archive::Writer {
     CHECK_LE(declared_length, SIZE_MAX);
   }
 
- private:
   int fd_;
   const size_t declared_length_;
   size_t total_bytes_written_;
@@ -1254,13 +1230,8 @@ namespace zip_archive {
 Reader::~Reader() {}
 Writer::~Writer() {}
 
-}  // namespace zip_archive
-
-template <bool OnIncfs>
-static int32_t inflateImpl(const zip_archive::Reader& reader,
-                           const uint64_t compressed_length,
-                           const uint64_t uncompressed_length,
-                           zip_archive::Writer* writer, uint64_t* crc_out) {
+int32_t Inflate(const Reader& reader, const uint64_t compressed_length,
+                const uint64_t uncompressed_length, Writer* writer, uint64_t* crc_out) {
   const size_t kBufSize = 32768;
   std::vector<uint8_t> read_buf(kBufSize);
   std::vector<uint8_t> write_buf(kBufSize);
@@ -1300,13 +1271,6 @@ static int32_t inflateImpl(const zip_archive::Reader& reader,
   };
 
   std::unique_ptr<z_stream, decltype(zstream_deleter)> zstream_guard(&zstream, zstream_deleter);
-
-  SCOPED_SIGBUS_HANDLER_CONDITIONAL(OnIncfs, {
-    zstream_guard.reset();
-    incfs::util::clearAndFree(read_buf);
-    incfs::util::clearAndFree(write_buf);
-    return kIoError;
-  });
 
   const bool compute_crc = (crc_out != nullptr);
   uLong crc = 0;
@@ -1373,24 +1337,20 @@ static int32_t inflateImpl(const zip_archive::Reader& reader,
 
   return 0;
 }
+}  // namespace zip_archive
 
 static int32_t InflateEntryToWriter(MappedZipFile& mapped_zip, const ZipEntry64* entry,
                                     zip_archive::Writer* writer, uint64_t* crc_out) {
   const EntryReader reader(mapped_zip, entry);
 
-  return inflateImpl<true>(reader, entry->compressed_length,
-                           entry->uncompressed_length, writer, crc_out);
+  return zip_archive::Inflate(reader, entry->compressed_length, entry->uncompressed_length, writer,
+                              crc_out);
 }
 
 static int32_t CopyEntryToWriter(MappedZipFile& mapped_zip, const ZipEntry64* entry,
                                  zip_archive::Writer* writer, uint64_t* crc_out) {
   static const uint32_t kBufSize = 32768;
   std::vector<uint8_t> buf(kBufSize);
-
-  SCOPED_SIGBUS_HANDLER({
-    incfs::util::clearAndFree(buf);
-    return kIoError;
-  });
 
   const uint64_t length = entry->uncompressed_length;
   uint64_t count = 0;
@@ -1426,8 +1386,10 @@ static int32_t CopyEntryToWriter(MappedZipFile& mapped_zip, const ZipEntry64* en
   return 0;
 }
 
-static int32_t extractToWriter(ZipArchiveHandle handle, const ZipEntry64* entry,
-                               zip_archive::Writer* writer) {
+namespace zip_archive {
+
+int32_t ExtractToWriter(ZipArchiveHandle handle, const ZipEntry64* entry,
+                        zip_archive::Writer* writer) {
   const uint16_t method = entry->method;
 
   // this should default to kUnknownCompressionMethod.
@@ -1457,6 +1419,8 @@ static int32_t extractToWriter(ZipArchiveHandle handle, const ZipEntry64* entry,
   return return_value;
 }
 
+}  // namespace zip_archive
+
 int32_t ExtractToMemory(ZipArchiveHandle archive, const ZipEntry* entry, uint8_t* begin,
                         size_t size) {
   ZipEntry64 entry64(*entry);
@@ -1470,7 +1434,7 @@ int32_t ExtractToMemory(ZipArchiveHandle archive, const ZipEntry64* entry, uint8
     return kIoError;
   }
 
-  return extractToWriter(archive, entry, &writer.value());
+  return ExtractToWriter(archive, entry, writer.get());
 }
 
 int32_t ExtractEntryToFile(ZipArchiveHandle archive, const ZipEntry* entry, int fd) {
@@ -1484,7 +1448,7 @@ int32_t ExtractEntryToFile(ZipArchiveHandle archive, const ZipEntry64* entry, in
     return kIoError;
   }
 
-  return extractToWriter(archive, entry, &writer.value());
+  return ExtractToWriter(archive, entry, writer.get());
 }
 
 int GetFileDescriptor(const ZipArchiveHandle archive) {
@@ -1495,13 +1459,7 @@ off64_t GetFileDescriptorOffset(const ZipArchiveHandle archive) {
   return archive->mapped_zip.GetFileOffset();
 }
 
-//
-// ZIPARCHIVE_DISABLE_CALLBACK_API disables all APIs that accept user callbacks.
-// It gets defined for the incfs-supporting version of libziparchive, where one
-// has to control all the code accessing the archive. See more at
-// incfs_support/signal_handling.h
-//
-#if !ZIPARCHIVE_DISABLE_CALLBACK_API && !defined(_WIN32)
+#if !defined(_WIN32)
 class ProcessWriter : public zip_archive::Writer {
  public:
   ProcessWriter(ProcessZipEntryFunction func, void* cookie)
@@ -1525,10 +1483,10 @@ int32_t ProcessZipEntryContents(ZipArchiveHandle archive, const ZipEntry* entry,
 int32_t ProcessZipEntryContents(ZipArchiveHandle archive, const ZipEntry64* entry,
                                 ProcessZipEntryFunction func, void* cookie) {
   ProcessWriter writer(func, cookie);
-  return extractToWriter(archive, entry, &writer);
+  return ExtractToWriter(archive, entry, &writer);
 }
 
-#endif  // !ZIPARCHIVE_DISABLE_CALLBACK_API && !defined(_WIN32)
+#endif  //! defined(_WIN32)
 
 int MappedZipFile::GetFileDescriptor() const {
   if (!has_fd_) {
@@ -1666,29 +1624,3 @@ tm ZipEntryCommon::GetModificationTime() const {
 
   return t;
 }
-
-namespace zip_archive {
-
-int32_t Inflate(const Reader& reader, const uint64_t compressed_length,
-                const uint64_t uncompressed_length, Writer* writer,
-                uint64_t* crc_out) {
-  return inflateImpl<false>(reader, compressed_length, uncompressed_length,
-                            writer, crc_out);
-}
-
-//
-// ZIPARCHIVE_DISABLE_CALLBACK_API disables all APIs that accept user callbacks.
-// It gets defined for the incfs-supporting version of libziparchive, where one
-// has to control all the code accessing the archive. See more at
-// incfs_support/signal_handling.h
-//
-#if !ZIPARCHIVE_DISABLE_CALLBACK_API
-
-int32_t ExtractToWriter(ZipArchiveHandle handle, const ZipEntry64* entry,
-                        zip_archive::Writer* writer) {
-  return extractToWriter(handle, entry, writer);
-}
-
-#endif  // !ZIPARCHIVE_DISABLE_CALLBACK_API
-
-}  // namespace zip_archive

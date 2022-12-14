@@ -52,21 +52,3 @@ cc_binary {
         "-Werror",
     ],
 }
-
-cc_binary_host {
-    name: "aservice",
-
-    srcs: ["service.cpp"],
-
-    shared_libs: [
-        "libcutils",
-        "libutils",
-        "libbinder",
-    ],
-
-    cflags: [
-        "-DXP_UNIX",
-        "-Wall",
-        "-Werror",
-    ],
-}

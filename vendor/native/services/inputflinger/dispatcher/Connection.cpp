@@ -20,7 +20,7 @@
 
 namespace android::inputdispatcher {
 
-Connection::Connection(const std::shared_ptr<InputChannel>& inputChannel, bool monitor,
+Connection::Connection(const sp<InputChannel>& inputChannel, bool monitor,
                        const IdGenerator& idGenerator)
       : status(STATUS_NORMAL),
         inputChannel(inputChannel),

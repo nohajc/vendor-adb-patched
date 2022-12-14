@@ -8,9 +8,7 @@ Define entries for labeling files. The compiler will produce these entries in a 
 
 **Statement definition:**
 
-```secil
     (filecon "path" file_type context_id)
-```
 
 **Where:**
 
@@ -36,13 +34,11 @@ Define entries for labeling files. The compiler will produce these entries in a 
 <col width="44%" />
 <col width="55%" />
 </colgroup>
-<thead>
+<tbody>
 <tr class="odd">
 <td align="left"><p><strong>keyword</strong></p></td>
 <td align="left"><p><strong>file_contexts entry</strong></p></td>
 </tr>
-</thead>
-<tbody>
 <tr class="even">
 <td align="left"><p><code>file</code></p></td>
 <td align="left"><p><code>--</code></p></td>
@@ -93,21 +89,17 @@ Define entries for labeling files. The compiler will produce these entries in a 
 
 These examples use one named, one anonymous and one empty context definition:
 
-```secil
     (context runas_exec_context (u object_r exec low_low))
 
     (filecon "/system/bin/run-as" file runas_exec_context)
     (filecon "/dev/socket/wpa_wlan[0-9]" any u:object_r:wpa.socket:s0-s0)
     (filecon "/data/local/mine" dir ())
-```
 
 to resolve/build `file_contexts` entries of (assuming MLS enabled policy):
 
-```
     /system/bin/run-as  -- u:object_r:runas.exec:s0
     /dev/socket/wpa_wlan[0-9]   u:object_r:wpa.socket:s0
     /data/local/mine -d <<none>>
-```
 
 fsuse
 -----
@@ -116,9 +108,7 @@ Label filesystems that support SELinux security contexts.
 
 **Statement definition:**
 
-```secil
     (fsuse fstype fsname context_id)
-```
 
 **Where:**
 
@@ -157,7 +147,6 @@ Label filesystems that support SELinux security contexts.
 
 The [context](#context) identifiers are declared in the `file` namespace and the [`fsuse`](cil_file_labeling_statements.md#fsuse) statements in the global namespace:
 
-```secil
     (block file
         (type labeledfs)
         (roletype object_r labeledfs)
@@ -177,7 +166,6 @@ The [context](#context) identifiers are declared in the `file` namespace and the
 
     (fsuse trans devpts file.devpts_context)
     (fsuse trans tmpfs file.tmpfs_context)
-```
 
 genfscon
 --------
@@ -186,9 +174,7 @@ Used to allocate a security context to filesystems that cannot support any of th
 
 **Statement definition:**
 
-```secil
-    (genfscon fsname path [file_type] context_id)
-```
+    (genfscon fsname path context_id)
 
 **Where:**
 
@@ -211,10 +197,6 @@ Used to allocate a security context to filesystems that cannot support any of th
 <td align="left"><p>If <code>fsname</code> is <code>proc</code>, then the partial path (see examples). For all other types this must be ‘<code>/</code>’.</p></td>
 </tr>
 <tr class="even">
-<td align="left"><p><code>file_type</code></p></td>
-<td align="left"><p>Optional keyword representing a file type. Valid values are the same as in [`filecon`](cil_file_labeling_statements.md#filecon) rules.</p></td>
-</tr>
-<tr class="odd">
 <td align="left"><p><code>context_id</code></p></td>
 <td align="left"><p>A previously declared <code>context</code> identifier or an anonymous security context (<code>user role type levelrange</code>), the range MUST be defined whether the policy is MLS/MCS enabled or not.</p></td>
 </tr>
@@ -225,7 +207,6 @@ Used to allocate a security context to filesystems that cannot support any of th
 
 The [context](#context) identifiers are declared in the `file` namespace and the [`genfscon`](cil_file_labeling_statements.md#genfscon) statements are then inserted using the [`in`](cil_container_statements.md#in) container statement:
 
-```secil
     (file
         (type rootfs)
         (roletype object_r rootfs)
@@ -245,4 +226,3 @@ The [context](#context) identifiers are declared in the `file` namespace and the
         (genfscon proc /sysrq-trigger sysrq_proc_context)
         (genfscon selinuxfs / selinuxfs_context)
     )
-```

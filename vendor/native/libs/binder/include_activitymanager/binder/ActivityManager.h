@@ -18,15 +18,12 @@
 
 #ifndef __ANDROID_VNDK__
 
-#include <android/app/ProcessStateEnum.h>
 #include <binder/IActivityManager.h>
-#include <utils/Mutex.h>
+
+#include <utils/threads.h>
 
 // ---------------------------------------------------------------------------
 namespace android {
-
-#define DECLARE_PROCESS_STATE(name) \
-    PROCESS_STATE_##name = (int32_t) app::ProcessStateEnum::name
 
 class ActivityManager
 {
@@ -40,53 +37,48 @@ public:
         // Flag for registerUidObserver: report uid has become idle
         UID_OBSERVER_IDLE = 1<<2,
         // Flag for registerUidObserver: report uid has become active
-        UID_OBSERVER_ACTIVE = 1<<3,
-        // Flag for registerUidObserver: report uid cached state has changed
-        UID_OBSERVER_CACHED = 1<<4,
-        // Flag for registerUidObserver: report uid capability has changed
-        UID_OBSERVER_CAPABILITY = 1<<5,
+        UID_OBSERVER_ACTIVE = 1<<3
     };
 
-    // PROCESS_STATE_* must come from frameworks/base/core/java/android/app/ProcessStateEnum.aidl.
-    // This is to make sure that Java side uses the same values as native.
     enum {
-        DECLARE_PROCESS_STATE(UNKNOWN),
-        DECLARE_PROCESS_STATE(PERSISTENT),
-        DECLARE_PROCESS_STATE(PERSISTENT_UI),
-        DECLARE_PROCESS_STATE(TOP),
-        DECLARE_PROCESS_STATE(BOUND_TOP),
-        DECLARE_PROCESS_STATE(FOREGROUND_SERVICE),
-        DECLARE_PROCESS_STATE(BOUND_FOREGROUND_SERVICE),
-        DECLARE_PROCESS_STATE(IMPORTANT_FOREGROUND),
-        DECLARE_PROCESS_STATE(IMPORTANT_BACKGROUND),
-        DECLARE_PROCESS_STATE(TRANSIENT_BACKGROUND),
-        DECLARE_PROCESS_STATE(BACKUP),
-        DECLARE_PROCESS_STATE(SERVICE),
-        DECLARE_PROCESS_STATE(RECEIVER),
-        DECLARE_PROCESS_STATE(TOP_SLEEPING),
-        DECLARE_PROCESS_STATE(HEAVY_WEIGHT),
-        DECLARE_PROCESS_STATE(HOME),
-        DECLARE_PROCESS_STATE(LAST_ACTIVITY),
-        DECLARE_PROCESS_STATE(CACHED_ACTIVITY),
-        DECLARE_PROCESS_STATE(CACHED_ACTIVITY_CLIENT),
-        DECLARE_PROCESS_STATE(CACHED_RECENT),
-        DECLARE_PROCESS_STATE(CACHED_EMPTY),
-        DECLARE_PROCESS_STATE(NONEXISTENT),
+        PROCESS_STATE_UNKNOWN = -1,
+        PROCESS_STATE_PERSISTENT = 0,
+        PROCESS_STATE_PERSISTENT_UI = 1,
+        PROCESS_STATE_TOP = 2,
+        PROCESS_STATE_FOREGROUND_SERVICE_LOCATION = 3,
+        PROCESS_STATE_BOUND_TOP = 4,
+        PROCESS_STATE_FOREGROUND_SERVICE = 5,
+        PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 6,
+        PROCESS_STATE_IMPORTANT_FOREGROUND = 7,
+        PROCESS_STATE_IMPORTANT_BACKGROUND = 8,
+        PROCESS_STATE_TRANSIENT_BACKGROUND = 9,
+        PROCESS_STATE_BACKUP = 10,
+        PROCESS_STATE_SERVICE = 11,
+        PROCESS_STATE_RECEIVER = 12,
+        PROCESS_STATE_TOP_SLEEPING = 13,
+        PROCESS_STATE_HEAVY_WEIGHT = 14,
+        PROCESS_STATE_HOME = 15,
+        PROCESS_STATE_LAST_ACTIVITY = 16,
+        PROCESS_STATE_CACHED_ACTIVITY = 17,
+        PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 18,
+        PROCESS_STATE_CACHED_RECENT = 19,
+        PROCESS_STATE_CACHED_EMPTY = 20,
+        PROCESS_STATE_NONEXISTENT = 21,
     };
 
     ActivityManager();
 
     int openContentUri(const String16& stringUri);
-    status_t registerUidObserver(const sp<IUidObserver>& observer,
+    void registerUidObserver(const sp<IUidObserver>& observer,
                              const int32_t event,
                              const int32_t cutpoint,
                              const String16& callingPackage);
-    status_t unregisterUidObserver(const sp<IUidObserver>& observer);
+    void unregisterUidObserver(const sp<IUidObserver>& observer);
     bool isUidActive(const uid_t uid, const String16& callingPackage);
     int getUidProcessState(const uid_t uid, const String16& callingPackage);
-    status_t checkPermission(const String16& permission, const pid_t pid, const uid_t uid, int32_t* outResult);
 
-    status_t linkToDeath(const sp<IBinder::DeathRecipient>& recipient);
+
+  status_t linkToDeath(const sp<IBinder::DeathRecipient>& recipient);
     status_t unlinkToDeath(const sp<IBinder::DeathRecipient>& recipient);
 
 private:

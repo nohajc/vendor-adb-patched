@@ -20,7 +20,6 @@
 
 #include <gui/HdrMetadata.h>
 #include <math/mat4.h>
-#include <ui/BlurRegion.h>
 #include <ui/FloatRect.h>
 #include <ui/Rect.h>
 #include <ui/Region.h>
@@ -29,17 +28,15 @@
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wextra"
 
 #include <gui/BufferQueue.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicTypes.h>
-#include <ui/StretchEffect.h>
 
 #include "DisplayHardware/Hal.h"
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
-#pragma clang diagnostic pop // ignored "-Wconversion -Wextra"
+#pragma clang diagnostic pop // ignored "-Wconversion"
 
 namespace android::compositionengine {
 
@@ -55,16 +52,6 @@ struct GenericLayerMetadataEntry {
     std::vector<uint8_t> value;
 
     std::string dumpAsString() const;
-
-    struct Hasher {
-        size_t operator()(const GenericLayerMetadataEntry& entry) const {
-            size_t hash = 0;
-            for (const auto value : entry.value) {
-                hashCombineSingleHashed(hash, value);
-            }
-            return hash;
-        }
-    };
 };
 
 inline bool operator==(const GenericLayerMetadataEntry& lhs, const GenericLayerMetadataEntry& rhs) {
@@ -80,8 +67,6 @@ using GenericLayerMetadataMap = std::unordered_map<std::string, GenericLayerMeta
 
 /*
  * Used by LayerFE::getCompositionState
- * Note that fields that affect HW composer state may need to be mirrored into
- * android::compositionengine::impl::planner::LayerState
  */
 struct LayerFECompositionState {
     // If set to true, forces client composition on all output layers until
@@ -132,11 +117,6 @@ struct LayerFECompositionState {
 
     // length of the shadow in screen space
     float shadowRadius{0.f};
-
-    // List of regions that require blur
-    std::vector<BlurRegion> blurRegions;
-
-    StretchEffect stretchEffect;
 
     /*
      * Geometry state

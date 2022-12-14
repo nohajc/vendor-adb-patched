@@ -41,19 +41,6 @@ enum ANativeWindowPerform {
     // clang-format on
 };
 
-/*
- * Internal extension of compatibility value for ANativeWindow_setFrameRate. */
-enum ANativeWindow_FrameRateCompatibilityInternal {
-    /**
-     * This surface belongs to an app on the High Refresh Rate Deny list, and needs the display
-     * to operate at the exact frame rate.
-     *
-     * This is used internally by the platform and should not be used by apps.
-     * @hide
-     */
-    ANATIVEWINDOW_FRAME_RATE_EXACT = 100,
-};
-
 /**
  * Prototype of the function that an ANativeWindow implementation would call
  * when ANativeWindow_cancelBuffer is called.

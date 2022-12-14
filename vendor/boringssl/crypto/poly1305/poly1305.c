@@ -20,6 +20,8 @@
 
 #include <string.h>
 
+#include <openssl/cpu.h>
+
 #include "internal.h"
 #include "../internal.h"
 
@@ -54,7 +56,7 @@ OPENSSL_STATIC_ASSERT(
 
 static inline struct poly1305_state_st *poly1305_aligned_state(
     poly1305_state *state) {
-  return align_pointer(state, 64);
+  return (struct poly1305_state_st *)(((uintptr_t)state + 63) & ~63);
 }
 
 // poly1305_blocks updates |state| given some amount of input data. This
@@ -203,11 +205,6 @@ void CRYPTO_poly1305_init(poly1305_state *statep, const uint8_t key[32]) {
 void CRYPTO_poly1305_update(poly1305_state *statep, const uint8_t *in,
                             size_t in_len) {
   struct poly1305_state_st *state = poly1305_aligned_state(statep);
-
-  // Work around a C language bug. See https://crbug.com/1019588.
-  if (in_len == 0) {
-    return;
-  }
 
 #if defined(OPENSSL_POLY1305_NEON)
   if (CRYPTO_is_NEON_capable()) {

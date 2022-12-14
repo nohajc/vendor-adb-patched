@@ -965,13 +965,6 @@ VkResult LayerChain::ValidateExtensions(VkPhysicalDevice physical_dev,
     VkResult result = EnumerateDeviceExtensionProperties(physical_dev, nullptr,
                                                          &count, nullptr);
     if (result == VK_SUCCESS && count) {
-        // Work-around a race condition during Android start-up, that can result
-        // in the second call to EnumerateDeviceExtensionProperties having
-        // another extension.  That causes the second call to return
-        // VK_INCOMPLETE.  A work-around is to add 1 to "count" and ask for one
-        // more extension property.  See: http://anglebug.com/6715 and
-        // internal-to-Google b/206733351.
-        count++;
         driver_extensions_ = AllocateDriverExtensionArray(count);
         result = (driver_extensions_)
                      ? EnumerateDeviceExtensionProperties(
@@ -1191,18 +1184,23 @@ const LayerChain::ActiveLayer* LayerChain::GetActiveLayers(
 // ----------------------------------------------------------------------------
 
 bool EnsureInitialized() {
-    static bool initialized = false;
-    static pid_t init_attempted_for_pid = 0;
-    static std::mutex init_lock;
+    static std::once_flag once_flag;
+    static bool initialized;
 
-    std::lock_guard<std::mutex> lock(init_lock);
-    if (init_attempted_for_pid == getpid())
-        return initialized;
+    std::call_once(once_flag, []() {
+        if (driver::OpenHAL()) {
+            initialized = true;
+        }
+    });
 
-    init_attempted_for_pid = getpid();
-    if (driver::OpenHAL()) {
-        DiscoverLayers();
-        initialized = true;
+    {
+        static pid_t pid = getpid() + 1;
+        static std::mutex layer_lock;
+        std::lock_guard<std::mutex> lock(layer_lock);
+        if (pid != getpid()) {
+            pid = getpid();
+            DiscoverLayers();
+        }
     }
 
     return initialized;
@@ -1268,7 +1266,7 @@ VkResult EnumerateInstanceLayerProperties(uint32_t* pPropertyCount,
     ATRACE_CALL();
 
     if (!EnsureInitialized())
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
+        return VK_ERROR_INITIALIZATION_FAILED;
 
     uint32_t count = GetLayerCount();
 
@@ -1292,7 +1290,7 @@ VkResult EnumerateInstanceExtensionProperties(
     ATRACE_CALL();
 
     if (!EnsureInitialized())
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
+        return VK_ERROR_INITIALIZATION_FAILED;
 
     if (pLayerName) {
         const Layer* layer = FindLayer(pLayerName);
@@ -1467,11 +1465,6 @@ VkResult EnumerateDeviceExtensionProperties(
 
 VkResult EnumerateInstanceVersion(uint32_t* pApiVersion) {
     ATRACE_CALL();
-
-    // Load the driver here if not done yet. This api will be used in Zygote
-    // for Vulkan driver pre-loading because of the minimum overhead.
-    if (!EnsureInitialized())
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
 
     *pApiVersion = VK_API_VERSION_1_1;
     return VK_SUCCESS;

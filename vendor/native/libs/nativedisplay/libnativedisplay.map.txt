@@ -29,9 +29,6 @@ LIBNATIVEDISPLAY_PLATFORM {
       android::AChoreographer_routeRegisterRefreshRateCallback*;
       android::AChoreographer_routeUnregisterRefreshRateCallback*;
       android::AChoreographer_signalRefreshRateCallbacks*;
-      android::AChoreographer_getVsyncId*;
-      android::AChoreographer_getFrameDeadline*;
-      android::AChoreographer_getFrameInterval*;
       android::ADisplay_acquirePhysicalDisplays*;
       android::ADisplay_release*;
       android::ADisplay_getMaxSupportedFps*;

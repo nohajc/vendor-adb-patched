@@ -30,7 +30,6 @@ Verified Boot 2.0. Usually AVB is used to refer to this codebase.
       + [Booting Into Recovery](#Booting-Into-Recovery)
     + [Handling dm-verity Errors](#Handling-dm_verity-Errors)
     + [Android Specific Integration](#Android-Specific-Integration)
-    + [GKI 2.0 Integration](#GKI-2_0-Integration)
     + [Device Specific Notes](#Device-Specific-Notes)
 * [Version History](#Version-History)
 
@@ -1089,35 +1088,6 @@ to indicate the boot state. It shall use the following values:
 * **green**: If in LOCKED state and the key used for verification was not set by the end user.
 * **yellow**: If in LOCKED state and the key used for verification was set by the end user.
 * **orange**: If in the UNLOCKED state.
-
-## GKI 2.0 Integration
-
-Starting from Android 12, devices launching with kernel version 5.10 or higher
-must ship with the GKI kernel. See [GKI 2.0](https://source.android.com/devices/architecture/kernel/generic-kernel-image#gki2)
-for details.
-
-While incorporating a certified GKI `boot.img` into a device codebase, the
-following board variables should be configured. The setting shown below is just
-an example to be adjusted per device.
-
-```
-# Uses a prebuilt boot.img
-TARGET_NO_KERNEL := true
-BOARD_PREBUILT_BOOTIMAGE := device/${company}/${board}/boot.img
-
-# Enables chained vbmeta for the boot.img so it can be updated independently,
-# without updating the vbmeta.img. The following configs are optional.
-# When they're absent, the hash of the boot.img will be stored then signed in
-# the vbmeta.img.
-BOARD_AVB_BOOT_KEY_PATH := external/avb/test/data/testkey_rsa4096.pem
-BOARD_AVB_BOOT_ALGORITHM := SHA256_RSA4096
-BOARD_AVB_BOOT_ROLLBACK_INDEX := $(PLATFORM_SECURITY_PATCH_TIMESTAMP)
-BOARD_AVB_BOOT_ROLLBACK_INDEX_LOCATION := 2
-```
-
-**NOTE**: The certified GKI `boot.img` isn't signed for verified boot.
-A device-specific verified boot chain should still be configured for a prebuilt
-GKI `boot.img`.
 
 ## Device Specific Notes
 

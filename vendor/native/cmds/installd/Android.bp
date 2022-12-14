@@ -28,7 +28,6 @@ cc_defaults {
         "dexopt.cpp",
         "execv_helper.cpp",
         "globals.cpp",
-        "restorable_file.cpp",
         "run_dex2oat.cpp",
         "unique_file.cpp",
         "utils.cpp",
@@ -46,12 +45,10 @@ cc_defaults {
         "libprocessgroup",
         "libselinux",
         "libutils",
-        "libziparchive",
         "server_configurable_flags",
     ],
     static_libs: [
         "libasync_safe",
-        "libext2_uuid",
     ],
     export_shared_lib_headers: [
         "libbinder",
@@ -72,6 +69,8 @@ cc_defaults {
         },
     },
 
+    clang: true,
+
     tidy: true,
     tidy_checks: [
         "-*",
@@ -79,9 +78,8 @@ cc_defaults {
         "cert-*",
         "-cert-err58-cpp",
     ],
-    tidy_checks_as_errors: [
-        "clang-analyzer-security*",
-        "cert-*",
+    tidy_flags: [
+        "-warnings-as-errors=clang-analyzer-security*,cert-*"
     ],
 }
 
@@ -126,16 +124,14 @@ cc_library_headers {
 cc_test_host {
     name: "run_dex2oat_test",
     test_suites: ["general-tests"],
+    clang: true,
     srcs: [
         "run_dex2oat_test.cpp",
         "run_dex2oat.cpp",
         "unique_file.cpp",
         "execv_helper.cpp",
     ],
-    cflags: [
-        "-Wall",
-        "-Werror",
-    ],
+    cflags: ["-Wall", "-Werror"],
     shared_libs: [
         "libbase",
         "server_configurable_flags",
@@ -173,7 +169,7 @@ cc_binary {
 
     // Needs to be wherever installd is as it's execed by
     // installd.
-    required: ["migrate_legacy_obb_data.sh"],
+    required: [ "migrate_legacy_obb_data.sh" ],
 }
 
 // OTA chroot tool
@@ -185,6 +181,7 @@ cc_binary {
         "-Wall",
         "-Werror",
     ],
+    clang: true,
 
     srcs: [
         "otapreopt_chroot.cpp",
@@ -196,14 +193,15 @@ cc_binary {
         "libutils",
     ],
     required: [
-        "apexd",
+      "apexd"
     ],
 }
 
 filegroup {
     name: "installd_aidl",
     srcs: [
-        "binder/**/*.aidl",
+        "binder/android/os/IInstalld.aidl",
+        "binder/android/os/storage/CrateMetadata.aidl",
     ],
     path: "binder",
 }
@@ -215,7 +213,7 @@ cc_library_static {
     name: "libotapreoptparameters",
     cflags: [
         "-Wall",
-        "-Werror",
+        "-Werror"
     ],
 
     srcs: ["otapreopt_parameters.cpp"],
@@ -239,7 +237,7 @@ cc_binary {
     name: "otapreopt",
     cflags: [
         "-Wall",
-        "-Werror",
+        "-Werror"
     ],
 
     srcs: [
@@ -248,7 +246,6 @@ cc_binary {
         "globals.cpp",
         "otapreopt.cpp",
         "otapreopt_utils.cpp",
-        "restorable_file.cpp",
         "run_dex2oat.cpp",
         "unique_file.cpp",
         "utils.cpp",
@@ -260,7 +257,6 @@ cc_binary {
         "libasync_safe",
         "libdiskusage",
         "libotapreoptparameters",
-        "libext2_uuid",
     ],
 
     shared_libs: [
@@ -272,7 +268,6 @@ cc_binary {
         "libprocessgroup",
         "libselinux",
         "libutils",
-        "libziparchive",
         "server_configurable_flags",
     ],
 }
@@ -300,5 +295,5 @@ sh_binary {
 // Script to migrate legacy obb data.
 sh_binary {
     name: "migrate_legacy_obb_data.sh",
-    src: "migrate_legacy_obb_data.sh",
+    src: "migrate_legacy_obb_data.sh"
 }

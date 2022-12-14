@@ -27,6 +27,7 @@
 #include <utils/CallStack.h>
 #include <utils/Log.h>
 #include <utils/SystemClock.h>
+#include <utils/threads.h>
 
 #include <atomic>
 #include <errno.h>
@@ -351,6 +352,11 @@ bool IPCThreadState::backgroundSchedulingDisabled()
     return gDisableBackgroundScheduling.load(std::memory_order_relaxed);
 }
 
+sp<ProcessState> IPCThreadState::process()
+{
+    return mProcess;
+}
+
 status_t IPCThreadState::clearLastError()
 {
     const status_t err = mLastError;
@@ -638,9 +644,7 @@ void IPCThreadState::processPostWriteDerefs()
 void IPCThreadState::joinThreadPool(bool isMain)
 {
     LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)pthread_self(), getpid());
-    pthread_mutex_lock(&mProcess->mThreadCountLock);
-    mProcess->mCurrentThreads++;
-    pthread_mutex_unlock(&mProcess->mThreadCountLock);
+
     mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
 
     mIsLooper = true;
@@ -668,13 +672,6 @@ void IPCThreadState::joinThreadPool(bool isMain)
     mOut.writeInt32(BC_EXIT_LOOPER);
     mIsLooper = false;
     talkWithDriver(false);
-    pthread_mutex_lock(&mProcess->mThreadCountLock);
-    LOG_ALWAYS_FATAL_IF(mProcess->mCurrentThreads == 0,
-                        "Threadpool thread count = 0. Thread cannot exist and exit in empty "
-                        "threadpool\n"
-                        "Misconfiguration. Increase threadpool max threads configuration\n");
-    mProcess->mCurrentThreads--;
-    pthread_mutex_unlock(&mProcess->mThreadCountLock);
 }
 
 status_t IPCThreadState::setupPolling(int* fd)
@@ -686,9 +683,6 @@ status_t IPCThreadState::setupPolling(int* fd)
     mOut.writeInt32(BC_ENTER_LOOPER);
     flushCommands();
     *fd = mProcess->mDriverFD;
-    pthread_mutex_lock(&mProcess->mThreadCountLock);
-    mProcess->mCurrentThreads++;
-    pthread_mutex_unlock(&mProcess->mThreadCountLock);
     return 0;
 }
 
@@ -972,15 +966,18 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
                             freeBuffer);
                     } else {
                         err = *reinterpret_cast<const status_t*>(tr.data.ptr.buffer);
-                        freeBuffer(reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
-                                   tr.data_size,
-                                   reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
-                                   tr.offsets_size / sizeof(binder_size_t));
+                        freeBuffer(nullptr,
+                            reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
+                            tr.data_size,
+                            reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
+                            tr.offsets_size/sizeof(binder_size_t));
                     }
                 } else {
-                    freeBuffer(reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer), tr.data_size,
-                               reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
-                               tr.offsets_size / sizeof(binder_size_t));
+                    freeBuffer(nullptr,
+                        reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
+                        tr.data_size,
+                        reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
+                        tr.offsets_size/sizeof(binder_size_t));
                     continue;
                 }
             }
@@ -998,7 +995,6 @@ finish:
         if (acquireResult) *acquireResult = err;
         if (reply) reply->setError(err);
         mLastError = err;
-        logExtendedError();
     }
 
     return err;
@@ -1208,8 +1204,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
     case BR_DECREFS:
         refs = (RefBase::weakref_type*)mIn.readPointer();
-        // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
-        obj = (BBinder*)mIn.readPointer(); // consume
+        obj = (BBinder*)mIn.readPointer();
         // NOTE: This assertion is not valid, because the object may no
         // longer exist (thus the (BBinder*)cast above resulting in a different
         // memory address).
@@ -1415,11 +1410,10 @@ void IPCThreadState::threadDestructor(void *st)
         }
 }
 
-status_t IPCThreadState::getProcessFreezeInfo(pid_t pid, uint32_t *sync_received,
-                                              uint32_t *async_received)
+status_t IPCThreadState::getProcessFreezeInfo(pid_t pid, bool *sync_received, bool *async_received)
 {
     int ret = 0;
-    binder_frozen_status_info info = {};
+    binder_frozen_status_info info;
     info.pid = pid;
 
 #if defined(__ANDROID__)
@@ -1453,30 +1447,17 @@ status_t IPCThreadState::freeze(pid_t pid, bool enable, uint32_t timeout_ms) {
     return ret;
 }
 
-void IPCThreadState::logExtendedError() {
-    struct binder_extended_error ee = {.command = BR_OK};
-
-    if (!ProcessState::isDriverFeatureEnabled(ProcessState::DriverFeature::EXTENDED_ERROR))
-        return;
-
-#if defined(__ANDROID__)
-    if (ioctl(self()->mProcess->mDriverFD, BINDER_GET_EXTENDED_ERROR, &ee) < 0) {
-        ALOGE("Failed to get extended error: %s", strerror(errno));
-        return;
-    }
-#endif
-
-    ALOGE_IF(ee.command != BR_OK, "Binder transaction failure: %d/%d/%d",
-             ee.id, ee.command, ee.param);
-}
-
-void IPCThreadState::freeBuffer(const uint8_t* data, size_t /*dataSize*/,
-                                const binder_size_t* /*objects*/, size_t /*objectsSize*/) {
+void IPCThreadState::freeBuffer(Parcel* parcel, const uint8_t* data,
+                                size_t /*dataSize*/,
+                                const binder_size_t* /*objects*/,
+                                size_t /*objectsSize*/)
+{
     //ALOGI("Freeing parcel %p", &parcel);
     IF_LOG_COMMANDS() {
         alog << "Writing BC_FREE_BUFFER for " << data << endl;
     }
     ALOG_ASSERT(data != NULL, "Called with NULL data");
+    if (parcel != nullptr) parcel->closeFileDescriptors();
     IPCThreadState* state = self();
     state->mOut.writeInt32(BC_FREE_BUFFER);
     state->mOut.writePointer((uintptr_t)data);

@@ -23,13 +23,10 @@
 #
 #
 
+import traceback
 import argparse
-import os
-import re
 import seobject
 import sys
-import traceback
-
 PROGNAME = "policycoreutils"
 try:
     import gettext
@@ -129,7 +126,7 @@ class SetImportFile(argparse.Action):
                 sys.exit(1)
         setattr(namespace, self.dest, values)
 
-# define dictionary for seobject OBEJCTS
+# define dictonary for seobject OBEJCTS
 object_dict = {
     'login': seobject.loginRecords,
     'user': seobject.seluserRecords,
@@ -146,7 +143,7 @@ object_dict = {
 }
 
 def generate_custom_usage(usage_text, usage_dict):
-    # generate custom usage from given text and dictionary
+    # generate custom usage from given text and dictonary
     sorted_keys = []
     for i in usage_dict.keys():
         sorted_keys.append(i)
@@ -160,7 +157,7 @@ def generate_custom_usage(usage_text, usage_dict):
 
 
 def handle_opts(args, dict, target_key):
-    # handle conflict and required options for given dictionary
+    # handle conflict and required options for given dictonary
     # {action:[conflict_opts,require_opts]}
 
     # first we need to catch conflicts
@@ -379,7 +376,7 @@ If you do not specify a file type, the file type will default to "all files".
     parser_add_seuser(fcontextParser, "fcontext")
     parser_add_type(fcontextParser, "fcontext")
     parser_add_range(fcontextParser, "fcontext")
-    fcontextParser.add_argument('file_spec', nargs='?', default=None, help=_('Path to be labeled (may be in the form of a Perl compatible regular expression)'))
+    fcontextParser.add_argument('file_spec', nargs='?', default=None, help=_('file_spec'))
     fcontextParser.set_defaults(func=handleFcontext)
 
 
@@ -800,6 +797,8 @@ def setupExportParser(subparsers):
     exportParser.add_argument('-f', '--output_file', dest='output_file', action=SetExportFile, help=_('Output file'))
     exportParser.set_defaults(func=handleExport)
 
+import re
+
 
 def mkargv(line):
     dquote = "\""
@@ -946,13 +945,6 @@ def do_parser():
         args = commandParser.parse_args(make_args(sys.argv))
         args.func(args)
         sys.exit(0)
-    except BrokenPipeError as e:
-        sys.stderr.write("%s: %s\n" % (e.__class__.__name__, str(e)))
-        # Python flushes standard streams on exit; redirect remaining output
-        # to devnull to avoid another BrokenPipeError at shutdown
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, sys.stdout.fileno())
-        sys.exit(1)
     except IOError as e:
         sys.stderr.write("%s: %s\n" % (e.__class__.__name__, str(e)))
         sys.exit(1)

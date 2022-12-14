@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 The Android Open Source Project
+ * Copyright 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,11 @@
 
 #pragma once
 
-#include <ui/Transform.h>
 #include <utils/Timers.h>
 
 #include <chrono>
 #include <deque>
 
-#include "LayerHistory.h"
-#include "RefreshRateConfigs.h"
-#include "Scheduler/Seamlessness.h"
 #include "SchedulerUtils.h"
 
 namespace android {
@@ -45,258 +41,129 @@ constexpr nsecs_t getActiveLayerThreshold(nsecs_t now) {
 
 // Stores history of present times and refresh rates for a layer.
 class LayerInfo {
-    using LayerUpdateType = LayerHistory::LayerUpdateType;
-
     // Layer is considered frequent if the earliest value in the window of most recent present times
     // is within a threshold. If a layer is infrequent, its average refresh rate is disregarded in
     // favor of a low refresh rate.
-    static constexpr size_t kFrequentLayerWindowSize = 3;
-    static constexpr Fps kMinFpsForFrequentLayer{10.0f};
-    static constexpr auto kMaxPeriodForFrequentLayerNs =
-            std::chrono::nanoseconds(kMinFpsForFrequentLayer.getPeriodNsecs()) + 1ms;
+    static constexpr size_t FREQUENT_LAYER_WINDOW_SIZE = 3;
+    static constexpr std::chrono::nanoseconds MAX_FREQUENT_LAYER_PERIOD_NS = 250ms;
 
-    friend class LayerHistoryTest;
-    friend class LayerInfoTest;
+    /**
+     * Struct that keeps the information about the refresh rate for last
+     * HISTORY_SIZE frames. This is used to better determine the refresh rate
+     * for individual layers.
+     */
+    class RefreshRateHistory {
+    public:
+        explicit RefreshRateHistory(float highRefreshRate) : mHighRefreshRate(highRefreshRate) {}
 
-public:
-    // Holds information about the layer vote
-    struct LayerVote {
-        LayerHistory::LayerVoteType type = LayerHistory::LayerVoteType::Heuristic;
-        Fps fps{0.0f};
-        Seamlessness seamlessness = Seamlessness::Default;
-    };
-
-    // FrameRateCompatibility specifies how we should interpret the frame rate associated with
-    // the layer.
-    enum class FrameRateCompatibility {
-        Default, // Layer didn't specify any specific handling strategy
-
-        Exact, // Layer needs the exact frame rate.
-
-        ExactOrMultiple, // Layer needs the exact frame rate (or a multiple of it) to present the
-                         // content properly. Any other value will result in a pull down.
-
-        NoVote, // Layer doesn't have any requirements for the refresh rate and
-                // should not be considered when the display refresh rate is determined.
-    };
-
-    // Encapsulates the frame rate and compatibility of the layer. This information will be used
-    // when the display refresh rate is determined.
-    struct FrameRate {
-        using Seamlessness = scheduler::Seamlessness;
-
-        Fps rate;
-        FrameRateCompatibility type;
-        Seamlessness seamlessness;
-
-        FrameRate()
-              : rate(0),
-                type(FrameRateCompatibility::Default),
-                seamlessness(Seamlessness::Default) {}
-        FrameRate(Fps rate, FrameRateCompatibility type,
-                  Seamlessness seamlessness = Seamlessness::OnlySeamless)
-              : rate(rate), type(type), seamlessness(getSeamlessness(rate, seamlessness)) {}
-
-        bool operator==(const FrameRate& other) const {
-            return rate.equalsWithMargin(other.rate) && type == other.type &&
-                    seamlessness == other.seamlessness;
+        void insertRefreshRate(float refreshRate) {
+            mElements.push_back(refreshRate);
+            if (mElements.size() > HISTORY_SIZE) {
+                mElements.pop_front();
+            }
         }
 
-        bool operator!=(const FrameRate& other) const { return !(*this == other); }
+        float getRefreshRateAvg() const {
+            return mElements.empty() ? mHighRefreshRate : calculate_mean(mElements);
+        }
 
-        // Convert an ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_* value to a
-        // Layer::FrameRateCompatibility. Logs fatal if the compatibility value is invalid.
-        static FrameRateCompatibility convertCompatibility(int8_t compatibility);
-        static scheduler::Seamlessness convertChangeFrameRateStrategy(int8_t strategy);
+        void clearHistory() { mElements.clear(); }
 
     private:
-        static Seamlessness getSeamlessness(Fps rate, Seamlessness seamlessness) {
-            if (!rate.isValid()) {
-                // Refresh rate of 0 is a special value which should reset the vote to
-                // its default value.
-                return Seamlessness::Default;
-            }
-            return seamlessness;
-        }
+        const float mHighRefreshRate;
+
+        static constexpr size_t HISTORY_SIZE = 30;
+        std::deque<float> mElements;
     };
 
-    static void setTraceEnabled(bool enabled) { sTraceEnabled = enabled; }
+    /**
+     * Struct that keeps the information about the present time for last
+     * HISTORY_SIZE frames. This is used to better determine whether the given layer
+     * is still relevant and it's refresh rate should be considered.
+     */
+    class PresentTimeHistory {
+    public:
+        static constexpr size_t HISTORY_SIZE = 90;
 
-    LayerInfo(const std::string& name, uid_t ownerUid, LayerHistory::LayerVoteType defaultVote);
+        void insertPresentTime(nsecs_t presentTime) {
+            mElements.push_back(presentTime);
+            if (mElements.size() > HISTORY_SIZE) {
+                mElements.pop_front();
+            }
+        }
+
+        // Returns whether the earliest present time is within the active threshold.
+        bool isRecentlyActive(nsecs_t now) const {
+            if (mElements.size() < 2) {
+                return false;
+            }
+
+            // The layer had to publish at least HISTORY_SIZE or HISTORY_DURATION of updates
+            if (mElements.size() < HISTORY_SIZE &&
+                mElements.back() - mElements.front() < HISTORY_DURATION.count()) {
+                return false;
+            }
+
+            return mElements.back() >= getActiveLayerThreshold(now);
+        }
+
+        bool isFrequent(nsecs_t now) const {
+            // Assume layer is infrequent if too few present times have been recorded.
+            if (mElements.size() < FREQUENT_LAYER_WINDOW_SIZE) {
+                return false;
+            }
+
+            // Layer is frequent if the earliest value in the window of most recent present times is
+            // within threshold.
+            const auto it = mElements.end() - FREQUENT_LAYER_WINDOW_SIZE;
+            const nsecs_t threshold = now - MAX_FREQUENT_LAYER_PERIOD_NS.count();
+            return *it >= threshold;
+        }
+
+        void clearHistory() { mElements.clear(); }
+
+    private:
+        std::deque<nsecs_t> mElements;
+        static constexpr std::chrono::nanoseconds HISTORY_DURATION = 1s;
+    };
+
+    friend class LayerHistoryTest;
+
+public:
+    LayerInfo(float lowRefreshRate, float highRefreshRate);
 
     LayerInfo(const LayerInfo&) = delete;
     LayerInfo& operator=(const LayerInfo&) = delete;
 
-    struct LayerProps {
-        bool visible = false;
-        FloatRect bounds;
-        ui::Transform transform;
-        FrameRate setFrameRateVote;
-        int32_t frameRateSelectionPriority = -1;
-    };
-
-    // Records the last requested present time. It also stores information about when
+    // Records the last requested oresent time. It also stores information about when
     // the layer was last updated. If the present time is farther in the future than the
     // updated time, the updated time is the present time.
-    void setLastPresentTime(nsecs_t lastPresentTime, nsecs_t now, LayerUpdateType updateType,
-                            bool pendingModeChange, LayerProps props);
+    void setLastPresentTime(nsecs_t lastPresentTime, nsecs_t now);
 
-    // Sets an explicit layer vote. This usually comes directly from the application via
-    // ANativeWindow_setFrameRate API
-    void setLayerVote(LayerVote vote) { mLayerVote = vote; }
+    bool isRecentlyActive(nsecs_t now) const { return mPresentTimeHistory.isRecentlyActive(now); }
+    bool isFrequent(nsecs_t now) const { return mPresentTimeHistory.isFrequent(now); }
 
-    // Sets the default layer vote. This will be the layer vote after calling to resetLayerVote().
-    // This is used for layers that called to setLayerVote() and then removed the vote, so that the
-    // layer can go back to whatever vote it had before the app voted for it.
-    void setDefaultLayerVote(LayerHistory::LayerVoteType type) { mDefaultVote = type; }
-
-    // Resets the layer vote to its default.
-    void resetLayerVote() { mLayerVote = {mDefaultVote, Fps(0.0f), Seamlessness::Default}; }
-
-    std::string getName() const { return mName; }
-
-    uid_t getOwnerUid() const { return mOwnerUid; }
-
-    LayerVote getRefreshRateVote(const RefreshRateConfigs&, nsecs_t now);
+    float getRefreshRate(nsecs_t now) const {
+        return isFrequent(now) ? mRefreshRateHistory.getRefreshRateAvg() : mLowRefreshRate;
+    }
 
     // Return the last updated time. If the present time is farther in the future than the
     // updated time, the updated time is the present time.
     nsecs_t getLastUpdatedTime() const { return mLastUpdatedTime; }
 
-    FrameRate getSetFrameRateVote() const { return mLayerProps.setFrameRateVote; }
-    bool isVisible() const { return mLayerProps.visible; }
-    int32_t getFrameRateSelectionPriority() const { return mLayerProps.frameRateSelectionPriority; }
-
-    FloatRect getBounds() const { return mLayerProps.bounds; }
-
-    ui::Transform getTransform() const { return mLayerProps.transform; }
-
-    // Returns a C string for tracing a vote
-    const char* getTraceTag(LayerHistory::LayerVoteType type) const;
-
-    void onLayerInactive(nsecs_t now) {
-        // Mark mFrameTimeValidSince to now to ignore all previous frame times.
-        // We are not deleting the old frame to keep track of whether we should treat the first
-        // buffer as Max as we don't know anything about this layer or Min as this layer is
-        // posting infrequent updates.
-        const auto timePoint = std::chrono::nanoseconds(now);
-        mFrameTimeValidSince = std::chrono::time_point<std::chrono::steady_clock>(timePoint);
-        mLastRefreshRate = {};
-        mRefreshRateHistory.clear();
-    }
-
-    void clearHistory(nsecs_t now) {
-        onLayerInactive(now);
-        mFrameTimes.clear();
+    void clearHistory() {
+        mRefreshRateHistory.clearHistory();
+        mPresentTimeHistory.clearHistory();
     }
 
 private:
-    // Used to store the layer timestamps
-    struct FrameTimeData {
-        nsecs_t presentTime; // desiredPresentTime, if provided
-        nsecs_t queueTime;  // buffer queue time
-        bool pendingModeChange;
-    };
-
-    // Holds information about the calculated and reported refresh rate
-    struct RefreshRateHeuristicData {
-        // Rate calculated on the layer
-        Fps calculated{0.0f};
-        // Last reported rate for LayerInfo::getRefreshRate()
-        Fps reported{0.0f};
-        // Whether the last reported rate for LayerInfo::getRefreshRate()
-        // was due to animation or infrequent updates
-        bool animatingOrInfrequent = false;
-    };
-
-    // Class to store past calculated refresh rate and determine whether
-    // the refresh rate calculated is consistent with past values
-    class RefreshRateHistory {
-    public:
-        static constexpr auto HISTORY_SIZE = 90;
-        static constexpr std::chrono::nanoseconds HISTORY_DURATION = 2s;
-
-        RefreshRateHistory(const std::string& name) : mName(name) {}
-
-        // Clears History
-        void clear();
-
-        // Adds a new refresh rate and returns true if it is consistent
-        bool add(Fps refreshRate, nsecs_t now);
-
-    private:
-        friend class LayerHistoryTest;
-
-        // Holds the refresh rate when it was calculated
-        struct RefreshRateData {
-            Fps refreshRate{0.0f};
-            nsecs_t timestamp = 0;
-
-            bool operator<(const RefreshRateData& other) const {
-                // We don't need comparison with margins since we are using
-                // this to find the min and max refresh rates.
-                return refreshRate.getValue() < other.refreshRate.getValue();
-            }
-        };
-
-        // Holds tracing strings
-        struct HeuristicTraceTagData {
-            std::string min;
-            std::string max;
-            std::string consistent;
-            std::string average;
-        };
-
-        bool isConsistent() const;
-        HeuristicTraceTagData makeHeuristicTraceTagData() const;
-
-        const std::string mName;
-        mutable std::optional<HeuristicTraceTagData> mHeuristicTraceTagData;
-        std::deque<RefreshRateData> mRefreshRates;
-        static constexpr float MARGIN_CONSISTENT_FPS = 1.0;
-    };
-
-    bool isFrequent(nsecs_t now) const;
-    bool isAnimating(nsecs_t now) const;
-    bool hasEnoughDataForHeuristic() const;
-    std::optional<Fps> calculateRefreshRateIfPossible(const RefreshRateConfigs&, nsecs_t now);
-    std::optional<nsecs_t> calculateAverageFrameTime() const;
-    bool isFrameTimeValid(const FrameTimeData&) const;
-
-    const std::string mName;
-    const uid_t mOwnerUid;
-
-    // Used for sanitizing the heuristic data. If two frames are less than
-    // this period apart from each other they'll be considered as duplicates.
-    static constexpr nsecs_t kMinPeriodBetweenFrames = Fps(240.f).getPeriodNsecs();
-    // Used for sanitizing the heuristic data. If two frames are more than
-    // this period apart from each other, the interval between them won't be
-    // taken into account when calculating average frame rate.
-    static constexpr nsecs_t kMaxPeriodBetweenFrames = kMinFpsForFrequentLayer.getPeriodNsecs();
-    LayerHistory::LayerVoteType mDefaultVote;
-
-    LayerVote mLayerVote;
+    const float mLowRefreshRate;
+    const float mHighRefreshRate;
 
     nsecs_t mLastUpdatedTime = 0;
-
-    nsecs_t mLastAnimationTime = 0;
-
-    RefreshRateHeuristicData mLastRefreshRate;
-
-    std::deque<FrameTimeData> mFrameTimes;
-    std::chrono::time_point<std::chrono::steady_clock> mFrameTimeValidSince =
-            std::chrono::steady_clock::now();
-    static constexpr size_t HISTORY_SIZE = RefreshRateHistory::HISTORY_SIZE;
-    static constexpr std::chrono::nanoseconds HISTORY_DURATION = 1s;
-
-    LayerProps mLayerProps;
-
-    RefreshRateHistory mRefreshRateHistory;
-
-    mutable std::unordered_map<LayerHistory::LayerVoteType, std::string> mTraceTags;
-
-    // Shared for all LayerInfo instances
-    static bool sTraceEnabled;
+    nsecs_t mLastPresentTime = 0;
+    RefreshRateHistory mRefreshRateHistory{mHighRefreshRate};
+    PresentTimeHistory mPresentTimeHistory;
 };
 
 } // namespace scheduler

@@ -35,17 +35,16 @@ public:
         mCallback = callback;
     }
 
-    void onInjectSyncEvent(nsecs_t when, nsecs_t expectedVSyncTimestamp,
-                           nsecs_t deadlineTimestamp) {
+    void onInjectSyncEvent(nsecs_t when, nsecs_t expectedVSyncTimestamp) {
         std::lock_guard<std::mutex> lock(mCallbackMutex);
         if (mCallback) {
-            mCallback->onVSyncEvent(when, expectedVSyncTimestamp, deadlineTimestamp);
+            mCallback->onVSyncEvent(when, expectedVSyncTimestamp);
         }
     }
 
     const char* getName() const override { return "inject"; }
     void setVSyncEnabled(bool) override {}
-    void setDuration(std::chrono::nanoseconds, std::chrono::nanoseconds) override {}
+    void setPhaseOffset(nsecs_t) override {}
     void dump(std::string&) const override {}
 
 private:

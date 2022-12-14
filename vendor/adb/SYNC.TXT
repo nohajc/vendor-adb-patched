@@ -11,17 +11,17 @@ SERVICES.TXT sets the connection in sync mode. This mode is a binary mode that
 differs from the regular adb protocol. The connection stays in sync mode until
 explicitly terminated (see below).
 
-After the initial "sync:" command is sent, the server must respond with either
-"OKAY" or "FAIL" as per the usual protocol.
+After the initial "sync:" command is sent the server must respond with either
+"OKAY" or "FAIL" as per usual.
 
 In sync mode both the server and the client will frequently use eight-byte
 packets to communicate. In this document these are called sync requests and sync
-responses. The first four bytes constitute an id that specifies the sync request.
-It is represented by four ASCII bytes in order to make them more human-readable
-when debugging. The last four bytes are a Little-Endian integer, with various
-uses. This number shall be called "length" below. In fact, all binary integers
-are Little-Endian in the sync mode. Sync mode is implicitly exited after each
-sync request, and normal adb communication follows as described in SERVICES.TXT.
+responses. The first four bytes are an id that specifies the sync request. It is
+represented by four utf-8 characters. The last four bytes are a Little-Endian
+integer, with various uses. This number will be called "length" below. In fact
+all binary integers are Little-Endian in the sync mode. Sync mode is
+implicitly exited after each sync request, and normal adb communication
+follows as described in SERVICES.TXT.
 
 The following sync requests are accepted:
 LIST - List the files in a folder

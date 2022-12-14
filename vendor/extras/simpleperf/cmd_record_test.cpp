@@ -184,16 +184,16 @@ TEST(record_cmd, rN_event) {
   TEST_REQUIRE_HW_COUNTER();
   OMIT_TEST_ON_NON_NATIVE_ABIS();
   size_t event_number;
-  if (GetTargetArch() == ARCH_ARM64 || GetTargetArch() == ARCH_ARM) {
+  if (GetBuildArch() == ARCH_ARM64 || GetBuildArch() == ARCH_ARM) {
     // As in D5.10.2 of the ARMv8 manual, ARM defines the event number space for PMU. part of the
     // space is for common event numbers (which will stay the same for all ARM chips), part of the
     // space is for implementation defined events. Here 0x08 is a common event for instructions.
     event_number = 0x08;
-  } else if (GetTargetArch() == ARCH_X86_32 || GetTargetArch() == ARCH_X86_64) {
+  } else if (GetBuildArch() == ARCH_X86_32 || GetBuildArch() == ARCH_X86_64) {
     // As in volume 3 chapter 19 of the Intel manual, 0x00c0 is the event number for instruction.
     event_number = 0x00c0;
   } else {
-    GTEST_LOG_(INFO) << "Omit arch " << GetTargetArch();
+    GTEST_LOG_(INFO) << "Omit arch " << GetBuildArch();
     return;
   }
   std::string event_name = android::base::StringPrintf("r%zx", event_number);
@@ -230,7 +230,7 @@ TEST(record_cmd, fp_callchain_sampling) {
 }
 
 TEST(record_cmd, fp_callchain_sampling_warning_on_arm) {
-  if (GetTargetArch() != ARCH_ARM) {
+  if (GetBuildArch() != ARCH_ARM) {
     GTEST_LOG_(INFO) << "This test does nothing as it only tests on arm arch.";
     return;
   }
@@ -539,19 +539,18 @@ TEST(record_cmd, trace_offcpu_option) {
   TEST_REQUIRE_TRACEPOINT_EVENTS();
   OMIT_TEST_ON_NON_NATIVE_ABIS();
   TemporaryFile tmpfile;
-  ASSERT_TRUE(RunRecordCmd({"--trace-offcpu", "-e", "cpu-clock", "-f", "1000"}, tmpfile.path));
+  ASSERT_TRUE(RunRecordCmd({"--trace-offcpu", "-f", "1000"}, tmpfile.path));
   CheckEventType(tmpfile.path, "sched:sched_switch", 1u, 0u);
   std::unique_ptr<RecordFileReader> reader = RecordFileReader::CreateInstance(tmpfile.path);
   ASSERT_TRUE(reader);
   auto info_map = reader->GetMetaInfoFeature();
   ASSERT_EQ(info_map["trace_offcpu"], "true");
-  if (IsSwitchRecordSupported()) {
-    ASSERT_EQ(reader->AttrSection()[0].attr->context_switch, 1);
-  }
   // Release recording environment in perf.data, to avoid affecting tests below.
   reader.reset();
 
-  // --trace-offcpu only works with cpu-clock and task-clock. cpu-clock has been tested above.
+  // --trace-offcpu only works with cpu-clock, task-clock and cpu-cycles. cpu-cycles has been
+  // tested above.
+  ASSERT_TRUE(RunRecordCmd({"--trace-offcpu", "-e", "cpu-clock"}));
   ASSERT_TRUE(RunRecordCmd({"--trace-offcpu", "-e", "task-clock"}));
   ASSERT_FALSE(RunRecordCmd({"--trace-offcpu", "-e", "page-faults"}));
   // --trace-offcpu doesn't work with more than one event.
@@ -560,18 +559,6 @@ TEST(record_cmd, trace_offcpu_option) {
 
 TEST(record_cmd, exit_with_parent_option) {
   ASSERT_TRUE(RunRecordCmd({"--exit-with-parent"}));
-}
-
-TEST(record_cmd, use_cmd_exit_code_option) {
-  TemporaryFile tmpfile;
-  int exit_code;
-  RecordCmd()->Run({"-e", GetDefaultEvent(), "--use-cmd-exit-code", "-o", tmpfile.path, "ls", "."},
-                   &exit_code);
-  ASSERT_EQ(exit_code, 0);
-  RecordCmd()->Run(
-      {"-e", GetDefaultEvent(), "--use-cmd-exit-code", "-o", tmpfile.path, "ls", "/not_exist_path"},
-      &exit_code);
-  ASSERT_NE(exit_code, 0);
 }
 
 TEST(record_cmd, clockid_option) {
@@ -760,10 +747,6 @@ static void TestRecordingApps(const std::string& app_name, const std::string& ap
   it = meta_info.find("app_type");
   ASSERT_NE(it, meta_info.end());
   ASSERT_EQ(it->second, app_type);
-  reader.reset(nullptr);
-
-  // Check that simpleperf can't execute child command in app uid.
-  ASSERT_FALSE(helper.RecordData("--app " + app_name + " -e " + GetDefaultEvent() + " sleep 1"));
 }
 
 TEST(record_cmd, app_option_for_debuggable_app) {
@@ -897,9 +880,7 @@ TEST(record_cmd, check_trampoline_after_art_jni_methods) {
         std::string sym_name = get_symbol_name(thread, ips[i]);
         if (android::base::StartsWith(sym_name, "art::Method_invoke") && i + 1 < ips.size()) {
           has_check = true;
-          std::string name = get_symbol_name(thread, ips[i + 1]);
-          if (!android::base::EndsWith(name, "jni_trampoline")) {
-            GTEST_LOG_(ERROR) << "unexpected symbol after art::Method_invoke: " << name;
+          if (get_symbol_name(thread, ips[i + 1]) != "art_jni_trampoline") {
             return false;
           }
         }
@@ -919,7 +900,7 @@ TEST(record_cmd, no_cut_samples_option) {
 }
 
 TEST(record_cmd, cs_etm_event) {
-  if (!ETMRecorder::GetInstance().CheckEtmSupport().ok()) {
+  if (!ETMRecorder::GetInstance().CheckEtmSupport()) {
     GTEST_LOG_(INFO) << "Omit this test since etm isn't supported on this device";
     return;
   }
@@ -954,7 +935,7 @@ TEST(record_cmd, cs_etm_event) {
 
 TEST(record_cmd, cs_etm_system_wide) {
   TEST_REQUIRE_ROOT();
-  if (!ETMRecorder::GetInstance().CheckEtmSupport().ok()) {
+  if (!ETMRecorder::GetInstance().CheckEtmSupport()) {
     GTEST_LOG_(INFO) << "Omit this test since etm isn't supported on this device";
     return;
   }
@@ -962,7 +943,7 @@ TEST(record_cmd, cs_etm_system_wide) {
 }
 
 TEST(record_cmd, aux_buffer_size_option) {
-  if (!ETMRecorder::GetInstance().CheckEtmSupport().ok()) {
+  if (!ETMRecorder::GetInstance().CheckEtmSupport()) {
     GTEST_LOG_(INFO) << "Omit this test since etm isn't supported on this device";
     return;
   }
@@ -975,7 +956,7 @@ TEST(record_cmd, aux_buffer_size_option) {
 
 TEST(record_cmd, addr_filter_option) {
   TEST_REQUIRE_HW_COUNTER();
-  if (!ETMRecorder::GetInstance().CheckEtmSupport().ok()) {
+  if (!ETMRecorder::GetInstance().CheckEtmSupport()) {
     GTEST_LOG_(INFO) << "Omit this test since etm isn't supported on this device";
     return;
   }
@@ -1037,12 +1018,12 @@ TEST(record_cmd, pmu_event_option) {
   TEST_REQUIRE_PMU_COUNTER();
   TEST_REQUIRE_HW_COUNTER();
   std::string event_string;
-  if (GetTargetArch() == ARCH_X86_64) {
+  if (GetBuildArch() == ARCH_X86_64) {
     event_string = "cpu/cpu-cycles/";
-  } else if (GetTargetArch() == ARCH_ARM64) {
+  } else if (GetBuildArch() == ARCH_ARM64) {
     event_string = "armv8_pmuv3/cpu_cycles/";
   } else {
-    GTEST_LOG_(INFO) << "Omit arch " << GetTargetArch();
+    GTEST_LOG_(INFO) << "Omit arch " << GetBuildArch();
     return;
   }
   TEST_IN_ROOT(ASSERT_TRUE(RunRecordCmd({"-e", event_string})));
@@ -1209,25 +1190,4 @@ TEST(record_cmd, device_meta_info) {
   it = meta_info.find("android_build_type");
   ASSERT_NE(it, meta_info.end());
   ASSERT_FALSE(it->second.empty());
-}
-
-TEST(record_cmd, add_counter_option) {
-  TEST_REQUIRE_HW_COUNTER();
-  TemporaryFile tmpfile;
-  ASSERT_TRUE(RecordCmd()->Run({"-e", "cpu-cycles", "--add-counter", "instructions", "--no-inherit",
-                                "-o", tmpfile.path, "sleep", "1"}));
-  std::unique_ptr<RecordFileReader> reader = RecordFileReader::CreateInstance(tmpfile.path);
-  ASSERT_TRUE(reader);
-  bool has_sample = false;
-  ASSERT_TRUE(reader->ReadDataSection([&](std::unique_ptr<Record> r) {
-    if (r->type() == PERF_RECORD_SAMPLE) {
-      has_sample = true;
-      auto sr = static_cast<SampleRecord*>(r.get());
-      if (sr->read_data.counts.size() != 2 || sr->read_data.ids.size() != 2) {
-        return false;
-      }
-    }
-    return true;
-  }));
-  ASSERT_TRUE(has_sample);
 }

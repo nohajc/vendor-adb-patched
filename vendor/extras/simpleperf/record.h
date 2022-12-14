@@ -103,13 +103,6 @@ struct PerfSamplePeriodType {
   uint64_t period;
 };
 
-struct PerfSampleReadType {
-  uint64_t time_enabled = 0;
-  uint64_t time_running = 0;
-  std::vector<uint64_t> counts;
-  std::vector<uint64_t> ids;
-};
-
 struct PerfSampleCallChainType {
   uint64_t ip_nr;
   uint64_t* ips;
@@ -204,7 +197,7 @@ struct SampleId {
   size_t CreateContent(const perf_event_attr& attr, uint64_t event_id);
 
   // Parse sample_id from binary format in the buffer pointed by p.
-  bool ReadFromBinaryFormat(const perf_event_attr& attr, const char* p, const char* end);
+  void ReadFromBinaryFormat(const perf_event_attr& attr, const char* p, const char* end);
 
   // Write the binary format of sample_id to the buffer pointed by p.
   void WriteToBinaryFormat(char*& p) const;
@@ -224,6 +217,7 @@ struct Record {
   SampleId sample_id;
 
   Record() : binary_(nullptr), own_binary_(false) {}
+  explicit Record(char* p) : header(p), binary_(p), own_binary_(false) {}
   Record(Record&& other) noexcept;
 
   virtual ~Record() {
@@ -231,8 +225,6 @@ struct Record {
       delete[] binary_;
     }
   }
-
-  virtual bool Parse(const perf_event_attr& attr, char* p, char* end) = 0;
 
   void OwnBinary() { own_binary_ = true; }
 
@@ -266,7 +258,6 @@ struct Record {
   virtual uint64_t Id() const;
 
  protected:
-  bool ParseHeader(char*& p, char*& end);
   void UpdateBinary(char* new_binary);
   virtual void DumpData(size_t) const = 0;
 
@@ -286,12 +277,12 @@ struct MmapRecord : public Record {
   const MmapRecordDataType* data;
   const char* filename;
 
-  MmapRecord() {}
+  MmapRecord(const perf_event_attr& attr, char* p);
+
   MmapRecord(const perf_event_attr& attr, bool in_kernel, uint32_t pid, uint32_t tid, uint64_t addr,
              uint64_t len, uint64_t pgoff, const std::string& filename, uint64_t event_id,
              uint64_t time = 0);
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
   void SetDataAndFilename(const MmapRecordDataType& data, const std::string& filename);
 
  protected:
@@ -313,12 +304,11 @@ struct Mmap2Record : public Record {
   const Mmap2RecordDataType* data;
   const char* filename;
 
-  Mmap2Record() {}
+  Mmap2Record(const perf_event_attr& attr, char* p);
   Mmap2Record(const perf_event_attr& attr, bool in_kernel, uint32_t pid, uint32_t tid,
               uint64_t addr, uint64_t len, uint64_t pgoff, uint32_t prot,
               const std::string& filename, uint64_t event_id, uint64_t time = 0);
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
   void SetDataAndFilename(const Mmap2RecordDataType& data, const std::string& filename);
 
  protected:
@@ -332,11 +322,11 @@ struct CommRecord : public Record {
   const CommRecordDataType* data;
   const char* comm;
 
-  CommRecord() {}
+  CommRecord(const perf_event_attr& attr, char* p);
+
   CommRecord(const perf_event_attr& attr, uint32_t pid, uint32_t tid, const std::string& comm,
              uint64_t event_id, uint64_t time);
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
   void SetCommandName(const std::string& name);
 
  protected:
@@ -351,17 +341,21 @@ struct ExitOrForkRecord : public Record {
   };
   const ExitOrForkRecordDataType* data;
 
+  ExitOrForkRecord(const perf_event_attr& attr, char* p);
+
   ExitOrForkRecord() : data(nullptr) {}
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
 };
 
-struct ExitRecord : public ExitOrForkRecord {};
+struct ExitRecord : public ExitOrForkRecord {
+  ExitRecord(const perf_event_attr& attr, char* p) : ExitOrForkRecord(attr, p) {}
+};
 
 struct ForkRecord : public ExitOrForkRecord {
-  ForkRecord() {}
+  ForkRecord(const perf_event_attr& attr, char* p) : ExitOrForkRecord(attr, p) {}
+
   ForkRecord(const perf_event_attr& attr, uint32_t pid, uint32_t tid, uint32_t ppid, uint32_t ptid,
              uint64_t event_id);
 };
@@ -370,7 +364,7 @@ struct LostRecord : public Record {
   uint64_t id;
   uint64_t lost;
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
+  LostRecord(const perf_event_attr& attr, char* p);
 
  protected:
   void DumpData(size_t indent) const override;
@@ -379,7 +373,6 @@ struct LostRecord : public Record {
 struct SampleRecord : public Record {
   uint64_t sample_type;  // sample_type is a bit mask determining which fields
                          // below are valid.
-  uint64_t read_format;
 
   PerfSampleIpType ip_data;               // Valid if PERF_SAMPLE_IP.
   PerfSampleTidType tid_data;             // Valid if PERF_SAMPLE_TID.
@@ -389,7 +382,6 @@ struct SampleRecord : public Record {
   PerfSampleStreamIdType stream_id_data;  // Valid if PERF_SAMPLE_STREAM_ID.
   PerfSampleCpuType cpu_data;             // Valid if PERF_SAMPLE_CPU.
   PerfSamplePeriodType period_data;       // Valid if PERF_SAMPLE_PERIOD.
-  PerfSampleReadType read_data;           // Valid if PERF_SAMPLE_READ.
 
   PerfSampleCallChainType callchain_data;       // Valid if PERF_SAMPLE_CALLCHAIN.
   PerfSampleRawType raw_data;                   // Valid if PERF_SAMPLE_RAW.
@@ -397,13 +389,11 @@ struct SampleRecord : public Record {
   PerfSampleRegsUserType regs_user_data;        // Valid if PERF_SAMPLE_REGS_USER.
   PerfSampleStackUserType stack_user_data;      // Valid if PERF_SAMPLE_STACK_USER.
 
-  SampleRecord() {}
+  SampleRecord(const perf_event_attr& attr, char* p);
   SampleRecord(const perf_event_attr& attr, uint64_t id, uint64_t ip, uint32_t pid, uint32_t tid,
-               uint64_t time, uint32_t cpu, uint64_t period, const PerfSampleReadType& read_data,
-               const std::vector<uint64_t>& ips, const std::vector<char>& stack,
-               uint64_t dyn_stack_size);
+               uint64_t time, uint32_t cpu, uint64_t period, const std::vector<uint64_t>& ips,
+               const std::vector<char>& stack, uint64_t dyn_stack_size);
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
   void ReplaceRegAndStackWithCallChain(const std::vector<uint64_t>& ips);
   // Remove kernel callchain, return true if there is a user space callchain left, otherwise
   // return false.
@@ -435,24 +425,9 @@ struct AuxRecord : public Record {
     uint64_t flags;
   } * data;
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
+  AuxRecord(const perf_event_attr& attr, char* p);
+
   bool Unformatted() const { return data->flags & PERF_AUX_FLAG_CORESIGHT_FORMAT_RAW; }
-
- protected:
-  void DumpData(size_t indent) const override;
-};
-
-struct SwitchRecord : public Record {
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
-
- protected:
-  void DumpData(size_t) const override {}
-};
-
-struct SwitchCpuWideRecord : public Record {
-  PerfSampleTidType tid_data;
-
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
@@ -465,9 +440,9 @@ struct BuildIdRecord : public Record {
   BuildId build_id;
   const char* filename;
 
-  BuildIdRecord() {}
+  explicit BuildIdRecord(char* p);
+
   BuildIdRecord(bool in_kernel, uint32_t pid, const BuildId& build_id, const std::string& filename);
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
@@ -475,14 +450,12 @@ struct BuildIdRecord : public Record {
 
 struct AuxTraceInfoRecord : public Record {
   // magic values to be compatible with linux perf
-  static constexpr uint32_t AUX_TYPE_ETM = 3;
-  static constexpr uint64_t MAGIC_ETM4 = 0x4040404040404040ULL;
-  static constexpr uint64_t MAGIC_ETE = 0x5050505050505050ULL;
+  static const uint32_t AUX_TYPE_ETM = 3;
+  static const uint64_t MAGIC_ETM4 = 0x4040404040404040ULL;
 
   struct ETM4Info {
     uint64_t magic;
     uint64_t cpu;
-    uint64_t nrtrcparams;
     uint64_t trcconfigr;
     uint64_t trctraceidr;
     uint64_t trcidr0;
@@ -490,20 +463,6 @@ struct AuxTraceInfoRecord : public Record {
     uint64_t trcidr2;
     uint64_t trcidr8;
     uint64_t trcauthstatus;
-  };
-
-  struct ETEInfo {
-    uint64_t magic;
-    uint64_t cpu;
-    uint64_t nrtrcparams;
-    uint64_t trcconfigr;
-    uint64_t trctraceidr;
-    uint64_t trcidr0;
-    uint64_t trcidr1;
-    uint64_t trcidr2;
-    uint64_t trcidr8;
-    uint64_t trcauthstatus;
-    uint64_t trcdevarch;
   };
 
   struct DataType {
@@ -513,12 +472,11 @@ struct AuxTraceInfoRecord : public Record {
     uint32_t nr_cpu;
     uint32_t pmu_type;
     uint64_t snapshot;
-    uint64_t info[0];
+    ETM4Info etm4_info[0];
   } * data;
 
-  AuxTraceInfoRecord() {}
-  AuxTraceInfoRecord(const DataType& data, const std::vector<ETEInfo>& ete_info);
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
+  explicit AuxTraceInfoRecord(char* p);
+  AuxTraceInfoRecord(const DataType& data, const std::vector<ETM4Info>& etm4_info);
 
  protected:
   void DumpData(size_t indent) const override;
@@ -541,10 +499,9 @@ struct AuxTraceRecord : public Record {
     uint64_t file_offset = 0;
   } location;
 
-  AuxTraceRecord() {}
+  explicit AuxTraceRecord(char* p);
   AuxTraceRecord(uint64_t aux_size, uint64_t offset, uint32_t idx, uint32_t tid, uint32_t cpu);
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
   static size_t Size() { return sizeof(perf_event_header) + sizeof(DataType); }
 
  protected:
@@ -555,9 +512,9 @@ struct KernelSymbolRecord : public Record {
   uint32_t kallsyms_size;
   const char* kallsyms;
 
-  KernelSymbolRecord() {}
+  explicit KernelSymbolRecord(char* p);
+
   explicit KernelSymbolRecord(const std::string& kallsyms);
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
@@ -569,9 +526,9 @@ struct DsoRecord : public Record {
   uint64_t min_vaddr;
   const char* dso_name;
 
-  DsoRecord() {}
+  explicit DsoRecord(char* p);
+
   DsoRecord(uint64_t dso_type, uint64_t dso_id, const std::string& dso_name, uint64_t min_vaddr);
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
@@ -583,9 +540,9 @@ struct SymbolRecord : public Record {
   uint64_t dso_id;
   const char* name;
 
-  SymbolRecord() {}
+  explicit SymbolRecord(char* p);
+
   SymbolRecord(uint64_t addr, uint64_t len, const std::string& name, uint64_t dso_id);
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
@@ -595,9 +552,9 @@ struct TracingDataRecord : public Record {
   uint32_t data_size;
   const char* data;
 
-  TracingDataRecord() {}
+  explicit TracingDataRecord(char* p);
+
   explicit TracingDataRecord(const std::vector<char>& tracing_data);
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
@@ -610,9 +567,9 @@ struct EventIdRecord : public Record {
     uint64_t event_id;
   } const* data;
 
-  EventIdRecord() {}
+  explicit EventIdRecord(char* p);
+
   explicit EventIdRecord(const std::vector<uint64_t>& data);
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
 
  protected:
   void DumpData(size_t indent) const override;
@@ -627,12 +584,11 @@ struct CallChainRecord : public Record {
   uint64_t* ips;
   uint64_t* sps;
 
-  CallChainRecord() {}
+  explicit CallChainRecord(char* p);
 
   CallChainRecord(pid_t pid, pid_t tid, simpleperf::CallChainJoiner::ChainType type, uint64_t time,
                   const std::vector<uint64_t>& ips, const std::vector<uint64_t>& sps);
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
   uint64_t Timestamp() const override { return time; }
 
  protected:
@@ -651,14 +607,13 @@ struct UnwindingResultRecord : public Record {
     uint64_t* sps = nullptr;
   } callchain;
 
-  UnwindingResultRecord() {}
+  explicit UnwindingResultRecord(char* p);
 
   UnwindingResultRecord(uint64_t time, const simpleperf::UnwindingResult& unwinding_result,
                         const PerfSampleRegsUserType& regs_user_data,
                         const PerfSampleStackUserType& stack_user_data,
                         const std::vector<uint64_t>& ips, const std::vector<uint64_t>& sps);
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
   uint64_t Timestamp() const override { return time; }
 
  protected:
@@ -670,7 +625,7 @@ struct UnwindingResultRecord : public Record {
 struct UnknownRecord : public Record {
   const char* data;
 
-  bool Parse(const perf_event_attr& attr, char* p, char* end) override;
+  explicit UnknownRecord(char* p);
 
  protected:
   void DumpData(size_t indent) const override;
@@ -678,8 +633,11 @@ struct UnknownRecord : public Record {
 
 // Read record from the buffer pointed by [p]. But the record doesn't own
 // the buffer.
-std::unique_ptr<Record> ReadRecordFromBuffer(const perf_event_attr& attr, uint32_t type, char* p,
-                                             char* end);
+std::unique_ptr<Record> ReadRecordFromBuffer(const perf_event_attr& attr, uint32_t type, char* p);
+
+// Read record from the buffer pointed by [p]. And the record owns the buffer.
+std::unique_ptr<Record> ReadRecordFromOwnedBuffer(const perf_event_attr& attr, uint32_t type,
+                                                  char* p);
 
 // Read records from the buffer pointed by [buf]. None of the records own
 // the buffer.
@@ -688,7 +646,7 @@ std::vector<std::unique_ptr<Record>> ReadRecordsFromBuffer(const perf_event_attr
 
 // Read one record from the buffer pointed by [p]. But the record doesn't
 // own the buffer.
-std::unique_ptr<Record> ReadRecordFromBuffer(const perf_event_attr& attr, char* p, char* end);
+std::unique_ptr<Record> ReadRecordFromBuffer(const perf_event_attr& attr, char* p);
 
 }  // namespace simpleperf
 

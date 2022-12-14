@@ -117,10 +117,6 @@ public:
     status_t readFromParcel(const Parcel& parcel);
     status_t writeToParcel(Parcel* parcel) const;
 
-    // Convenience API to replace a Parcel with a status value, w/o requiring
-    // calling multiple APIs (makes generated code smaller).
-    status_t writeOverParcel(Parcel* parcel) const;
-
     // Set one of the pre-defined exception types defined above.
     void setException(int32_t ex, const String8& message);
     // Set a service specific exception with error code.

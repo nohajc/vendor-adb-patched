@@ -31,6 +31,7 @@ namespace android {
 namespace SensorDeviceUtils {
 
 void quantizeSensorEventValues(sensors_event_t *event, float resolution) {
+    LOG_FATAL_IF(resolution == 0, "Resolution must be specified for all sensors!");
     if (resolution == 0) {
         return;
     }
@@ -78,26 +79,8 @@ void quantizeSensorEventValues(sensors_event_t *event, float resolution) {
     }
 }
 
-float resolutionForSensor(const sensor_t &sensor) {
-    switch ((SensorTypeV2_1)sensor.type) {
-        case SensorTypeV2_1::ACCELEROMETER:
-        case SensorTypeV2_1::MAGNETIC_FIELD:
-        case SensorTypeV2_1::GYROSCOPE:
-        case SensorTypeV2_1::MAGNETIC_FIELD_UNCALIBRATED:
-        case SensorTypeV2_1::GYROSCOPE_UNCALIBRATED:
-        case SensorTypeV2_1::ACCELEROMETER_UNCALIBRATED: {
-            if (sensor.maxRange == 0) {
-                ALOGE("No max range for sensor type %d, can't determine appropriate resolution",
-                        sensor.type);
-                return sensor.resolution;
-            }
-            // Accel, gyro, and mag shouldn't have more than 24 bits of resolution on the most
-            // advanced devices.
-            double lowerBound = 2.0 * sensor.maxRange / std::pow(2, 24);
-
-            // No need to check the upper bound as that's already enforced through CTS.
-            return std::max(sensor.resolution, static_cast<float>(lowerBound));
-        }
+float defaultResolutionForType(int type) {
+    switch ((SensorTypeV2_1)type) {
         case SensorTypeV2_1::SIGNIFICANT_MOTION:
         case SensorTypeV2_1::STEP_DETECTOR:
         case SensorTypeV2_1::STEP_COUNTER:
@@ -108,14 +91,12 @@ float resolutionForSensor(const sensor_t &sensor) {
         case SensorTypeV2_1::WRIST_TILT_GESTURE:
         case SensorTypeV2_1::STATIONARY_DETECT:
         case SensorTypeV2_1::MOTION_DETECT:
-            // Ignore input resolution as all of these sensors are required to have a resolution of
-            // 1.
             return 1.0f;
         default:
-            // fall through and return the current resolution for all other types
+            // fall through and return 0 for all other types
             break;
     }
-    return sensor.resolution;
+    return 0.0f;
 }
 
 HidlServiceRegistrationWaiter::HidlServiceRegistrationWaiter() {

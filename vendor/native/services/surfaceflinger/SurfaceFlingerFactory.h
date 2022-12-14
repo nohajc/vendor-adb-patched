@@ -16,8 +16,6 @@
 
 #pragma once
 
-#include "Fps.h"
-
 #include <cutils/compiler.h>
 #include <utils/StrongPointer.h>
 
@@ -36,21 +34,21 @@ class BufferLayerConsumer;
 class EffectLayer;
 class ContainerLayer;
 class DisplayDevice;
-class FrameTracer;
+class DispSync;
+class EventControlThread;
 class GraphicBuffer;
 class HWComposer;
 class IGraphicBufferConsumer;
 class IGraphicBufferProducer;
+class ISchedulerCallback;
 class Layer;
 class MessageQueue;
 class Scheduler;
 class StartPropertySetThread;
 class SurfaceFlinger;
 class SurfaceInterceptor;
-class TimeStats;
 
 struct DisplayDeviceCreationArgs;
-struct ISchedulerCallback;
 struct LayerCreationArgs;
 
 namespace compositionengine {
@@ -58,14 +56,9 @@ class CompositionEngine;
 } // namespace compositionengine
 
 namespace scheduler {
-class VsyncConfiguration;
-class VsyncController;
+class PhaseConfiguration;
 class RefreshRateConfigs;
 } // namespace scheduler
-
-namespace frametimeline {
-class FrameTimeline;
-} // namespace frametimeline
 
 namespace surfaceflinger {
 
@@ -75,13 +68,18 @@ class NativeWindowSurface;
 // of each interface.
 class Factory {
 public:
+    using SetVSyncEnabled = std::function<void(bool)>;
+
+    virtual std::unique_ptr<DispSync> createDispSync(const char* name, bool hasSyncFramework) = 0;
+    virtual std::unique_ptr<EventControlThread> createEventControlThread(SetVSyncEnabled) = 0;
     virtual std::unique_ptr<HWComposer> createHWComposer(const std::string& serviceName) = 0;
     virtual std::unique_ptr<MessageQueue> createMessageQueue() = 0;
-    virtual std::unique_ptr<scheduler::VsyncConfiguration> createVsyncConfiguration(
-            Fps currentRefreshRate) = 0;
-    virtual std::unique_ptr<Scheduler> createScheduler(
-            const std::shared_ptr<scheduler::RefreshRateConfigs>&, ISchedulerCallback&) = 0;
-    virtual sp<SurfaceInterceptor> createSurfaceInterceptor() = 0;
+    virtual std::unique_ptr<scheduler::PhaseConfiguration> createPhaseConfiguration(
+            const scheduler::RefreshRateConfigs&) = 0;
+    virtual std::unique_ptr<Scheduler> createScheduler(SetVSyncEnabled,
+                                                       const scheduler::RefreshRateConfigs&,
+                                                       ISchedulerCallback&) = 0;
+    virtual std::unique_ptr<SurfaceInterceptor> createSurfaceInterceptor(SurfaceFlinger*) = 0;
 
     virtual sp<StartPropertySetThread> createStartPropertySetThread(
             bool timestampPropertyValue) = 0;
@@ -108,9 +106,6 @@ public:
     virtual sp<BufferStateLayer> createBufferStateLayer(const LayerCreationArgs& args) = 0;
     virtual sp<EffectLayer> createEffectLayer(const LayerCreationArgs& args) = 0;
     virtual sp<ContainerLayer> createContainerLayer(const LayerCreationArgs& args) = 0;
-    virtual std::unique_ptr<FrameTracer> createFrameTracer() = 0;
-    virtual std::unique_ptr<frametimeline::FrameTimeline> createFrameTimeline(
-            std::shared_ptr<TimeStats> timeStats, pid_t surfaceFlingerPid) = 0;
 
 protected:
     ~Factory() = default;

@@ -21,15 +21,14 @@
 #include <type_traits>
 #include <utility>
 
-#include <android-base/thread_annotations.h>
-#include <gui/IDisplayEventConnection.h>
-#include <private/gui/BitTube.h>
 #include <utils/Looper.h>
 #include <utils/Timers.h>
+#include <utils/threads.h>
+
+#include <gui/IDisplayEventConnection.h>
+#include <private/gui/BitTube.h>
 
 #include "EventThread.h"
-#include "TracedOrdinal.h"
-#include "VSyncDispatch.h"
 
 namespace android {
 
@@ -64,81 +63,46 @@ public:
     virtual ~MessageQueue() = default;
 
     virtual void init(const sp<SurfaceFlinger>& flinger) = 0;
-    virtual void initVsync(scheduler::VSyncDispatch&, frametimeline::TokenManager&,
-                           std::chrono::nanoseconds workDuration) = 0;
-    virtual void setDuration(std::chrono::nanoseconds workDuration) = 0;
-    virtual void setInjector(sp<EventThreadConnection>) = 0;
+    virtual void setEventConnection(const sp<EventThreadConnection>& connection) = 0;
     virtual void waitMessage() = 0;
     virtual void postMessage(sp<MessageHandler>&&) = 0;
     virtual void invalidate() = 0;
     virtual void refresh() = 0;
-    virtual std::optional<std::chrono::steady_clock::time_point> nextExpectedInvalidate() = 0;
 };
 
 // ---------------------------------------------------------------------------
 
 namespace impl {
 
-class MessageQueue : public android::MessageQueue {
-protected:
+class MessageQueue final : public android::MessageQueue {
     class Handler : public MessageHandler {
-        enum : uint32_t {
-            eventMaskInvalidate = 0x1,
-            eventMaskRefresh = 0x2,
-            eventMaskTransaction = 0x4
-        };
+        enum { eventMaskInvalidate = 0x1, eventMaskRefresh = 0x2, eventMaskTransaction = 0x4 };
         MessageQueue& mQueue;
-        std::atomic<uint32_t> mEventMask;
-        std::atomic<int64_t> mVsyncId;
+        int32_t mEventMask;
         std::atomic<nsecs_t> mExpectedVSyncTime;
 
     public:
         explicit Handler(MessageQueue& queue) : mQueue(queue), mEventMask(0) {}
-        void handleMessage(const Message& message) override;
-        virtual void dispatchRefresh();
-        virtual void dispatchInvalidate(int64_t vsyncId, nsecs_t expectedVSyncTimestamp);
-        virtual bool invalidatePending();
+        virtual void handleMessage(const Message& message);
+        void dispatchRefresh();
+        void dispatchInvalidate(nsecs_t expectedVSyncTimestamp);
     };
 
     friend class Handler;
 
     sp<SurfaceFlinger> mFlinger;
     sp<Looper> mLooper;
-
-    struct Vsync {
-        frametimeline::TokenManager* tokenManager = nullptr;
-        std::unique_ptr<scheduler::VSyncCallbackRegistration> registration;
-
-        std::mutex mutex;
-        TracedOrdinal<std::chrono::nanoseconds> workDuration
-                GUARDED_BY(mutex) = {"VsyncWorkDuration-sf", std::chrono::nanoseconds(0)};
-        std::chrono::nanoseconds lastCallbackTime GUARDED_BY(mutex) = std::chrono::nanoseconds{0};
-        bool scheduled GUARDED_BY(mutex) = false;
-        std::optional<nsecs_t> expectedWakeupTime GUARDED_BY(mutex);
-        TracedOrdinal<int> value = {"VSYNC-sf", 0};
-    };
-
-    struct Injector {
-        gui::BitTube tube;
-        std::mutex mutex;
-        sp<EventThreadConnection> connection GUARDED_BY(mutex);
-    };
-
-    Vsync mVsync;
-    Injector mInjector;
-
+    sp<EventThreadConnection> mEvents;
+    gui::BitTube mEventTube;
     sp<Handler> mHandler;
 
-    void vsyncCallback(nsecs_t vsyncTime, nsecs_t targetWakeupTime, nsecs_t readyTime);
-    void injectorCallback();
+    static int cb_eventReceiver(int fd, int events, void* data);
+    int eventReceiver(int fd, int events);
 
 public:
     ~MessageQueue() override = default;
     void init(const sp<SurfaceFlinger>& flinger) override;
-    void initVsync(scheduler::VSyncDispatch&, frametimeline::TokenManager&,
-                   std::chrono::nanoseconds workDuration) override;
-    void setDuration(std::chrono::nanoseconds workDuration) override;
-    void setInjector(sp<EventThreadConnection>) override;
+    void setEventConnection(const sp<EventThreadConnection>& connection) override;
 
     void waitMessage() override;
     void postMessage(sp<MessageHandler>&&) override;
@@ -148,8 +112,6 @@ public:
 
     // sends REFRESH message at next VSYNC
     void refresh() override;
-
-    std::optional<std::chrono::steady_clock::time_point> nextExpectedInvalidate() override;
 };
 
 } // namespace impl

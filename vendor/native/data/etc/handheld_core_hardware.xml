@@ -37,12 +37,10 @@
     <feature name="android.hardware.microphone" />
     <feature name="android.hardware.screen.portrait" />
     <feature name="android.hardware.screen.landscape" />
-    <!-- Indicate support for the Android security model per the CDD. -->
-    <feature name="android.hardware.security.model.compatible" />
 
     <!-- basic system services -->
     <feature name="android.software.app_widgets" />
-    <feature name="android.software.telecom" />
+    <feature name="android.software.connectionservice" />
     <feature name="android.software.voice_recognizers" notLowRam="true" />
     <feature name="android.software.backup" />
     <feature name="android.software.home_screen" />

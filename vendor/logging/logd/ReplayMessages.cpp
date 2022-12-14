@@ -93,7 +93,7 @@ static void PrintMessage(struct log_msg* buf) {
         fprintf(stderr, "Error parsing log message\n");
     }
 
-    android_log_printLogLine(GetLogFormat(), stdout, &entry);
+    android_log_printLogLine(GetLogFormat(), STDOUT_FILENO, &entry);
 }
 
 static log_time GetFirstTimeStamp(const MappedFile& recorded_messages) {

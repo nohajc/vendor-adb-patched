@@ -27,8 +27,7 @@
 #include <sepol/policydb/flask_types.h>
 #include <sepol/policydb/policydb.h>
 #include <sepol/policydb/util.h>
-
-#include "private.h"
+#include "dso.h"
 
 struct val_to_name {
 	unsigned int val;
@@ -42,8 +41,6 @@ struct val_to_name {
  * 0).  Return 0 on success, -1 on out of memory. */
 int add_i_to_a(uint32_t i, uint32_t * cnt, uint32_t ** a)
 {
-	uint32_t *new;
-
 	if (cnt == NULL || a == NULL)
 		return -1;
 
@@ -52,18 +49,17 @@ int add_i_to_a(uint32_t i, uint32_t * cnt, uint32_t ** a)
 	 * than be smart about it, for now we realloc() the array each
 	 * time a new uint32_t is added! */
 	if (*a != NULL)
-		new = (uint32_t *) reallocarray(*a, *cnt + 1, sizeof(uint32_t));
+		*a = (uint32_t *) realloc(*a, (*cnt + 1) * sizeof(uint32_t));
 	else {			/* empty list */
 
 		*cnt = 0;
-		new = (uint32_t *) malloc(sizeof(uint32_t));
+		*a = (uint32_t *) malloc(sizeof(uint32_t));
 	}
-	if (new == NULL) {
+	if (*a == NULL) {
 		return -1;
 	}
-	new[*cnt] = i;
+	(*a)[*cnt] = i;
 	(*cnt)++;
-	*a = new;
 	return 0;
 }
 
@@ -97,7 +93,7 @@ char *sepol_av_to_string(policydb_t * policydbp, uint32_t tclass,
 	cladatum = policydbp->class_val_to_struct[tclass - 1];
 	p = avbuf;
 	for (i = 0; i < cladatum->permissions.nprim; i++) {
-		if (av & (UINT32_C(1) << i)) {
+		if (av & (1 << i)) {
 			v.val = i + 1;
 			rc = hashtab_map(cladatum->permissions.table,
 					 perm_name, &v);
@@ -134,9 +130,9 @@ char *sepol_extended_perms_to_string(avtab_extended_perms_t *xperms)
 	unsigned int bit;
 	unsigned int in_range = 0;
 	static char xpermsbuf[2048];
+	xpermsbuf[0] = '\0';
 	char *p;
 	int len, xpermslen = 0;
-	xpermsbuf[0] = '\0';
 	p = xpermsbuf;
 
 	if ((xperms->specified != AVTAB_XPERMS_IOCTLFUNCTION)
@@ -254,7 +250,7 @@ static inline int tokenize_str(char delim, char **str, char **ptr, size_t *len)
  * contain the remaining content of line_buf. If the delimiter is any whitespace
  * character, then all whitespace will be squashed.
  */
-int tokenize(char *line_buf, char delim, int num_args, ...)
+int hidden tokenize(char *line_buf, char delim, int num_args, ...)
 {
 	char **arg, *buf_p;
 	int rc, items;

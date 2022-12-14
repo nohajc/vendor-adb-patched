@@ -59,6 +59,7 @@ VerifiedMotionEvent verifiedMotionEventFromMotionEntry(const MotionEntry& entry)
 
 EventEntry::EventEntry(int32_t id, Type type, nsecs_t eventTime, uint32_t policyFlags)
       : id(id),
+        refCount(1),
         type(type),
         eventTime(eventTime),
         policyFlags(policyFlags),
@@ -67,6 +68,21 @@ EventEntry::EventEntry(int32_t id, Type type, nsecs_t eventTime, uint32_t policy
 
 EventEntry::~EventEntry() {
     releaseInjectionState();
+}
+
+std::string EventEntry::getDescription() const {
+    std::string result;
+    appendDescription(result);
+    return result;
+}
+
+void EventEntry::release() {
+    refCount -= 1;
+    if (refCount == 0) {
+        delete this;
+    } else {
+        ALOG_ASSERT(refCount > 0);
+    }
 }
 
 void EventEntry::releaseInjectionState() {
@@ -83,8 +99,8 @@ ConfigurationChangedEntry::ConfigurationChangedEntry(int32_t id, nsecs_t eventTi
 
 ConfigurationChangedEntry::~ConfigurationChangedEntry() {}
 
-std::string ConfigurationChangedEntry::getDescription() const {
-    return StringPrintf("ConfigurationChangedEvent(), policyFlags=0x%08x", policyFlags);
+void ConfigurationChangedEntry::appendDescription(std::string& msg) const {
+    msg += StringPrintf("ConfigurationChangedEvent(), policyFlags=0x%08x", policyFlags);
 }
 
 // --- DeviceResetEntry ---
@@ -94,57 +110,22 @@ DeviceResetEntry::DeviceResetEntry(int32_t id, nsecs_t eventTime, int32_t device
 
 DeviceResetEntry::~DeviceResetEntry() {}
 
-std::string DeviceResetEntry::getDescription() const {
-    return StringPrintf("DeviceResetEvent(deviceId=%d), policyFlags=0x%08x", deviceId, policyFlags);
+void DeviceResetEntry::appendDescription(std::string& msg) const {
+    msg += StringPrintf("DeviceResetEvent(deviceId=%d), policyFlags=0x%08x", deviceId, policyFlags);
 }
 
 // --- FocusEntry ---
 
 // Focus notifications always go to apps, so set the flag POLICY_FLAG_PASS_TO_USER for all entries
-FocusEntry::FocusEntry(int32_t id, nsecs_t eventTime, sp<IBinder> connectionToken, bool hasFocus,
-                       const std::string& reason)
+FocusEntry::FocusEntry(int32_t id, nsecs_t eventTime, sp<IBinder> connectionToken, bool hasFocus)
       : EventEntry(id, Type::FOCUS, eventTime, POLICY_FLAG_PASS_TO_USER),
         connectionToken(connectionToken),
-        hasFocus(hasFocus),
-        reason(reason) {}
+        hasFocus(hasFocus) {}
 
 FocusEntry::~FocusEntry() {}
 
-std::string FocusEntry::getDescription() const {
-    return StringPrintf("FocusEvent(hasFocus=%s)", hasFocus ? "true" : "false");
-}
-
-// --- PointerCaptureChangedEntry ---
-
-// PointerCaptureChanged notifications always go to apps, so set the flag POLICY_FLAG_PASS_TO_USER
-// for all entries.
-PointerCaptureChangedEntry::PointerCaptureChangedEntry(int32_t id, nsecs_t eventTime,
-                                                       const PointerCaptureRequest& request)
-      : EventEntry(id, Type::POINTER_CAPTURE_CHANGED, eventTime, POLICY_FLAG_PASS_TO_USER),
-        pointerCaptureRequest(request) {}
-
-PointerCaptureChangedEntry::~PointerCaptureChangedEntry() {}
-
-std::string PointerCaptureChangedEntry::getDescription() const {
-    return StringPrintf("PointerCaptureChangedEvent(pointerCaptureEnabled=%s)",
-                        pointerCaptureRequest.enable ? "true" : "false");
-}
-
-// --- DragEntry ---
-
-// Drag notifications always go to apps, so set the flag POLICY_FLAG_PASS_TO_USER for all entries
-DragEntry::DragEntry(int32_t id, nsecs_t eventTime, sp<IBinder> connectionToken, bool isExiting,
-                     float x, float y)
-      : EventEntry(id, Type::DRAG, eventTime, POLICY_FLAG_PASS_TO_USER),
-        connectionToken(connectionToken),
-        isExiting(isExiting),
-        x(x),
-        y(y) {}
-
-DragEntry::~DragEntry() {}
-
-std::string DragEntry::getDescription() const {
-    return StringPrintf("DragEntry(isExiting=%s, x=%f, y=%f)", isExiting ? "true" : "false", x, y);
+void FocusEntry::appendDescription(std::string& msg) const {
+    msg += StringPrintf("FocusEvent(hasFocus=%s)", hasFocus ? "true" : "false");
 }
 
 // --- KeyEntry ---
@@ -170,16 +151,16 @@ KeyEntry::KeyEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32_t sou
 
 KeyEntry::~KeyEntry() {}
 
-std::string KeyEntry::getDescription() const {
+void KeyEntry::appendDescription(std::string& msg) const {
+    msg += StringPrintf("KeyEvent");
     if (!GetBoolProperty("ro.debuggable", false)) {
-        return "KeyEvent";
+        return;
     }
-    return StringPrintf("KeyEvent(deviceId=%d, eventTime=%" PRIu64
-                        ", source=0x%08x, displayId=%" PRId32 ", action=%s, "
+    msg += StringPrintf("(deviceId=%d, source=0x%08x, displayId=%" PRId32 ", action=%s, "
                         "flags=0x%08x, keyCode=%d, scanCode=%d, metaState=0x%08x, "
                         "repeatCount=%d), policyFlags=0x%08x",
-                        deviceId, eventTime, source, displayId, KeyEvent::actionToString(action),
-                        flags, keyCode, scanCode, metaState, repeatCount, policyFlags);
+                        deviceId, source, displayId, KeyEvent::actionToString(action), flags,
+                        keyCode, scanCode, metaState, repeatCount, policyFlags);
 }
 
 void KeyEntry::recycle() {
@@ -202,6 +183,7 @@ MotionEntry::MotionEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32
                          uint32_t pointerCount, const PointerProperties* pointerProperties,
                          const PointerCoords* pointerCoords, float xOffset, float yOffset)
       : EventEntry(id, Type::MOTION, eventTime, policyFlags),
+        eventTime(eventTime),
         deviceId(deviceId),
         source(source),
         displayId(displayId),
@@ -229,21 +211,20 @@ MotionEntry::MotionEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32
 
 MotionEntry::~MotionEntry() {}
 
-std::string MotionEntry::getDescription() const {
+void MotionEntry::appendDescription(std::string& msg) const {
+    msg += StringPrintf("MotionEvent");
     if (!GetBoolProperty("ro.debuggable", false)) {
-        return "MotionEvent";
+        return;
     }
-    std::string msg;
-    msg += StringPrintf("MotionEvent(deviceId=%d, eventTime=%" PRIu64
-                        ", source=0x%08x, displayId=%" PRId32
+    msg += StringPrintf("(deviceId=%d, source=0x%08x, displayId=%" PRId32
                         ", action=%s, actionButton=0x%08x, flags=0x%08x, metaState=0x%08x, "
                         "buttonState=0x%08x, "
                         "classification=%s, edgeFlags=0x%08x, xPrecision=%.1f, yPrecision=%.1f, "
                         "xCursorPosition=%0.1f, yCursorPosition=%0.1f, pointers=[",
-                        deviceId, eventTime, source, displayId,
-                        MotionEvent::actionToString(action).c_str(), actionButton, flags, metaState,
-                        buttonState, motionClassificationToString(classification), edgeFlags,
-                        xPrecision, yPrecision, xCursorPosition, yCursorPosition);
+                        deviceId, source, displayId, MotionEvent::actionToString(action),
+                        actionButton, flags, metaState, buttonState,
+                        motionClassificationToString(classification), edgeFlags, xPrecision,
+                        yPrecision, xCursorPosition, yCursorPosition);
 
     for (uint32_t i = 0; i < pointerCount; i++) {
         if (i) {
@@ -253,61 +234,32 @@ std::string MotionEntry::getDescription() const {
                             pointerCoords[i].getY());
     }
     msg += StringPrintf("]), policyFlags=0x%08x", policyFlags);
-    return msg;
-}
-
-// --- SensorEntry ---
-
-SensorEntry::SensorEntry(int32_t id, nsecs_t eventTime, int32_t deviceId, uint32_t source,
-                         uint32_t policyFlags, nsecs_t hwTimestamp,
-                         InputDeviceSensorType sensorType, InputDeviceSensorAccuracy accuracy,
-                         bool accuracyChanged, std::vector<float> values)
-      : EventEntry(id, Type::SENSOR, eventTime, policyFlags),
-        deviceId(deviceId),
-        source(source),
-        sensorType(sensorType),
-        accuracy(accuracy),
-        accuracyChanged(accuracyChanged),
-        hwTimestamp(hwTimestamp),
-        values(std::move(values)) {}
-
-SensorEntry::~SensorEntry() {}
-
-std::string SensorEntry::getDescription() const {
-    std::string msg;
-    msg += StringPrintf("SensorEntry(deviceId=%d, source=0x%08x, sensorType=0x%08x, "
-                        "accuracy=0x%08x, hwTimestamp=%" PRId64,
-                        deviceId, source, sensorType, accuracy, hwTimestamp);
-
-    if (!GetBoolProperty("ro.debuggable", false)) {
-        for (size_t i = 0; i < values.size(); i++) {
-            if (i > 0) {
-                msg += ", ";
-            }
-            msg += StringPrintf("(%.3f)", values[i]);
-        }
-    }
-    msg += StringPrintf(", policyFlags=0x%08x", policyFlags);
-    return msg;
 }
 
 // --- DispatchEntry ---
 
 volatile int32_t DispatchEntry::sNextSeqAtomic;
 
-DispatchEntry::DispatchEntry(std::shared_ptr<EventEntry> eventEntry, int32_t targetFlags,
-                             ui::Transform transform, float globalScaleFactor,
-                             uint32_t displayOrientation, int2 displaySize)
+DispatchEntry::DispatchEntry(EventEntry* eventEntry, int32_t targetFlags, float xOffset,
+                             float yOffset, float globalScaleFactor, float windowXScale,
+                             float windowYScale)
       : seq(nextSeq()),
-        eventEntry(std::move(eventEntry)),
+        eventEntry(eventEntry),
         targetFlags(targetFlags),
-        transform(transform),
+        xOffset(xOffset),
+        yOffset(yOffset),
         globalScaleFactor(globalScaleFactor),
-        displayOrientation(displayOrientation),
-        displaySize(displaySize),
+        windowXScale(windowXScale),
+        windowYScale(windowYScale),
         deliveryTime(0),
         resolvedAction(0),
-        resolvedFlags(0) {}
+        resolvedFlags(0) {
+    eventEntry->refCount += 1;
+}
+
+DispatchEntry::~DispatchEntry() {
+    eventEntry->release();
+}
 
 uint32_t DispatchEntry::nextSeq() {
     // Sequence number 0 is reserved and will never be returned.

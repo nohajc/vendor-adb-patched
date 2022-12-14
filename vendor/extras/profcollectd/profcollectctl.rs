@@ -29,9 +29,8 @@ command:
     stop        Terminate periodic collection.
     once        Request an one-off trace.
     process     Convert traces to perf profiles.
-    reconfig    Refresh configuration.
     report      Create a report containing all profiles.
-    reset       Clear all local data.
+    reconfig    Refresh configuration.
     help        Print this message.
 "#;
 
@@ -65,10 +64,6 @@ fn main() -> Result<()> {
             println!("Creating profile report");
             let path = libprofcollectd::report().context("Failed to create profile report.")?;
             println!("Report created at: {}", &path);
-        }
-        "reset" => {
-            libprofcollectd::reset().context("Failed to reset.")?;
-            println!("Reset done.");
         }
         "help" => println!("{}", &HELP_MSG),
         arg => bail!("Unknown argument: {}\n{}", &arg, &HELP_MSG),

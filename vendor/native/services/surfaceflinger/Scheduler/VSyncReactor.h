@@ -22,53 +22,74 @@
 #include <mutex>
 #include <unordered_map>
 #include <vector>
+#include "DispSync.h"
 #include "TimeKeeper.h"
-#include "VsyncController.h"
 namespace android::scheduler {
 
 class Clock;
 class VSyncDispatch;
 class VSyncTracker;
+class CallbackRepeater;
+class PredictedVsyncTracer;
 
 // TODO (b/145217110): consider renaming.
-class VSyncReactor : public VsyncController {
+class VSyncReactor : public android::DispSync {
 public:
-    VSyncReactor(std::unique_ptr<Clock> clock, VSyncTracker& tracker, size_t pendingFenceLimit,
+    VSyncReactor(std::unique_ptr<Clock> clock, std::unique_ptr<VSyncDispatch> dispatch,
+                 std::unique_ptr<VSyncTracker> tracker, size_t pendingFenceLimit,
                  bool supportKernelIdleTimer);
     ~VSyncReactor();
 
-    bool addPresentFence(const std::shared_ptr<android::FenceTime>& fence) final;
-    void setIgnorePresentFences(bool ignore) final;
+    bool addPresentFence(const std::shared_ptr<FenceTime>& fence) final;
+    void setIgnorePresentFences(bool ignoration) final;
 
-    void startPeriodTransition(nsecs_t period) final;
+    nsecs_t computeNextRefresh(int periodOffset, nsecs_t now) const final;
+    nsecs_t expectedPresentTime(nsecs_t now) final;
 
-    bool addHwVsyncTimestamp(nsecs_t timestamp, std::optional<nsecs_t> hwcVsyncPeriod,
-                             bool* periodFlushed) final;
+    void setPeriod(nsecs_t period) final;
+    nsecs_t getPeriod() final;
+
+    // TODO: (b/145626181) remove begin,endResync functions from DispSync i/f when possible.
+    void beginResync() final;
+    bool addResyncSample(nsecs_t timestamp, std::optional<nsecs_t> hwcVsyncPeriod,
+                         bool* periodFlushed) final;
+    void endResync() final;
+
+    status_t addEventListener(const char* name, nsecs_t phase, DispSync::Callback* callback,
+                              nsecs_t lastCallbackTime) final;
+    status_t removeEventListener(DispSync::Callback* callback, nsecs_t* outLastCallback) final;
+    status_t changePhaseOffset(DispSync::Callback* callback, nsecs_t phase) final;
 
     void dump(std::string& result) const final;
+    void reset() final;
 
 private:
-    void setIgnorePresentFencesInternal(bool ignore) REQUIRES(mMutex);
+    void setIgnorePresentFencesInternal(bool ignoration) REQUIRES(mMutex);
     void updateIgnorePresentFencesInternal() REQUIRES(mMutex);
-    void startPeriodTransitionInternal(nsecs_t newPeriod) REQUIRES(mMutex);
+    void startPeriodTransition(nsecs_t newPeriod) REQUIRES(mMutex);
     void endPeriodTransition() REQUIRES(mMutex);
     bool periodConfirmed(nsecs_t vsync_timestamp, std::optional<nsecs_t> hwcVsyncPeriod)
             REQUIRES(mMutex);
 
     std::unique_ptr<Clock> const mClock;
-    VSyncTracker& mTracker;
+    std::unique_ptr<VSyncTracker> const mTracker;
+    std::unique_ptr<VSyncDispatch> const mDispatch;
     size_t const mPendingLimit;
 
     mutable std::mutex mMutex;
     bool mInternalIgnoreFences GUARDED_BY(mMutex) = false;
     bool mExternalIgnoreFences GUARDED_BY(mMutex) = false;
-    std::vector<std::shared_ptr<android::FenceTime>> mUnfiredFences GUARDED_BY(mMutex);
+    std::vector<std::shared_ptr<FenceTime>> mUnfiredFences GUARDED_BY(mMutex);
 
     bool mMoreSamplesNeeded GUARDED_BY(mMutex) = false;
     bool mPeriodConfirmationInProgress GUARDED_BY(mMutex) = false;
     std::optional<nsecs_t> mPeriodTransitioningTo GUARDED_BY(mMutex);
     std::optional<nsecs_t> mLastHwVsync GUARDED_BY(mMutex);
 
+    std::unordered_map<DispSync::Callback*, std::unique_ptr<CallbackRepeater>> mCallbacks
+            GUARDED_BY(mMutex);
+
+    const std::unique_ptr<PredictedVsyncTracer> mPredictedVsyncTracer;
     const bool mSupportKernelIdleTimer = false;
 };
 

@@ -24,10 +24,8 @@
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 #include <brotli/encode.h>
-#include <libsnapshot/cow_format.h>
 #include <libsnapshot/cow_reader.h>
 #include <libsnapshot/cow_writer.h>
-#include <lz4.h>
 #include <zlib.h>
 
 namespace android {
@@ -60,24 +58,10 @@ bool ICowWriter::AddRawBlocks(uint64_t new_block_start, const void* data, size_t
     return EmitRawBlocks(new_block_start, data, size);
 }
 
-bool ICowWriter::AddXorBlocks(uint32_t new_block_start, const void* data, size_t size,
-                              uint32_t old_block, uint16_t offset) {
-    if (size % options_.block_size != 0) {
-        LOG(ERROR) << "AddRawBlocks: size " << size << " is not a multiple of "
-                   << options_.block_size;
-        return false;
-    }
-
-    uint64_t num_blocks = size / options_.block_size;
-    uint64_t last_block = new_block_start + num_blocks - 1;
-    if (!ValidateNewBlock(last_block)) {
-        return false;
-    }
-    if (offset >= options_.block_size) {
-        LOG(ERROR) << "AddXorBlocks: offset " << offset << " is not less than "
-                   << options_.block_size;
-    }
-    return EmitXorBlocks(new_block_start, data, size, old_block, offset);
+bool ICowWriter::AddXorBlocks(uint32_t /*new_block_start*/, const void* /*data*/, size_t /*size*/,
+                              uint32_t /*old_block*/, uint16_t /*offset*/) {
+    LOG(ERROR) << "AddXorBlocks not yet implemented";
+    return false;
 }
 
 bool ICowWriter::AddZeroBlocks(uint64_t new_block_start, uint64_t num_blocks) {
@@ -131,8 +115,6 @@ bool CowWriter::ParseOptions() {
         compression_ = kCowCompressGz;
     } else if (options_.compression == "brotli") {
         compression_ = kCowCompressBrotli;
-    } else if (options_.compression == "lz4") {
-        compression_ = kCowCompressLz4;
     } else if (options_.compression == "none") {
         compression_ = kCowCompressNone;
     } else if (!options_.compression.empty()) {
@@ -296,27 +278,13 @@ bool CowWriter::EmitCopy(uint64_t new_block, uint64_t old_block) {
 }
 
 bool CowWriter::EmitRawBlocks(uint64_t new_block_start, const void* data, size_t size) {
-    return EmitBlocks(new_block_start, data, size, 0, 0, kCowReplaceOp);
-}
-
-bool CowWriter::EmitXorBlocks(uint32_t new_block_start, const void* data, size_t size,
-                              uint32_t old_block, uint16_t offset) {
-    return EmitBlocks(new_block_start, data, size, old_block, offset, kCowXorOp);
-}
-
-bool CowWriter::EmitBlocks(uint64_t new_block_start, const void* data, size_t size,
-                           uint64_t old_block, uint16_t offset, uint8_t type) {
     const uint8_t* iter = reinterpret_cast<const uint8_t*>(data);
     CHECK(!merge_in_progress_);
     for (size_t i = 0; i < size / header_.block_size; i++) {
         CowOperation op = {};
+        op.type = kCowReplaceOp;
         op.new_block = new_block_start + i;
-        op.type = type;
-        if (type == kCowXorOp) {
-            op.source = (old_block + i) * header_.block_size + offset;
-        } else {
-            op.source = next_data_pos_;
-        }
+        op.source = next_data_pos_;
 
         if (compression_) {
             auto data = Compress(iter, header_.block_size);
@@ -407,56 +375,35 @@ bool CowWriter::EmitClusterIfNeeded() {
 std::basic_string<uint8_t> CowWriter::Compress(const void* data, size_t length) {
     switch (compression_) {
         case kCowCompressGz: {
-            const auto bound = compressBound(length);
-            std::basic_string<uint8_t> buffer(bound, '\0');
+            auto bound = compressBound(length);
+            auto buffer = std::make_unique<uint8_t[]>(bound);
 
             uLongf dest_len = bound;
-            auto rv = compress2(buffer.data(), &dest_len, reinterpret_cast<const Bytef*>(data),
+            auto rv = compress2(buffer.get(), &dest_len, reinterpret_cast<const Bytef*>(data),
                                 length, Z_BEST_COMPRESSION);
             if (rv != Z_OK) {
                 LOG(ERROR) << "compress2 returned: " << rv;
                 return {};
             }
-            buffer.resize(dest_len);
-            return buffer;
+            return std::basic_string<uint8_t>(buffer.get(), dest_len);
         }
         case kCowCompressBrotli: {
-            const auto bound = BrotliEncoderMaxCompressedSize(length);
+            auto bound = BrotliEncoderMaxCompressedSize(length);
             if (!bound) {
                 LOG(ERROR) << "BrotliEncoderMaxCompressedSize returned 0";
                 return {};
             }
-            std::basic_string<uint8_t> buffer(bound, '\0');
+            auto buffer = std::make_unique<uint8_t[]>(bound);
 
             size_t encoded_size = bound;
             auto rv = BrotliEncoderCompress(
                     BROTLI_DEFAULT_QUALITY, BROTLI_DEFAULT_WINDOW, BROTLI_DEFAULT_MODE, length,
-                    reinterpret_cast<const uint8_t*>(data), &encoded_size, buffer.data());
+                    reinterpret_cast<const uint8_t*>(data), &encoded_size, buffer.get());
             if (!rv) {
                 LOG(ERROR) << "BrotliEncoderCompress failed";
                 return {};
             }
-            buffer.resize(encoded_size);
-            return buffer;
-        }
-        case kCowCompressLz4: {
-            const auto bound = LZ4_compressBound(length);
-            if (!bound) {
-                LOG(ERROR) << "LZ4_compressBound returned 0";
-                return {};
-            }
-            std::basic_string<uint8_t> buffer(bound, '\0');
-
-            const auto compressed_size = LZ4_compress_default(
-                    static_cast<const char*>(data), reinterpret_cast<char*>(buffer.data()), length,
-                    buffer.size());
-            if (compressed_size <= 0) {
-                LOG(ERROR) << "LZ4_compress_default failed, input size: " << length
-                           << ", compression bound: " << bound << ", ret: " << compressed_size;
-                return {};
-            }
-            buffer.resize(compressed_size);
-            return buffer;
+            return std::basic_string<uint8_t>(buffer.get(), encoded_size);
         }
         default:
             LOG(ERROR) << "unhandled compression type: " << compression_;

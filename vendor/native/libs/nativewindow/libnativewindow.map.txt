@@ -2,10 +2,9 @@ LIBNATIVEWINDOW {
   global:
     AHardwareBuffer_acquire;
     AHardwareBuffer_allocate;
-    AHardwareBuffer_createFromHandle; # llndk # systemapi
+    AHardwareBuffer_createFromHandle; # llndk # apex
     AHardwareBuffer_describe;
-    AHardwareBuffer_getId; # introduced=31
-    AHardwareBuffer_getNativeHandle; # llndk # systemapi
+    AHardwareBuffer_getNativeHandle; # llndk # apex
     AHardwareBuffer_isSupported; # introduced=29
     AHardwareBuffer_lock;
     AHardwareBuffer_lockAndGetInfo; # introduced=29
@@ -23,18 +22,18 @@ LIBNATIVEWINDOW {
     ANativeWindow_getBuffersDataSpace; # introduced=28
     ANativeWindow_getFormat;
     ANativeWindow_getHeight;
-    ANativeWindow_getLastDequeueDuration; # systemapi # introduced=30
-    ANativeWindow_getLastDequeueStartTime; # systemapi # introduced=30
-    ANativeWindow_getLastQueueDuration; # systemapi # introduced=30
+    ANativeWindow_getLastDequeueDuration; # apex # introduced=30
+    ANativeWindow_getLastDequeueStartTime; # apex # introduced=30
+    ANativeWindow_getLastQueueDuration; # apex # introduced=30
     ANativeWindow_getWidth;
     ANativeWindow_lock;
     ANativeWindow_query; # llndk
     ANativeWindow_queryf; # llndk
     ANativeWindow_queueBuffer; # llndk
-    ANativeWindow_setCancelBufferInterceptor; # systemapi # introduced=30
-    ANativeWindow_setDequeueBufferInterceptor; # systemapi # introduced=30
-    ANativeWindow_setPerformInterceptor; # systemapi # introduced=30
-    ANativeWindow_setQueueBufferInterceptor; # systemapi # introduced=30
+    ANativeWindow_setCancelBufferInterceptor; # apex # introduced=30
+    ANativeWindow_setDequeueBufferInterceptor; # apex # introduced=30
+    ANativeWindow_setPerformInterceptor; # apex # introduced=30
+    ANativeWindow_setQueueBufferInterceptor; # apex # introduced=30
     ANativeWindow_release;
     ANativeWindow_setAutoPrerotation; # llndk
     ANativeWindow_setAutoRefresh; # llndk
@@ -45,9 +44,8 @@ LIBNATIVEWINDOW {
     ANativeWindow_setBuffersGeometry;
     ANativeWindow_setBuffersTimestamp; # llndk
     ANativeWindow_setBuffersTransform;
-    ANativeWindow_setDequeueTimeout; # systemapi # introduced=30
+    ANativeWindow_setDequeueTimeout; # apex # introduced=30
     ANativeWindow_setFrameRate; # introduced=30
-    ANativeWindow_setFrameRateWithChangeStrategy; # introduced=31
     ANativeWindow_setSharedBufferMode; # llndk
     ANativeWindow_setSwapInterval; # llndk
     ANativeWindow_setUsage; # llndk

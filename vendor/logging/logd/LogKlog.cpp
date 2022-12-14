@@ -275,7 +275,9 @@ void LogKlog::calculateCorrection(const log_time& monotonic,
     // Bionic and liblog strptime does not support %z or %Z to pick up
     // timezone so we are calculating our own correction.
     time_t now = real.tv_sec;
-    struct tm tm = {.tm_isdst = -1};
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_isdst = -1;
     localtime_r(&now, &tm);
     if ((tm.tm_gmtoff < 0) && ((-tm.tm_gmtoff) > (long)real.tv_sec)) {
         real = log_time(log_time::EPOCH);

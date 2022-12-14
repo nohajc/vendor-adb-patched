@@ -41,20 +41,8 @@ props {
     prop_name: "ro.surface_flinger.display_update_imminent_timeout_ms"
   }
   prop {
-    api_name: "enable_frame_rate_override"
-    prop_name: "ro.surface_flinger.enable_frame_rate_override"
-  }
-  prop {
-    api_name: "enable_layer_caching"
-    prop_name: "ro.surface_flinger.enable_layer_caching"
-  }
-  prop {
     api_name: "enable_protected_contents"
     prop_name: "ro.surface_flinger.protected_contents"
-  }
-  prop {
-    api_name: "enable_sdr_dimming"
-    prop_name: "ro.surface_flinger.enable_sdr_dimming"
   }
   prop {
     api_name: "force_hwc_copy_for_virtual_displays"
@@ -134,10 +122,6 @@ props {
   prop {
     api_name: "supports_background_blur"
     prop_name: "ro.surface_flinger.supports_background_blur"
-  }
-  prop {
-    api_name: "update_device_product_info_on_hotplug_reconnect"
-    prop_name: "ro.surface_flinger.update_device_product_info_on_hotplug_reconnect"
   }
   prop {
     api_name: "use_color_management"

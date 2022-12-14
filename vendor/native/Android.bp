@@ -64,20 +64,14 @@ filegroup {
     name: "framework_native_aidl_binder",
     srcs: ["aidl/binder/**/*.aidl"],
     path: "aidl/binder",
-    visibility: [
-        "//frameworks/native",
-        "//frameworks/native/libs/gui",
-    ],
+    visibility: ["//frameworks/native"],
 }
 
 filegroup {
     name: "framework_native_aidl_gui",
     srcs: ["aidl/gui/**/*.aidl"],
     path: "aidl/gui",
-    visibility: [
-        "//frameworks/native",
-        "//frameworks/native/libs/gui",
-    ],
+    visibility: ["//frameworks/native"],
 }
 
 filegroup {
@@ -86,15 +80,4 @@ filegroup {
         ":framework_native_aidl_binder",
         ":framework_native_aidl_gui",
     ],
-}
-
-cc_library_headers {
-    name: "libandroid_headers_private",
-    export_include_dirs: ["include/private"],
-}
-
-filegroup {
-    name: "deviceproductinfoconstants_aidl",
-    srcs: ["aidl/android/hardware/display/IDeviceProductInfoConstants.aidl"],
-    path: "aidl",
 }

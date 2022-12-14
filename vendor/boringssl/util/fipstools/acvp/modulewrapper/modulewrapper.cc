@@ -45,36 +45,15 @@
 #include "../../../../crypto/fipsmodule/ec/internal.h"
 #include "../../../../crypto/fipsmodule/rand/internal.h"
 #include "../../../../crypto/fipsmodule/tls/internal.h"
-#include "modulewrapper.h"
 
+static constexpr size_t kMaxArgs = 8;
+static constexpr size_t kMaxArgLength = (1 << 20);
+static constexpr size_t kMaxNameLength = 30;
 
-namespace bssl {
-namespace acvp {
+static_assert((kMaxArgs - 1 * kMaxArgLength) + kMaxNameLength > (1 << 30),
+              "Argument limits permit excessive messages");
 
-#if defined(OPENSSL_TRUSTY)
-#include <trusty_log.h>
-#define LOG_ERROR(...) TLOGE(__VA_ARGS__)
-#define TLOG_TAG "modulewrapper"
-#else
-#define LOG_ERROR(...) fprintf(stderr, __VA_ARGS__)
-#endif  // OPENSSL_TRUSTY
-
-constexpr size_t kMaxArgLength = (1 << 20);
-
-RequestBuffer::~RequestBuffer() = default;
-
-class RequestBufferImpl : public RequestBuffer {
- public:
-  ~RequestBufferImpl() = default;
-
-  std::vector<uint8_t> buf;
-  Span<const uint8_t> args[kMaxArgs];
-};
-
-// static
-std::unique_ptr<RequestBuffer> RequestBuffer::New() {
-  return std::unique_ptr<RequestBuffer>(new RequestBufferImpl);
-}
+using namespace bssl;
 
 static bool ReadAll(int fd, void *in_data, size_t data_len) {
   uint8_t *data = reinterpret_cast<uint8_t *>(in_data);
@@ -96,74 +75,9 @@ static bool ReadAll(int fd, void *in_data, size_t data_len) {
   return true;
 }
 
-Span<const Span<const uint8_t>> ParseArgsFromFd(int fd,
-                                                RequestBuffer *in_buffer) {
-  RequestBufferImpl *buffer = reinterpret_cast<RequestBufferImpl *>(in_buffer);
-  uint32_t nums[1 + kMaxArgs];
-  const Span<const Span<const uint8_t>> empty_span;
-
-  if (!ReadAll(fd, nums, sizeof(uint32_t) * 2)) {
-    return empty_span;
-  }
-
-  const size_t num_args = nums[0];
-  if (num_args == 0) {
-    LOG_ERROR("Invalid, zero-argument operation requested.\n");
-    return empty_span;
-  } else if (num_args > kMaxArgs) {
-    LOG_ERROR("Operation requested with %zu args, but %zu is the limit.\n",
-              num_args, kMaxArgs);
-    return empty_span;
-  }
-
-  if (num_args > 1 &&
-      !ReadAll(fd, &nums[2], sizeof(uint32_t) * (num_args - 1))) {
-    return empty_span;
-  }
-
-  size_t need = 0;
-  for (size_t i = 0; i < num_args; i++) {
-    const size_t arg_length = nums[i + 1];
-    if (i == 0 && arg_length > kMaxNameLength) {
-      LOG_ERROR("Operation with name of length %zu exceeded limit of %zu.\n",
-                arg_length, kMaxNameLength);
-      return empty_span;
-    } else if (arg_length > kMaxArgLength) {
-      LOG_ERROR(
-          "Operation with argument of length %zu exceeded limit of %zu.\n",
-          arg_length, kMaxArgLength);
-      return empty_span;
-    }
-
-    // This static_assert confirms that the following addition doesn't
-    // overflow.
-    static_assert((kMaxArgs - 1 * kMaxArgLength) + kMaxNameLength > (1 << 30),
-                  "Argument limits permit excessive messages");
-    need += arg_length;
-  }
-
-  if (need > buffer->buf.size()) {
-    size_t alloced = need + (need >> 1);
-    if (alloced < need) {
-      abort();
-    }
-    buffer->buf.resize(alloced);
-  }
-
-  if (!ReadAll(fd, buffer->buf.data(), need)) {
-    return empty_span;
-  }
-
-  size_t offset = 0;
-  for (size_t i = 0; i < num_args; i++) {
-    buffer->args[i] = Span<const uint8_t>(&buffer->buf[offset], nums[i + 1]);
-    offset += nums[i + 1];
-  }
-
-  return Span<const Span<const uint8_t>>(buffer->args, num_args);
-}
-
-bool WriteReplyToFd(int fd, const std::vector<Span<const uint8_t>> &spans) {
+template <typename... Args>
+static bool WriteReply(int fd, Args... args) {
+  std::vector<Span<const uint8_t>> spans = {args...};
   if (spans.empty() || spans.size() > kMaxArgs) {
     abort();
   }
@@ -222,7 +136,7 @@ bool WriteReplyToFd(int fd, const std::vector<Span<const uint8_t>> &spans) {
   return true;
 }
 
-static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool GetConfig(const Span<const uint8_t> args[]) {
   static constexpr char kConfig[] =
       R"([
       {
@@ -307,21 +221,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
         "ivGen": "external"
       },
       {
-        "algorithm": "ACVP-AES-GMAC",
-        "revision": "1.0",
-        "direction": ["encrypt", "decrypt"],
-        "keyLen": [128, 192, 256],
-        "payloadLen": [{
-          "min": 0, "max": 256, "increment": 8
-        }],
-        "aadLen": [{
-          "min": 0, "max": 320, "increment": 8
-        }],
-        "tagLen": [32, 64, 96, 104, 112, 120, 128],
-        "ivLen": [96],
-        "ivGen": "external"
-      },
-      {
         "algorithm": "ACVP-AES-KW",
         "revision": "1.0",
         "direction": [
@@ -365,6 +264,20 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
         "ivLen": [104],
         "tagLen": [32],
         "aadLen": [{"min": 0, "max": 1024, "increment": 8}]
+      },
+      {
+        "algorithm": "ACVP-TDES-ECB",
+        "revision": "1.0",
+        "direction": ["encrypt", "decrypt"],
+        "keyLen": [192],
+        "keyingOption": [1]
+      },
+      {
+        "algorithm": "ACVP-TDES-CBC",
+        "revision": "1.0",
+        "direction": ["encrypt", "decrypt"],
+        "keyLen": [192],
+        "keyingOption": [1]
       },
       {
         "algorithm": "HMAC-SHA-1",
@@ -417,20 +330,10 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
         }]
       },
       {
-        "algorithm": "HMAC-SHA2-512/256",
-        "revision": "1.0",
-        "keyLen": [{
-          "min": 8, "max": 2048, "increment": 8
-        }],
-        "macLen": [{
-          "min": 32, "max": 256, "increment": 8
-        }]
-      },
-      {
         "algorithm": "ctrDRBG",
         "revision": "1.0",
         "predResistanceEnabled": [false],
-        "reseedImplemented": true,
+        "reseedImplemented": false,
         "capabilities": [{
           "mode": "AES-256",
           "derFuncEnabled": false,
@@ -483,8 +386,7 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
             "SHA2-224",
             "SHA2-256",
             "SHA2-384",
-            "SHA2-512",
-            "SHA2-512/256"
+            "SHA2-512"
           ]
         }]
       },
@@ -500,12 +402,10 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
             "P-521"
           ],
           "hashAlg": [
-            "SHA-1",
             "SHA2-224",
             "SHA2-256",
             "SHA2-384",
-            "SHA2-512",
-            "SHA2-512/256"
+            "SHA2-512"
           ]
         }]
       },
@@ -599,9 +499,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
             }, {
               "hashAlg": "SHA2-512",
               "saltLen": 64
-            }, {
-              "hashAlg": "SHA2-512/256",
-              "saltLen": 32
             }]
           }]
         },{
@@ -620,9 +517,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
             }, {
               "hashAlg": "SHA2-512",
               "saltLen": 64
-            }, {
-              "hashAlg": "SHA2-512/256",
-              "saltLen": 32
             }]
           }]
         },{
@@ -641,9 +535,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
             }, {
               "hashAlg": "SHA2-512",
               "saltLen": 64
-            }, {
-              "hashAlg": "SHA2-512/256",
-              "saltLen": 32
             }]
           }]
         }]
@@ -721,27 +612,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
         },{
           "sigType": "pss",
           "properties": [{
-            "modulo": 1024,
-            "hashPair": [{
-              "hashAlg": "SHA2-224",
-              "saltLen": 28
-            }, {
-              "hashAlg": "SHA2-256",
-              "saltLen": 32
-            }, {
-              "hashAlg": "SHA2-384",
-              "saltLen": 48
-            }, {
-              "hashAlg": "SHA2-512/256",
-              "saltLen": 32
-            }, {
-              "hashAlg": "SHA-1",
-              "saltLen": 20
-            }]
-          }]
-        },{
-          "sigType": "pss",
-          "properties": [{
             "modulo": 2048,
             "hashPair": [{
               "hashAlg": "SHA2-224",
@@ -755,9 +625,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
             }, {
               "hashAlg": "SHA2-512",
               "saltLen": 64
-            }, {
-              "hashAlg": "SHA2-512/256",
-              "saltLen": 32
             }, {
               "hashAlg": "SHA-1",
               "saltLen": 20
@@ -780,9 +647,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
               "hashAlg": "SHA2-512",
               "saltLen": 64
             }, {
-              "hashAlg": "SHA2-512/256",
-              "saltLen": 32
-            }, {
               "hashAlg": "SHA-1",
               "saltLen": 20
             }]
@@ -804,9 +668,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
               "hashAlg": "SHA2-512",
               "saltLen": 64
             }, {
-              "hashAlg": "SHA2-512/256",
-              "saltLen": 32
-            }, {
               "hashAlg": "SHA-1",
               "saltLen": 20
             }]
@@ -815,10 +676,9 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
       },
       {
         "algorithm": "CMAC-AES",
-        "acvptoolTestOnly": true,
         "revision": "1.0",
         "capabilities": [{
-          "direction": ["gen", "ver"],
+          "direction": ["gen"],
           "msgLen": [{
             "min": 0,
             "max": 65536,
@@ -855,12 +715,6 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
               "initiator",
               "responder"
             ]
-          },
-          "staticUnified": {
-            "kasRole": [
-              "initiator",
-              "responder"
-            ]
           }
         },
         "domainParameterGenerationMethods": [
@@ -886,57 +740,35 @@ static bool GetConfig(const Span<const uint8_t> args[], ReplyCallback write_repl
         ]
       }
     ])";
-  return write_reply({Span<const uint8_t>(
-      reinterpret_cast<const uint8_t *>(kConfig), sizeof(kConfig) - 1)});
+  return WriteReply(
+      STDOUT_FILENO,
+      Span<const uint8_t>(reinterpret_cast<const uint8_t *>(kConfig),
+                          sizeof(kConfig) - 1));
 }
 
 template <uint8_t *(*OneShotHash)(const uint8_t *, size_t, uint8_t *),
           size_t DigestLength>
-static bool Hash(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool Hash(const Span<const uint8_t> args[]) {
   uint8_t digest[DigestLength];
   OneShotHash(args[0].data(), args[0].size(), digest);
-  return write_reply({Span<const uint8_t>(digest)});
-}
-
-template <uint8_t *(*OneShotHash)(const uint8_t *, size_t, uint8_t *),
-          size_t DigestLength>
-static bool HashMCT(const Span<const uint8_t> args[],
-                    ReplyCallback write_reply) {
-  if (args[0].size() != DigestLength) {
-    return false;
-  }
-
-  uint8_t buf[DigestLength * 3];
-  memcpy(buf, args[0].data(), DigestLength);
-  memcpy(buf + DigestLength, args[0].data(), DigestLength);
-  memcpy(buf + 2 * DigestLength, args[0].data(), DigestLength);
-
-  for (size_t i = 0; i < 1000; i++) {
-    uint8_t digest[DigestLength];
-    OneShotHash(buf, sizeof(buf), digest);
-    memmove(buf, buf + DigestLength, DigestLength * 2);
-    memcpy(buf + DigestLength * 2, digest, DigestLength);
-  }
-
-  return write_reply(
-      {Span<const uint8_t>(buf + 2 * DigestLength, DigestLength)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(digest));
 }
 
 static uint32_t GetIterations(const Span<const uint8_t> iterations_bytes) {
   uint32_t iterations;
   if (iterations_bytes.size() != sizeof(iterations)) {
-    LOG_ERROR(
-        "Expected %u-byte input for number of iterations, but found %u "
-        "bytes.\n",
-        static_cast<unsigned>(sizeof(iterations)),
-        static_cast<unsigned>(iterations_bytes.size()));
+    fprintf(stderr,
+            "Expected %u-byte input for number of iterations, but found %u "
+            "bytes.\n",
+            static_cast<unsigned>(sizeof(iterations)),
+            static_cast<unsigned>(iterations_bytes.size()));
     abort();
   }
 
   memcpy(&iterations, iterations_bytes.data(), sizeof(iterations));
   if (iterations == 0 || iterations == UINT32_MAX) {
-    LOG_ERROR("Invalid number of iterations: %x.\n",
-         static_cast<unsigned>(iterations));
+    fprintf(stderr, "Invalid number of iterations: %x.\n",
+            static_cast<unsigned>(iterations));
     abort();
   }
 
@@ -945,7 +777,7 @@ static uint32_t GetIterations(const Span<const uint8_t> iterations_bytes) {
 
 template <int (*SetKey)(const uint8_t *key, unsigned bits, AES_KEY *out),
           void (*Block)(const uint8_t *in, uint8_t *out, const AES_KEY *key)>
-static bool AES(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AES(const Span<const uint8_t> args[]) {
   AES_KEY key;
   if (SetKey(args[0].data(), args[0].size() * 8, &key) != 0) {
     return false;
@@ -967,13 +799,13 @@ static bool AES(const Span<const uint8_t> args[], ReplyCallback write_reply) {
     }
   }
 
-  return write_reply(
-      {Span<const uint8_t>(result), Span<const uint8_t>(prev_result)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(result),
+                    Span<const uint8_t>(prev_result));
 }
 
 template <int (*SetKey)(const uint8_t *key, unsigned bits, AES_KEY *out),
           int Direction>
-static bool AES_CBC(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AES_CBC(const Span<const uint8_t> args[]) {
   AES_KEY key;
   if (SetKey(args[0].data(), args[0].size() * 8, &key) != 0) {
     return false;
@@ -1016,15 +848,15 @@ static bool AES_CBC(const Span<const uint8_t> args[], ReplyCallback write_reply)
     }
   }
 
-  return write_reply(
-      {Span<const uint8_t>(result), Span<const uint8_t>(prev_result)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(result),
+                    Span<const uint8_t>(prev_result));
 }
 
-static bool AES_CTR(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AES_CTR(const Span<const uint8_t> args[]) {
   static const uint32_t kOneIteration = 1;
   if (args[3].size() != sizeof(kOneIteration) ||
       memcmp(args[3].data(), &kOneIteration, sizeof(kOneIteration))) {
-    LOG_ERROR("Only a single iteration supported with AES-CTR\n");
+    fprintf(stderr, "Only a single iteration supported with AES-CTR\n");
     return false;
   }
 
@@ -1038,7 +870,7 @@ static bool AES_CTR(const Span<const uint8_t> args[], ReplyCallback write_reply)
   uint8_t iv[AES_BLOCK_SIZE];
   memcpy(iv, args[2].data(), AES_BLOCK_SIZE);
   if (GetIterations(args[3]) != 1) {
-    LOG_ERROR("Multiple iterations of AES-CTR is not supported.\n");
+    fprintf(stderr, "Multiple iterations of AES-CTR is not supported.\n");
     return false;
   }
 
@@ -1048,15 +880,15 @@ static bool AES_CTR(const Span<const uint8_t> args[], ReplyCallback write_reply)
   uint8_t ecount_buf[AES_BLOCK_SIZE];
   AES_ctr128_encrypt(args[1].data(), out.data(), args[1].size(), &key, iv,
                      ecount_buf, &num);
-  return write_reply({Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(out));
 }
 
 static bool AESGCMSetup(EVP_AEAD_CTX *ctx, Span<const uint8_t> tag_len_span,
                         Span<const uint8_t> key) {
   uint32_t tag_len_32;
   if (tag_len_span.size() != sizeof(tag_len_32)) {
-    LOG_ERROR("Tag size value is %u bytes, not an uint32_t\n",
-              static_cast<unsigned>(tag_len_span.size()));
+    fprintf(stderr, "Tag size value is %u bytes, not an uint32_t\n",
+            static_cast<unsigned>(tag_len_span.size()));
     return false;
   }
   memcpy(&tag_len_32, tag_len_span.data(), sizeof(tag_len_32));
@@ -1073,14 +905,15 @@ static bool AESGCMSetup(EVP_AEAD_CTX *ctx, Span<const uint8_t> tag_len_span,
       aead = EVP_aead_aes_256_gcm();
       break;
     default:
-      LOG_ERROR("Bad AES-GCM key length %u\n", static_cast<unsigned>(key.size()));
+      fprintf(stderr, "Bad AES-GCM key length %u\n",
+              static_cast<unsigned>(key.size()));
       return false;
   }
 
   if (!EVP_AEAD_CTX_init(ctx, aead, key.data(), key.size(), tag_len_32,
                          nullptr)) {
-    LOG_ERROR("Failed to setup AES-GCM with tag length %u\n",
-              static_cast<unsigned>(tag_len_32));
+    fprintf(stderr, "Failed to setup AES-GCM with tag length %u\n",
+            static_cast<unsigned>(tag_len_32));
     return false;
   }
 
@@ -1091,27 +924,28 @@ static bool AESCCMSetup(EVP_AEAD_CTX *ctx, Span<const uint8_t> tag_len_span,
                         Span<const uint8_t> key) {
   uint32_t tag_len_32;
   if (tag_len_span.size() != sizeof(tag_len_32)) {
-    LOG_ERROR("Tag size value is %u bytes, not an uint32_t\n",
-              static_cast<unsigned>(tag_len_span.size()));
+    fprintf(stderr, "Tag size value is %u bytes, not an uint32_t\n",
+            static_cast<unsigned>(tag_len_span.size()));
     return false;
   }
   memcpy(&tag_len_32, tag_len_span.data(), sizeof(tag_len_32));
   if (tag_len_32 != 4) {
-    LOG_ERROR("AES-CCM only supports 4-byte tags, but %u was requested\n",
-              static_cast<unsigned>(tag_len_32));
+    fprintf(stderr, "AES-CCM only supports 4-byte tags, but %u was requested\n",
+            static_cast<unsigned>(tag_len_32));
     return false;
   }
 
   if (key.size() != 16) {
-    LOG_ERROR("AES-CCM only supports 128-bit keys, but %u bits were given\n",
-              static_cast<unsigned>(key.size() * 8));
+    fprintf(stderr,
+            "AES-CCM only supports 128-bit keys, but %u bits were given\n",
+            static_cast<unsigned>(key.size() * 8));
     return false;
   }
 
   if (!EVP_AEAD_CTX_init(ctx, EVP_aead_aes_128_ccm_bluetooth(), key.data(),
                          key.size(), tag_len_32, nullptr)) {
-    LOG_ERROR("Failed to setup AES-CCM with tag length %u\n",
-              static_cast<unsigned>(tag_len_32));
+    fprintf(stderr, "Failed to setup AES-CCM with tag length %u\n",
+            static_cast<unsigned>(tag_len_32));
     return false;
   }
 
@@ -1120,7 +954,7 @@ static bool AESCCMSetup(EVP_AEAD_CTX *ctx, Span<const uint8_t> tag_len_span,
 
 template <bool (*SetupFunc)(EVP_AEAD_CTX *ctx, Span<const uint8_t> tag_len_span,
                             Span<const uint8_t> key)>
-static bool AEADSeal(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AEADSeal(const Span<const uint8_t> args[]) {
   Span<const uint8_t> tag_len_span = args[0];
   Span<const uint8_t> key = args[1];
   Span<const uint8_t> plaintext = args[2];
@@ -1145,12 +979,12 @@ static bool AEADSeal(const Span<const uint8_t> args[], ReplyCallback write_reply
   }
 
   out.resize(out_len);
-  return write_reply({Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(out));
 }
 
 template <bool (*SetupFunc)(EVP_AEAD_CTX *ctx, Span<const uint8_t> tag_len_span,
                             Span<const uint8_t> key)>
-static bool AEADOpen(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AEADOpen(const Span<const uint8_t> args[]) {
   Span<const uint8_t> tag_len_span = args[0];
   Span<const uint8_t> key = args[1];
   Span<const uint8_t> ciphertext = args[2];
@@ -1169,22 +1003,22 @@ static bool AEADOpen(const Span<const uint8_t> args[], ReplyCallback write_reply
   if (!EVP_AEAD_CTX_open(ctx.get(), out.data(), &out_len, out.size(),
                          nonce.data(), nonce.size(), ciphertext.data(),
                          ciphertext.size(), ad.data(), ad.size())) {
-    return write_reply(
-        {Span<const uint8_t>(success_flag), Span<const uint8_t>()});
+    return WriteReply(STDOUT_FILENO, Span<const uint8_t>(success_flag),
+                      Span<const uint8_t>());
   }
 
   out.resize(out_len);
   success_flag[0] = 1;
-  return write_reply(
-      {Span<const uint8_t>(success_flag), Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(success_flag),
+                    Span<const uint8_t>(out));
 }
 
 static bool AESPaddedKeyWrapSetup(AES_KEY *out, bool decrypt,
                                   Span<const uint8_t> key) {
   if ((decrypt ? AES_set_decrypt_key : AES_set_encrypt_key)(
           key.data(), key.size() * 8, out) != 0) {
-    LOG_ERROR("Invalid AES key length for AES-KW(P): %u\n",
-              static_cast<unsigned>(key.size()));
+    fprintf(stderr, "Invalid AES key length for AES-KW(P): %u\n",
+            static_cast<unsigned>(key.size()));
     return false;
   }
   return true;
@@ -1197,15 +1031,15 @@ static bool AESKeyWrapSetup(AES_KEY *out, bool decrypt, Span<const uint8_t> key,
   }
 
   if (input.size() % 8) {
-    LOG_ERROR("Invalid AES-KW input length: %u\n",
-              static_cast<unsigned>(input.size()));
+    fprintf(stderr, "Invalid AES-KW input length: %u\n",
+            static_cast<unsigned>(input.size()));
     return false;
   }
 
   return true;
 }
 
-static bool AESKeyWrapSeal(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AESKeyWrapSeal(const Span<const uint8_t> args[]) {
   Span<const uint8_t> key = args[1];
   Span<const uint8_t> plaintext = args[2];
 
@@ -1218,20 +1052,21 @@ static bool AESKeyWrapSeal(const Span<const uint8_t> args[], ReplyCallback write
   std::vector<uint8_t> out(plaintext.size() + 8);
   if (AES_wrap_key(&aes, /*iv=*/nullptr, out.data(), plaintext.data(),
                    plaintext.size()) != static_cast<int>(out.size())) {
-    LOG_ERROR("AES-KW failed\n");
+    fprintf(stderr, "AES-KW failed\n");
     return false;
   }
 
-  return write_reply({Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(out));
 }
 
-static bool AESKeyWrapOpen(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AESKeyWrapOpen(const Span<const uint8_t> args[]) {
   Span<const uint8_t> key = args[1];
   Span<const uint8_t> ciphertext = args[2];
 
   AES_KEY aes;
   if (!AESKeyWrapSetup(&aes, /*decrypt=*/true, key, ciphertext) ||
-      ciphertext.size() < 8 || ciphertext.size() > INT_MAX) {
+      ciphertext.size() < 8 ||
+      ciphertext.size() > INT_MAX) {
     return false;
   }
 
@@ -1239,16 +1074,16 @@ static bool AESKeyWrapOpen(const Span<const uint8_t> args[], ReplyCallback write
   uint8_t success_flag[1] = {0};
   if (AES_unwrap_key(&aes, /*iv=*/nullptr, out.data(), ciphertext.data(),
                      ciphertext.size()) != static_cast<int>(out.size())) {
-    return write_reply(
-        {Span<const uint8_t>(success_flag), Span<const uint8_t>()});
+    return WriteReply(STDOUT_FILENO, Span<const uint8_t>(success_flag),
+                      Span<const uint8_t>());
   }
 
   success_flag[0] = 1;
-  return write_reply(
-      {Span<const uint8_t>(success_flag), Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(success_flag),
+                    Span<const uint8_t>(out));
 }
 
-static bool AESPaddedKeyWrapSeal(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AESPaddedKeyWrapSeal(const Span<const uint8_t> args[]) {
   Span<const uint8_t> key = args[1];
   Span<const uint8_t> plaintext = args[2];
 
@@ -1262,15 +1097,15 @@ static bool AESPaddedKeyWrapSeal(const Span<const uint8_t> args[], ReplyCallback
   size_t out_len;
   if (!AES_wrap_key_padded(&aes, out.data(), &out_len, out.size(),
                            plaintext.data(), plaintext.size())) {
-    LOG_ERROR("AES-KWP failed\n");
+    fprintf(stderr, "AES-KWP failed\n");
     return false;
   }
 
   out.resize(out_len);
-  return write_reply({Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(out));
 }
 
-static bool AESPaddedKeyWrapOpen(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool AESPaddedKeyWrapOpen(const Span<const uint8_t> args[]) {
   Span<const uint8_t> key = args[1];
   Span<const uint8_t> ciphertext = args[2];
 
@@ -1285,23 +1120,23 @@ static bool AESPaddedKeyWrapOpen(const Span<const uint8_t> args[], ReplyCallback
   uint8_t success_flag[1] = {0};
   if (!AES_unwrap_key_padded(&aes, out.data(), &out_len, out.size(),
                              ciphertext.data(), ciphertext.size())) {
-    return write_reply(
-        {Span<const uint8_t>(success_flag), Span<const uint8_t>()});
+    return WriteReply(STDOUT_FILENO, Span<const uint8_t>(success_flag),
+                      Span<const uint8_t>());
   }
 
   success_flag[0] = 1;
   out.resize(out_len);
-  return write_reply(
-      {Span<const uint8_t>(success_flag), Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(success_flag),
+                    Span<const uint8_t>(out));
 }
 
 template <bool Encrypt>
-static bool TDES(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool TDES(const Span<const uint8_t> args[]) {
   const EVP_CIPHER *cipher = EVP_des_ede3();
 
   if (args[0].size() != 24) {
-    LOG_ERROR("Bad key length %u for 3DES.\n",
-              static_cast<unsigned>(args[0].size()));
+    fprintf(stderr, "Bad key length %u for 3DES.\n",
+            static_cast<unsigned>(args[0].size()));
     return false;
   }
   bssl::ScopedEVP_CIPHER_CTX ctx;
@@ -1312,8 +1147,8 @@ static bool TDES(const Span<const uint8_t> args[], ReplyCallback write_reply) {
   }
 
   if (args[1].size() % 8) {
-    LOG_ERROR("Bad input length %u for 3DES.\n",
-              static_cast<unsigned>(args[1].size()));
+    fprintf(stderr, "Bad input length %u for 3DES.\n",
+            static_cast<unsigned>(args[1].size()));
     return false;
   }
   std::vector<uint8_t> result(args[1].begin(), args[1].end());
@@ -1336,31 +1171,31 @@ static bool TDES(const Span<const uint8_t> args[], ReplyCallback write_reply) {
     }
   }
 
-  return write_reply({Span<const uint8_t>(result),
-                      Span<const uint8_t>(prev_result),
-                      Span<const uint8_t>(prev_prev_result)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(result),
+                    Span<const uint8_t>(prev_result),
+                    Span<const uint8_t>(prev_prev_result));
 }
 
 template <bool Encrypt>
-static bool TDES_CBC(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool TDES_CBC(const Span<const uint8_t> args[]) {
   const EVP_CIPHER *cipher = EVP_des_ede3_cbc();
 
   if (args[0].size() != 24) {
-    LOG_ERROR("Bad key length %u for 3DES.\n",
-              static_cast<unsigned>(args[0].size()));
+    fprintf(stderr, "Bad key length %u for 3DES.\n",
+            static_cast<unsigned>(args[0].size()));
     return false;
   }
 
   if (args[1].size() % 8 || args[1].size() == 0) {
-    LOG_ERROR("Bad input length %u for 3DES.\n",
-              static_cast<unsigned>(args[1].size()));
+    fprintf(stderr, "Bad input length %u for 3DES.\n",
+            static_cast<unsigned>(args[1].size()));
     return false;
   }
   std::vector<uint8_t> input(args[1].begin(), args[1].end());
 
   if (args[2].size() != EVP_CIPHER_iv_length(cipher)) {
-    LOG_ERROR("Bad IV length %u for 3DES.\n",
-              static_cast<unsigned>(args[2].size()));
+    fprintf(stderr, "Bad IV length %u for 3DES.\n",
+            static_cast<unsigned>(args[2].size()));
     return false;
   }
   std::vector<uint8_t> iv(args[2].begin(), args[2].end());
@@ -1402,13 +1237,13 @@ static bool TDES_CBC(const Span<const uint8_t> args[], ReplyCallback write_reply
     }
   }
 
-  return write_reply({Span<const uint8_t>(result),
-                     Span<const uint8_t>(prev_result),
-                     Span<const uint8_t>(prev_prev_result)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(result),
+                    Span<const uint8_t>(prev_result),
+                    Span<const uint8_t>(prev_prev_result));
 }
 
 template <const EVP_MD *HashFunc()>
-static bool HMAC(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool HMAC(const Span<const uint8_t> args[]) {
   const EVP_MD *const md = HashFunc();
   uint8_t digest[EVP_MAX_MD_SIZE];
   unsigned digest_len;
@@ -1416,34 +1251,20 @@ static bool HMAC(const Span<const uint8_t> args[], ReplyCallback write_reply) {
              digest, &digest_len) == nullptr) {
     return false;
   }
-  return write_reply({Span<const uint8_t>(digest, digest_len)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(digest, digest_len));
 }
 
-template <bool WithReseed>
-static bool DRBG(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool DRBG(const Span<const uint8_t> args[]) {
   const auto out_len_bytes = args[0];
   const auto entropy = args[1];
   const auto personalisation = args[2];
-
-  Span<const uint8_t> reseed_additional_data, reseed_entropy, additional_data1,
-      additional_data2, nonce;
-  if (!WithReseed) {
-    additional_data1 = args[3];
-    additional_data2 = args[4];
-    nonce = args[5];
-  } else {
-    reseed_additional_data = args[3];
-    reseed_entropy = args[4];
-    additional_data1 = args[5];
-    additional_data2 = args[6];
-    nonce = args[7];
-  }
+  const auto additional_data1 = args[3];
+  const auto additional_data2 = args[4];
+  const auto nonce = args[5];
 
   uint32_t out_len;
   if (out_len_bytes.size() != sizeof(out_len) ||
       entropy.size() != CTR_DRBG_ENTROPY_LEN ||
-      (!reseed_entropy.empty() &&
-       reseed_entropy.size() != CTR_DRBG_ENTROPY_LEN) ||
       // nonces are not supported
       nonce.size() != 0) {
     return false;
@@ -1457,10 +1278,6 @@ static bool DRBG(const Span<const uint8_t> args[], ReplyCallback write_reply) {
   CTR_DRBG_STATE drbg;
   if (!CTR_DRBG_init(&drbg, entropy.data(), personalisation.data(),
                      personalisation.size()) ||
-      (!reseed_entropy.empty() &&
-       !CTR_DRBG_reseed(&drbg, reseed_entropy.data(),
-                        reseed_additional_data.data(),
-                        reseed_additional_data.size())) ||
       !CTR_DRBG_generate(&drbg, out.data(), out_len, additional_data1.data(),
                          additional_data1.size()) ||
       !CTR_DRBG_generate(&drbg, out.data(), out_len, additional_data2.data(),
@@ -1468,7 +1285,7 @@ static bool DRBG(const Span<const uint8_t> args[], ReplyCallback write_reply) {
     return false;
   }
 
-  return write_reply({Span<const uint8_t>(out)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(out));
 }
 
 static bool StringEq(Span<const uint8_t> a, const char *b) {
@@ -1516,7 +1333,7 @@ static std::pair<std::vector<uint8_t>, std::vector<uint8_t>> GetPublicKeyBytes(
   return std::make_pair(std::move(x_bytes), std::move(y_bytes));
 }
 
-static bool ECDSAKeyGen(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool ECDSAKeyGen(const Span<const uint8_t> args[]) {
   bssl::UniquePtr<EC_KEY> key = ECKeyFromName(args[0]);
   if (!key || !EC_KEY_generate_key_fips(key.get())) {
     return false;
@@ -1526,9 +1343,9 @@ static bool ECDSAKeyGen(const Span<const uint8_t> args[], ReplyCallback write_re
   std::vector<uint8_t> d_bytes =
       BIGNUMBytes(EC_KEY_get0_private_key(key.get()));
 
-  return write_reply({Span<const uint8_t>(d_bytes),
-                      Span<const uint8_t>(pub_key.first),
-                      Span<const uint8_t>(pub_key.second)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(d_bytes),
+                    Span<const uint8_t>(pub_key.first),
+                    Span<const uint8_t>(pub_key.second));
 }
 
 static bssl::UniquePtr<BIGNUM> BytesToBIGNUM(Span<const uint8_t> bytes) {
@@ -1537,7 +1354,7 @@ static bssl::UniquePtr<BIGNUM> BytesToBIGNUM(Span<const uint8_t> bytes) {
   return bn;
 }
 
-static bool ECDSAKeyVer(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool ECDSAKeyVer(const Span<const uint8_t> args[]) {
   bssl::UniquePtr<EC_KEY> key = ECKeyFromName(args[0]);
   if (!key) {
     return false;
@@ -1558,13 +1375,11 @@ static bool ECDSAKeyVer(const Span<const uint8_t> args[], ReplyCallback write_re
     reply[0] = 1;
   }
 
-  return write_reply({Span<const uint8_t>(reply)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(reply));
 }
 
 static const EVP_MD *HashFromName(Span<const uint8_t> name) {
-  if (StringEq(name, "SHA-1")) {
-    return EVP_sha1();
-  } else if (StringEq(name, "SHA2-224")) {
+  if (StringEq(name, "SHA2-224")) {
     return EVP_sha224();
   } else if (StringEq(name, "SHA2-256")) {
     return EVP_sha256();
@@ -1572,14 +1387,12 @@ static const EVP_MD *HashFromName(Span<const uint8_t> name) {
     return EVP_sha384();
   } else if (StringEq(name, "SHA2-512")) {
     return EVP_sha512();
-  } else if (StringEq(name, "SHA2-512/256")) {
-    return EVP_sha512_256();
   } else {
     return nullptr;
   }
 }
 
-static bool ECDSASigGen(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool ECDSASigGen(const Span<const uint8_t> args[]) {
   bssl::UniquePtr<EC_KEY> key = ECKeyFromName(args[0]);
   bssl::UniquePtr<BIGNUM> d = BytesToBIGNUM(args[1]);
   const EVP_MD *hash = HashFromName(args[2]);
@@ -1600,11 +1413,11 @@ static bool ECDSASigGen(const Span<const uint8_t> args[], ReplyCallback write_re
   std::vector<uint8_t> r_bytes(BIGNUMBytes(sig->r));
   std::vector<uint8_t> s_bytes(BIGNUMBytes(sig->s));
 
-  return write_reply(
-      {Span<const uint8_t>(r_bytes), Span<const uint8_t>(s_bytes)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(r_bytes),
+                    Span<const uint8_t>(s_bytes));
 }
 
-static bool ECDSASigVer(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool ECDSASigVer(const Span<const uint8_t> args[]) {
   bssl::UniquePtr<EC_KEY> key = ECKeyFromName(args[0]);
   const EVP_MD *hash = HashFromName(args[1]);
   auto msg = args[2];
@@ -1637,10 +1450,10 @@ static bool ECDSASigVer(const Span<const uint8_t> args[], ReplyCallback write_re
     reply[0] = 1;
   }
 
-  return write_reply({Span<const uint8_t>(reply)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(reply));
 }
 
-static bool CMAC_AES(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool CMAC_AES(const Span<const uint8_t> args[]) {
   uint8_t mac[16];
   if (!AES_CMAC(mac, args[1].data(), args[1].size(), args[2].data(),
                 args[2].size())) {
@@ -1656,10 +1469,10 @@ static bool CMAC_AES(const Span<const uint8_t> args[], ReplyCallback write_reply
     return false;
   }
 
-  return write_reply({Span<const uint8_t>(mac, mac_len)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(mac, mac_len));
 }
 
-static bool CMAC_AESVerify(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool CMAC_AESVerify(const Span<const uint8_t> args[]) {
   // This function is just for testing since libcrypto doesn't do the
   // verification itself. The regcap doesn't advertise "ver" support.
   uint8_t mac[16];
@@ -1669,8 +1482,8 @@ static bool CMAC_AESVerify(const Span<const uint8_t> args[], ReplyCallback write
     return false;
   }
 
-  const uint8_t ok = (OPENSSL_memcmp(mac, args[2].data(), args[2].size()) == 0);
-  return write_reply({Span<const uint8_t>(&ok, sizeof(ok))});
+  const uint8_t ok = OPENSSL_memcmp(mac, args[2].data(), args[2].size());
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(&ok, sizeof(ok)));
 }
 
 static std::map<unsigned, bssl::UniquePtr<RSA>>& CachedRSAKeys() {
@@ -1695,7 +1508,7 @@ static RSA* GetRSAKey(unsigned bits) {
   return ret;
 }
 
-static bool RSAKeyGen(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool RSAKeyGen(const Span<const uint8_t> args[]) {
   uint32_t bits;
   if (args[0].size() != sizeof(bits)) {
     return false;
@@ -1704,7 +1517,8 @@ static bool RSAKeyGen(const Span<const uint8_t> args[], ReplyCallback write_repl
 
   bssl::UniquePtr<RSA> key(RSA_new());
   if (!RSA_generate_key_fips(key.get(), bits, nullptr)) {
-    LOG_ERROR("RSA_generate_key_fips failed for modulus length %u.\n", bits);
+    fprintf(stderr, "RSA_generate_key_fips failed for modulus length %u.\n",
+            bits);
     return false;
   }
 
@@ -1712,8 +1526,8 @@ static bool RSAKeyGen(const Span<const uint8_t> args[], ReplyCallback write_repl
   RSA_get0_key(key.get(), &n, &e, &d);
   RSA_get0_factors(key.get(), &p, &q);
 
-  if (!write_reply({BIGNUMBytes(e), BIGNUMBytes(p), BIGNUMBytes(q),
-                    BIGNUMBytes(n), BIGNUMBytes(d)})) {
+  if (!WriteReply(STDOUT_FILENO, BIGNUMBytes(e), BIGNUMBytes(p), BIGNUMBytes(q),
+                  BIGNUMBytes(n), BIGNUMBytes(d))) {
     return false;
   }
 
@@ -1721,8 +1535,8 @@ static bool RSAKeyGen(const Span<const uint8_t> args[], ReplyCallback write_repl
   return true;
 }
 
-template <const EVP_MD *(MDFunc)(), bool UsePSS>
-static bool RSASigGen(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+template<const EVP_MD *(MDFunc)(), bool UsePSS>
+static bool RSASigGen(const Span<const uint8_t> args[]) {
   uint32_t bits;
   if (args[0].size() != sizeof(bits)) {
     return false;
@@ -1756,12 +1570,12 @@ static bool RSASigGen(const Span<const uint8_t> args[], ReplyCallback write_repl
 
   sig.resize(sig_len);
 
-  return write_reply(
-      {BIGNUMBytes(RSA_get0_n(key)), BIGNUMBytes(RSA_get0_e(key)), sig});
+  return WriteReply(STDOUT_FILENO, BIGNUMBytes(RSA_get0_n(key)),
+                    BIGNUMBytes(RSA_get0_e(key)), sig);
 }
 
-template <const EVP_MD *(MDFunc)(), bool UsePSS>
-static bool RSASigVer(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+template<const EVP_MD *(MDFunc)(), bool UsePSS>
+static bool RSASigVer(const Span<const uint8_t> args[]) {
   const Span<const uint8_t> n_bytes = args[0];
   const Span<const uint8_t> e_bytes = args[1];
   const Span<const uint8_t> msg = args[2];
@@ -1793,11 +1607,11 @@ static bool RSASigVer(const Span<const uint8_t> args[], ReplyCallback write_repl
   }
   ERR_clear_error();
 
-  return write_reply({Span<const uint8_t>(&ok, 1)});
+  return WriteReply(STDOUT_FILENO, Span<const uint8_t>(&ok, 1));
 }
 
-template <const EVP_MD *(MDFunc)()>
-static bool TLSKDF(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+template<const EVP_MD *(MDFunc)()>
+static bool TLSKDF(const Span<const uint8_t> args[]) {
   const Span<const uint8_t> out_len_bytes = args[0];
   const Span<const uint8_t> secret = args[1];
   const Span<const uint8_t> label = args[2];
@@ -1819,11 +1633,11 @@ static bool TLSKDF(const Span<const uint8_t> args[], ReplyCallback write_reply) 
     return 0;
   }
 
-  return write_reply({out});
+  return WriteReply(STDOUT_FILENO, out);
 }
 
 template <int Nid>
-static bool ECDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool ECDH(const Span<const uint8_t> args[]) {
   bssl::UniquePtr<BIGNUM> their_x(BytesToBIGNUM(args[0]));
   bssl::UniquePtr<BIGNUM> their_y(BytesToBIGNUM(args[1]));
   const Span<const uint8_t> private_key = args[2];
@@ -1835,14 +1649,14 @@ static bool ECDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
   bssl::UniquePtr<EC_POINT> their_point(EC_POINT_new(group));
   if (!EC_POINT_set_affine_coordinates_GFp(
           group, their_point.get(), their_x.get(), their_y.get(), ctx.get())) {
-    LOG_ERROR("Invalid peer point for ECDH.\n");
+    fprintf(stderr, "Invalid peer point for ECDH.\n");
     return false;
   }
 
   if (!private_key.empty()) {
     bssl::UniquePtr<BIGNUM> our_k(BytesToBIGNUM(private_key));
     if (!EC_KEY_set_private_key(ec_key.get(), our_k.get())) {
-      LOG_ERROR("EC_KEY_set_private_key failed.\n");
+      fprintf(stderr, "EC_KEY_set_private_key failed.\n");
       return false;
     }
 
@@ -1850,11 +1664,11 @@ static bool ECDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
     if (!EC_POINT_mul(group, our_pub.get(), our_k.get(), nullptr, nullptr,
                       ctx.get()) ||
         !EC_KEY_set_public_key(ec_key.get(), our_pub.get())) {
-      LOG_ERROR("Calculating public key failed.\n");
+      fprintf(stderr, "Calculating public key failed.\n");
       return false;
     }
   } else if (!EC_KEY_generate_key_fips(ec_key.get())) {
-    LOG_ERROR("EC_KEY_generate_key_fips failed.\n");
+    fprintf(stderr, "EC_KEY_generate_key_fips failed.\n");
     return false;
   }
 
@@ -1865,10 +1679,10 @@ static bool ECDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
       ECDH_compute_key(output.data(), output.size(), their_point.get(),
                        ec_key.get(), /*kdf=*/nullptr);
   if (out_len < 0) {
-    LOG_ERROR("ECDH_compute_key failed.\n");
+    fprintf(stderr, "ECDH_compute_key failed.\n");
     return false;
   } else if (static_cast<size_t>(out_len) == output.size()) {
-    LOG_ERROR("ECDH_compute_key output may have been truncated.\n");
+    fprintf(stderr, "ECDH_compute_key output may have been truncated.\n");
     return false;
   }
   output.resize(static_cast<size_t>(out_len));
@@ -1878,14 +1692,15 @@ static bool ECDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
   bssl::UniquePtr<BIGNUM> y(BN_new());
   if (!EC_POINT_get_affine_coordinates_GFp(group, pub, x.get(), y.get(),
                                            ctx.get())) {
-    LOG_ERROR("EC_POINT_get_affine_coordinates_GFp failed.\n");
+    fprintf(stderr, "EC_POINT_get_affine_coordinates_GFp failed.\n");
     return false;
   }
 
-  return write_reply({BIGNUMBytes(x.get()), BIGNUMBytes(y.get()), output});
+  return WriteReply(STDOUT_FILENO, BIGNUMBytes(x.get()), BIGNUMBytes(y.get()),
+                    output);
 }
 
-static bool FFDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
+static bool FFDH(const Span<const uint8_t> args[]) {
   bssl::UniquePtr<BIGNUM> p(BytesToBIGNUM(args[0]));
   bssl::UniquePtr<BIGNUM> q(BytesToBIGNUM(args[1]));
   bssl::UniquePtr<BIGNUM> g(BytesToBIGNUM(args[2]));
@@ -1895,7 +1710,7 @@ static bool FFDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
 
   bssl::UniquePtr<DH> dh(DH_new());
   if (!DH_set0_pqg(dh.get(), p.get(), q.get(), g.get())) {
-    LOG_ERROR("DH_set0_pqg failed.\n");
+    fprintf(stderr, "DH_set0_pqg failed.\n");
     return 0;
   }
 
@@ -1909,7 +1724,7 @@ static bool FFDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
     bssl::UniquePtr<BIGNUM> public_key(BytesToBIGNUM(public_key_span));
 
     if (!DH_set0_key(dh.get(), public_key.get(), private_key.get())) {
-      LOG_ERROR("DH_set0_key failed.\n");
+      fprintf(stderr, "DH_set0_key failed.\n");
       return 0;
     }
 
@@ -1917,24 +1732,24 @@ static bool FFDH(const Span<const uint8_t> args[], ReplyCallback write_reply) {
     public_key.release();
     private_key.release();
   } else if (!DH_generate_key(dh.get())) {
-    LOG_ERROR("DH_generate_key failed.\n");
+    fprintf(stderr, "DH_generate_key failed.\n");
     return false;
   }
 
   std::vector<uint8_t> z(DH_size(dh.get()));
   if (DH_compute_key_padded(z.data(), their_pub.get(), dh.get()) !=
       static_cast<int>(z.size())) {
-    LOG_ERROR("DH_compute_key_hashed failed.\n");
+    fprintf(stderr, "DH_compute_key_hashed failed.\n");
     return false;
   }
 
-  return write_reply({BIGNUMBytes(DH_get0_pub_key(dh.get())), z});
+  return WriteReply(STDOUT_FILENO, BIGNUMBytes(DH_get0_pub_key(dh.get())), z);
 }
 
 static constexpr struct {
-  char name[kMaxNameLength + 1];
-  uint8_t num_expected_args;
-  bool (*handler)(const Span<const uint8_t> args[], ReplyCallback write_reply);
+  const char name[kMaxNameLength + 1];
+  uint8_t expected_args;
+  bool (*handler)(const Span<const uint8_t>[]);
 } kFunctions[] = {
     {"getConfig", 0, GetConfig},
     {"SHA-1", 1, Hash<SHA1, SHA_DIGEST_LENGTH>},
@@ -1943,12 +1758,6 @@ static constexpr struct {
     {"SHA2-384", 1, Hash<SHA384, SHA384_DIGEST_LENGTH>},
     {"SHA2-512", 1, Hash<SHA512, SHA512_DIGEST_LENGTH>},
     {"SHA2-512/256", 1, Hash<SHA512_256, SHA512_256_DIGEST_LENGTH>},
-    {"SHA-1/MCT", 1, HashMCT<SHA1, SHA_DIGEST_LENGTH>},
-    {"SHA2-224/MCT", 1, HashMCT<SHA224, SHA224_DIGEST_LENGTH>},
-    {"SHA2-256/MCT", 1, HashMCT<SHA256, SHA256_DIGEST_LENGTH>},
-    {"SHA2-384/MCT", 1, HashMCT<SHA384, SHA384_DIGEST_LENGTH>},
-    {"SHA2-512/MCT", 1, HashMCT<SHA512, SHA512_DIGEST_LENGTH>},
-    {"SHA2-512/256/MCT", 1, HashMCT<SHA512_256, SHA512_256_DIGEST_LENGTH>},
     {"AES/encrypt", 3, AES<AES_set_encrypt_key, AES_encrypt>},
     {"AES/decrypt", 3, AES<AES_set_decrypt_key, AES_decrypt>},
     {"AES-CBC/encrypt", 4, AES_CBC<AES_set_encrypt_key, AES_ENCRYPT>},
@@ -1972,9 +1781,7 @@ static constexpr struct {
     {"HMAC-SHA2-256", 2, HMAC<EVP_sha256>},
     {"HMAC-SHA2-384", 2, HMAC<EVP_sha384>},
     {"HMAC-SHA2-512", 2, HMAC<EVP_sha512>},
-    {"HMAC-SHA2-512/256", 2, HMAC<EVP_sha512_256>},
-    {"ctrDRBG/AES-256", 6, DRBG<false>},
-    {"ctrDRBG-reseed/AES-256", 8, DRBG<true>},
+    {"ctrDRBG/AES-256", 6, DRBG},
     {"ECDSA/keyGen", 1, ECDSAKeyGen},
     {"ECDSA/keyVer", 3, ECDSAKeyVer},
     {"ECDSA/sigGen", 4, ECDSASigGen},
@@ -1991,7 +1798,6 @@ static constexpr struct {
     {"RSA/sigGen/SHA2-256/pss", 2, RSASigGen<EVP_sha256, true>},
     {"RSA/sigGen/SHA2-384/pss", 2, RSASigGen<EVP_sha384, true>},
     {"RSA/sigGen/SHA2-512/pss", 2, RSASigGen<EVP_sha512, true>},
-    {"RSA/sigGen/SHA2-512/256/pss", 2, RSASigGen<EVP_sha512_256, true>},
     {"RSA/sigGen/SHA-1/pss", 2, RSASigGen<EVP_sha1, true>},
     {"RSA/sigVer/SHA2-224/pkcs1v1.5", 4, RSASigVer<EVP_sha224, false>},
     {"RSA/sigVer/SHA2-256/pkcs1v1.5", 4, RSASigVer<EVP_sha256, false>},
@@ -2002,7 +1808,6 @@ static constexpr struct {
     {"RSA/sigVer/SHA2-256/pss", 4, RSASigVer<EVP_sha256, true>},
     {"RSA/sigVer/SHA2-384/pss", 4, RSASigVer<EVP_sha384, true>},
     {"RSA/sigVer/SHA2-512/pss", 4, RSASigVer<EVP_sha512, true>},
-    {"RSA/sigVer/SHA2-512/256/pss", 4, RSASigVer<EVP_sha512_256, true>},
     {"RSA/sigVer/SHA-1/pss", 4, RSASigVer<EVP_sha1, true>},
     {"TLSKDF/1.0/SHA-1", 5, TLSKDF<EVP_md5_sha1>},
     {"TLSKDF/1.2/SHA2-256", 5, TLSKDF<EVP_sha256>},
@@ -2015,26 +1820,98 @@ static constexpr struct {
     {"FFDH", 6, FFDH},
 };
 
-Handler FindHandler(Span<const Span<const uint8_t>> args) {
-  const bssl::Span<const uint8_t> algorithm = args[0];
-  for (const auto &func : kFunctions) {
-    if (algorithm.size() == strlen(func.name) &&
-        memcmp(algorithm.data(), func.name, algorithm.size()) == 0) {
-      if (args.size() - 1 != func.num_expected_args) {
-        LOG_ERROR("\'%s\' operation received %zu arguments but expected %u.\n",
-                  func.name, args.size() - 1, func.num_expected_args);
-        return nullptr;
+int main() {
+  uint32_t nums[1 + kMaxArgs];
+  std::unique_ptr<uint8_t[]> buf;
+  size_t buf_len = 0;
+  Span<const uint8_t> args[kMaxArgs];
+
+  for (;;) {
+    if (!ReadAll(STDIN_FILENO, nums, sizeof(uint32_t) * 2)) {
+      return 1;
+    }
+
+    const size_t num_args = nums[0];
+    if (num_args == 0) {
+      fprintf(stderr, "Invalid, zero-argument operation requested.\n");
+      return 2;
+    } else if (num_args > kMaxArgs) {
+      fprintf(stderr,
+              "Operation requested with %zu args, but %zu is the limit.\n",
+              num_args, kMaxArgs);
+      return 2;
+    }
+
+    if (num_args > 1 &&
+        !ReadAll(STDIN_FILENO, &nums[2], sizeof(uint32_t) * (num_args - 1))) {
+      return 1;
+    }
+
+    size_t need = 0;
+    for (size_t i = 0; i < num_args; i++) {
+      const size_t arg_length = nums[i + 1];
+      if (i == 0 && arg_length > kMaxNameLength) {
+        fprintf(stderr,
+                "Operation with name of length %zu exceeded limit of %zu.\n",
+                arg_length, kMaxNameLength);
+        return 2;
+      } else if (arg_length > kMaxArgLength) {
+        fprintf(
+            stderr,
+            "Operation with argument of length %zu exceeded limit of %zu.\n",
+            arg_length, kMaxArgLength);
+        return 2;
       }
 
-      return func.handler;
+      // static_assert around kMaxArgs etc enforces that this doesn't overflow.
+      need += arg_length;
+    }
+
+    if (need > buf_len) {
+      size_t alloced = need + (need >> 1);
+      if (alloced < need) {
+        abort();
+      }
+      buf.reset(new uint8_t[alloced]);
+      buf_len = alloced;
+    }
+
+    if (!ReadAll(STDIN_FILENO, buf.get(), need)) {
+      return 1;
+    }
+
+    size_t offset = 0;
+    for (size_t i = 0; i < num_args; i++) {
+      args[i] = Span<const uint8_t>(&buf[offset], nums[i + 1]);
+      offset += nums[i + 1];
+    }
+
+    bool found = false;
+    for (const auto &func : kFunctions) {
+      if (args[0].size() == strlen(func.name) &&
+          memcmp(args[0].data(), func.name, args[0].size()) == 0) {
+        if (num_args - 1 != func.expected_args) {
+          fprintf(stderr,
+                  "\'%s\' operation received %zu arguments but expected %u.\n",
+                  func.name, num_args - 1, func.expected_args);
+          return 2;
+        }
+
+        if (!func.handler(&args[1])) {
+          fprintf(stderr, "\'%s\' operation failed.\n", func.name);
+          return 4;
+        }
+
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      const std::string name(reinterpret_cast<const char *>(args[0].data()),
+                             args[0].size());
+      fprintf(stderr, "Unknown operation: %s\n", name.c_str());
+      return 3;
     }
   }
-
-  const std::string name(reinterpret_cast<const char *>(algorithm.data()),
-                         algorithm.size());
-  LOG_ERROR("Unknown operation: %s\n", name.c_str());
-  return nullptr;
 }
-
-}  // namespace acvp
-}  // namespace bssl

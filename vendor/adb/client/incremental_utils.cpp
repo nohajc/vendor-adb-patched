@@ -50,9 +50,9 @@ Size verity_tree_blocks_for_file(Size fileSize) {
 
     Size total_tree_block_count = 0;
 
-    const Size block_count = 1 + (fileSize - 1) / kBlockSize;
-    Size hash_block_count = block_count;
-    while (hash_block_count > 1) {
+    auto block_count = 1 + (fileSize - 1) / kBlockSize;
+    auto hash_block_count = block_count;
+    for (auto i = 0; hash_block_count > 1; i++) {
         hash_block_count = (hash_block_count + hash_per_block - 1) / hash_per_block;
         total_tree_block_count += hash_block_count;
     }

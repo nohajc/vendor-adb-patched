@@ -50,6 +50,10 @@ static constexpr bool kMinidebugInfoSystemPropertyDefault = false;
 static constexpr const char* kMinidebugDex2oatFlag = "--generate-mini-debug-info";
 static constexpr const char* kDisableCompactDexFlag = "--compact-dex-level=none";
 
+// Location of the JIT Zygote image.
+static const char* kJitZygoteImage =
+    "boot.art:/nonx/boot-framework.art!/system/etc/boot-image.prof";
+
 std::vector<std::string> SplitBySpaces(const std::string& str) {
     if (str.empty()) {
         return {};
@@ -80,9 +84,9 @@ void RunDex2Oat::Initialize(const UniqueFile& output_oat,
                             int target_sdk_version,
                             bool enable_hidden_api_checks,
                             bool generate_compact_dex,
-                            bool use_jitzygote,
+                            bool use_jitzygote_image,
                             const char* compilation_reason) {
-    PrepareBootImageFlags(use_jitzygote);
+    PrepareBootImageFlags(use_jitzygote_image);
 
     PrepareInputFileFlags(output_oat, output_vdex, output_image, input_dex, input_vdex,
                           dex_metadata, profile, swap_fd, class_loader_context,
@@ -108,14 +112,14 @@ void RunDex2Oat::Initialize(const UniqueFile& output_oat,
 
 RunDex2Oat::~RunDex2Oat() {}
 
-void RunDex2Oat::PrepareBootImageFlags(bool use_jitzygote) {
-    if (use_jitzygote) {
-        // Don't pass a boot image because JIT Zygote should decide which image to use. Typically,
-        // it does not use any boot image on disk.
-        AddArg("--force-jit-zygote");
+void RunDex2Oat::PrepareBootImageFlags(bool use_jitzygote_image) {
+    std::string boot_image;
+    if (use_jitzygote_image) {
+        boot_image = StringPrintf("--boot-image=%s", kJitZygoteImage);
     } else {
-        AddArg(MapPropertyToArg("dalvik.vm.boot-image", "--boot-image=%s"));
+        boot_image = MapPropertyToArg("dalvik.vm.boot-image", "--boot-image=%s");
     }
+    AddArg(boot_image);
 }
 
 void RunDex2Oat::PrepareInputFileFlags(const UniqueFile& output_oat,

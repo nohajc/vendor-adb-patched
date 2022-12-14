@@ -23,7 +23,6 @@
 #include <memory>
 #include <string>
 
-#include <android-base/expected.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
@@ -34,9 +33,6 @@
 #include "utils.h"
 
 namespace simpleperf {
-
-using android::base::expected;
-using android::base::unexpected;
 
 static constexpr bool ETM_RECORD_TIMESTAMP = false;
 
@@ -107,30 +103,32 @@ std::unique_ptr<EventType> ETMRecorder::BuildEventType() {
                                      "CoreSight ETM instruction tracing", "arm");
 }
 
-bool ETMRecorder::IsETMDriverAvailable() {
-  return IsDir(ETM_DIR);
-}
-
-expected<bool, std::string> ETMRecorder::CheckEtmSupport() {
+bool ETMRecorder::CheckEtmSupport() {
   if (GetEtmEventType() == -1) {
-    return unexpected("etm event type isn't supported on device");
+    LOG(ERROR) << "etm event type isn't supported on device";
+    return false;
   }
   if (!ReadEtmInfo()) {
-    return unexpected("etm devices are not available");
+    LOG(ERROR) << "etm devices are not available";
+    return false;
   }
   for (const auto& p : etm_info_) {
     if (p.second.GetMajorVersion() < 4) {
-      return unexpected("etm device version is less than 4.0");
+      LOG(ERROR) << "etm device version is less than 4.0";
+      return false;
     }
     if (!p.second.IsContextIDSupported()) {
-      return unexpected("etm device doesn't support contextID");
+      LOG(ERROR) << "etm device doesn't support contextID";
+      return false;
     }
     if (!p.second.IsEnabled()) {
-      return unexpected("etm device isn't enabled by the bootloader");
+      LOG(ERROR) << "etm device isn't enabled by the bootloader";
+      return false;
     }
   }
   if (!FindSinkConfig()) {
-    return unexpected("can't find etr device, which moves etm data to memory");
+    LOG(ERROR) << "can't find etr device, which moves etm data to memory";
+    return false;
   }
   etm_supported_ = true;
   return true;
@@ -156,10 +154,6 @@ bool ETMRecorder::ReadEtmInfo() {
                      ReadValueInEtmDir(name + "/trcidr/trcidr4", &cpu_info.trcidr4) &&
                      ReadValueInEtmDir(name + "/trcidr/trcidr8", &cpu_info.trcidr8) &&
                      ReadValueInEtmDir(name + "/mgmt/trcauthstatus", &cpu_info.trcauthstatus);
-
-      if (!ReadValueInEtmDir(name + "/mgmt/trcdevarch", &cpu_info.trcdevarch, false)) {
-        cpu_info.trcdevarch = 0;
-      }
       if (!success) {
         return false;
       }
@@ -225,20 +219,13 @@ AuxTraceInfoRecord ETMRecorder::CreateAuxTraceInfoRecord() {
   AuxTraceInfoRecord::DataType data;
   memset(&data, 0, sizeof(data));
   data.aux_type = AuxTraceInfoRecord::AUX_TYPE_ETM;
-  data.version = 1;
   data.nr_cpu = etm_info_.size();
   data.pmu_type = GetEtmEventType();
-  std::vector<AuxTraceInfoRecord::ETEInfo> ete(etm_info_.size());
+  std::vector<AuxTraceInfoRecord::ETM4Info> etm4_v(etm_info_.size());
   size_t pos = 0;
   for (auto& p : etm_info_) {
-    auto& e = ete[pos++];
-    if (p.second.trcdevarch == 0) {
-      e.magic = AuxTraceInfoRecord::MAGIC_ETM4;
-      e.nrtrcparams = sizeof(AuxTraceInfoRecord::ETM4Info) / sizeof(uint64_t) - 3;
-    } else {
-      e.magic = AuxTraceInfoRecord::MAGIC_ETE;
-      e.nrtrcparams = sizeof(AuxTraceInfoRecord::ETEInfo) / sizeof(uint64_t) - 3;
-    }
+    auto& e = etm4_v[pos++];
+    e.magic = AuxTraceInfoRecord::MAGIC_ETM4;
     e.cpu = p.first;
     e.trcconfigr = etm_config_reg_;
     e.trctraceidr = GetTraceId(p.first);
@@ -247,9 +234,8 @@ AuxTraceInfoRecord ETMRecorder::CreateAuxTraceInfoRecord() {
     e.trcidr2 = p.second.trcidr2;
     e.trcidr8 = p.second.trcidr8;
     e.trcauthstatus = p.second.trcauthstatus;
-    e.trcdevarch = p.second.trcdevarch;
   }
-  return AuxTraceInfoRecord(data, ete);
+  return AuxTraceInfoRecord(data, etm4_v);
 }
 
 size_t ETMRecorder::GetAddrFilterPairs() {

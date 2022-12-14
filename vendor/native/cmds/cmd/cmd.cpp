@@ -52,7 +52,7 @@ static int sort_func(const String16* lhs, const String16* rhs)
 }
 
 struct SecurityContext_Delete {
-    void operator()(char* p) const {
+    void operator()(security_context_t p) const {
         freecon(p);
     }
 };
@@ -108,7 +108,7 @@ public:
         }
         if (is_selinux_enabled() && seLinuxContext.size() > 0) {
             String8 seLinuxContext8(seLinuxContext);
-            char* tmp = nullptr;
+            security_context_t tmp = nullptr;
             getfilecon(fullPath.string(), &tmp);
             Unique_SecurityContext context(tmp);
             if (checkWrite) {

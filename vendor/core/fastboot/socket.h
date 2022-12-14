@@ -38,6 +38,7 @@
 #include <utility>
 #include <vector>
 
+#include <sys/select.h>
 #include <android-base/macros.h>
 #include <cutils/sockets.h>
 #include <gtest/gtest_prod.h>

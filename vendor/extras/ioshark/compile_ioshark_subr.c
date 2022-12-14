@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <errno.h>
+#include <sys/errno.h>
 #include "ioshark.h"
 #include "compile_ioshark.h"
 #include <endian.h>

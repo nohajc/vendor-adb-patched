@@ -63,9 +63,6 @@
 #include <openssl/obj.h>
 #include <openssl/x509v3.h>
 
-#include "internal.h"
-
-
 static const BIT_STRING_BITNAME ns_cert_type_table[] = {
     {0, "SSL Client", "client"},
     {1, "SSL Server", "server"},

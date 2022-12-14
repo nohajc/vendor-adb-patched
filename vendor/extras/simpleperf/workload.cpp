@@ -25,17 +25,9 @@
 #include <android-base/logging.h>
 #include <android-base/strings.h>
 
-#include "environment.h"
-
 namespace simpleperf {
 
 std::unique_ptr<Workload> Workload::CreateWorkload(const std::vector<std::string>& args) {
-#if defined(__ANDROID__)
-  if (IsInAppUid()) {
-    LOG(ERROR) << "Running child command in app uid isn't allowed.";
-    return nullptr;
-  }
-#endif
   std::unique_ptr<Workload> workload(new Workload(args, std::function<void()>()));
   if (workload != nullptr && workload->CreateNewProcess()) {
     return workload;
@@ -182,8 +174,8 @@ bool Workload::Start() {
   return true;
 }
 
-bool Workload::WaitChildProcess(bool wait_forever, int* exit_code) {
-  return WaitChildProcess(wait_forever, false, exit_code);
+bool Workload::WaitChildProcess(int* exit_code) {
+  return WaitChildProcess(true, false, exit_code);
 }
 
 bool Workload::WaitChildProcess(bool wait_forever, bool is_child_killed, int* exit_code) {

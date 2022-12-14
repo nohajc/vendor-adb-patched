@@ -38,9 +38,6 @@
 #include <android/hardware/graphics/bufferqueue/1.0/IGraphicBufferProducer.h>
 #include <android/hardware/graphics/bufferqueue/2.0/IGraphicBufferProducer.h>
 
-#include <optional>
-#include <vector>
-
 namespace android {
 // ----------------------------------------------------------------------------
 
@@ -292,9 +289,8 @@ public:
             const sp<GraphicBuffer>& buffer) = 0;
 
     struct QueueBufferInput : public Flattenable<QueueBufferInput> {
-        explicit inline QueueBufferInput(const Parcel& parcel) {
-            parcel.read(*this);
-        }
+        friend class Flattenable<QueueBufferInput>;
+        explicit inline QueueBufferInput(const Parcel& parcel);
 
         // timestamp - a monotonically increasing value in nanoseconds
         // isAutoTimestamp - if the timestamp was synthesized at queue time
@@ -308,29 +304,21 @@ public:
         //          camera mode).
         // getFrameTimestamps - whether or not the latest frame timestamps
         //                      should be retrieved from the consumer.
-        // slot - the slot index to queue. This is used only by queueBuffers().
-        //        queueBuffer() ignores this value and uses the argument `slot`
-        //        instead.
         inline QueueBufferInput(int64_t _timestamp, bool _isAutoTimestamp,
                 android_dataspace _dataSpace, const Rect& _crop,
                 int _scalingMode, uint32_t _transform, const sp<Fence>& _fence,
-                uint32_t _sticky = 0, bool _getFrameTimestamps = false,
-                int _slot = -1)
+                uint32_t _sticky = 0, bool _getFrameTimestamps = false)
                 : timestamp(_timestamp), isAutoTimestamp(_isAutoTimestamp),
                   dataSpace(_dataSpace), crop(_crop), scalingMode(_scalingMode),
-                  transform(_transform), stickyTransform(_sticky),
-                  fence(_fence), surfaceDamage(),
-                  getFrameTimestamps(_getFrameTimestamps), slot(_slot) { }
-
-        QueueBufferInput() = default;
+                  transform(_transform), stickyTransform(_sticky), fence(_fence),
+                  surfaceDamage(), getFrameTimestamps(_getFrameTimestamps) { }
 
         inline void deflate(int64_t* outTimestamp, bool* outIsAutoTimestamp,
                 android_dataspace* outDataSpace,
                 Rect* outCrop, int* outScalingMode,
                 uint32_t* outTransform, sp<Fence>* outFence,
                 uint32_t* outStickyTransform = nullptr,
-                bool* outGetFrameTimestamps = nullptr,
-                int* outSlot = nullptr) const {
+                bool* outGetFrameTimestamps = nullptr) const {
             *outTimestamp = timestamp;
             *outIsAutoTimestamp = bool(isAutoTimestamp);
             *outDataSpace = dataSpace;
@@ -343,9 +331,6 @@ public:
             }
             if (outGetFrameTimestamps) {
                 *outGetFrameTimestamps = getFrameTimestamps;
-            }
-            if (outSlot) {
-                *outSlot = slot;
             }
         }
 
@@ -372,7 +357,6 @@ public:
         sp<Fence> fence;
         Region surfaceDamage;
         bool getFrameTimestamps{false};
-        int slot{-1};
         HdrMetadata hdrMetadata;
     };
 
@@ -401,7 +385,6 @@ public:
         FrameEventHistoryDelta frameTimestamps;
         bool bufferReplaced{false};
         int maxBufferCount{0};
-        status_t result{NO_ERROR};
     };
 
     // queueBuffer indicates that the client has finished filling in the
@@ -420,10 +403,6 @@ public:
     //
     // Upon success, the output will be filled with meaningful values
     // (refer to the documentation below).
-    //
-    // Note: QueueBufferInput::slot was added to QueueBufferInput to be used by
-    // queueBuffers(), the batched version of queueBuffer(). The non-batched
-    // method (queueBuffer()) uses `slot` and ignores `input.slot`.
     //
     // Return of a value other than NO_ERROR means an error has occurred:
     // * NO_INIT - the buffer queue has been abandoned or the producer is not
@@ -675,147 +654,6 @@ public:
     // specifies a 90 or 270 degree rotation, if auto prerotation is enabled,
     // the width and height used for dequeueBuffer will be additionally swapped.
     virtual status_t setAutoPrerotation(bool autoPrerotation);
-
-    struct RequestBufferOutput : public Flattenable<RequestBufferOutput> {
-        RequestBufferOutput() = default;
-
-        // Flattenable protocol
-        static constexpr size_t minFlattenedSize();
-        size_t getFlattenedSize() const;
-        size_t getFdCount() const;
-        status_t flatten(void*& buffer, size_t& size, int*& fds, size_t& count) const;
-        status_t unflatten(void const*& buffer, size_t& size, int const*& fds, size_t& count);
-
-        status_t result;
-        sp<GraphicBuffer> buffer;
-    };
-
-    // Batched version of requestBuffer().
-    // This method behaves like a sequence of requestBuffer() calls.
-    // The return value of the batched method will only be about the
-    // transaction. For a local call, the return value will always be NO_ERROR.
-    virtual status_t requestBuffers(
-            const std::vector<int32_t>& slots,
-            std::vector<RequestBufferOutput>* outputs);
-
-    struct DequeueBufferInput : public LightFlattenable<DequeueBufferInput> {
-        DequeueBufferInput() = default;
-
-        // LightFlattenable protocol
-        inline bool isFixedSize() const { return true; }
-        size_t getFlattenedSize() const;
-        status_t flatten(void* buffer, size_t size) const;
-        status_t unflatten(void const* buffer, size_t size);
-
-        uint32_t width;
-        uint32_t height;
-        PixelFormat format;
-        uint64_t usage;
-        bool getTimestamps;
-    };
-
-    struct DequeueBufferOutput : public Flattenable<DequeueBufferOutput> {
-        DequeueBufferOutput() = default;
-
-        // Flattenable protocol
-        static constexpr size_t minFlattenedSize();
-        size_t getFlattenedSize() const;
-        size_t getFdCount() const;
-        status_t flatten(void*& buffer, size_t& size, int*& fds, size_t& count) const;
-        status_t unflatten(void const*& buffer, size_t& size, int const*& fds, size_t& count);
-
-        status_t result;
-        int slot = -1;
-        sp<Fence> fence = Fence::NO_FENCE;
-        uint64_t bufferAge;
-        std::optional<FrameEventHistoryDelta> timestamps;
-    };
-
-    // Batched version of dequeueBuffer().
-    // This method behaves like a sequence of dequeueBuffer() calls.
-    // The return value of the batched method will only be about the
-    // transaction. For a local call, the return value will always be NO_ERROR.
-    virtual status_t dequeueBuffers(
-            const std::vector<DequeueBufferInput>& inputs,
-            std::vector<DequeueBufferOutput>* outputs);
-
-    // Batched version of detachBuffer().
-    // This method behaves like a sequence of detachBuffer() calls.
-    // The return value of the batched method will only be about the
-    // transaction. For a local call, the return value will always be NO_ERROR.
-    virtual status_t detachBuffers(const std::vector<int32_t>& slots,
-                                   std::vector<status_t>* results);
-
-
-    struct AttachBufferOutput : public LightFlattenable<AttachBufferOutput> {
-        AttachBufferOutput() = default;
-
-        // LightFlattenable protocol
-        inline bool isFixedSize() const { return true; }
-        size_t getFlattenedSize() const;
-        status_t flatten(void* buffer, size_t size) const;
-        status_t unflatten(void const* buffer, size_t size);
-
-        status_t result;
-        int slot;
-    };
-    // Batched version of attachBuffer().
-    // This method behaves like a sequence of attachBuffer() calls.
-    // The return value of the batched method will only be about the
-    // transaction. For a local call, the return value will always be NO_ERROR.
-    virtual status_t attachBuffers(
-            const std::vector<sp<GraphicBuffer>>& buffers,
-            std::vector<AttachBufferOutput>* outputs);
-
-    // Batched version of queueBuffer().
-    // This method behaves like a sequence of queueBuffer() calls.
-    // The return value of the batched method will only be about the
-    // transaction. For a local call, the return value will always be NO_ERROR.
-    //
-    // Note: QueueBufferInput::slot was added to QueueBufferInput to include the
-    // `slot` input argument of the non-batched method queueBuffer().
-    virtual status_t queueBuffers(const std::vector<QueueBufferInput>& inputs,
-                                  std::vector<QueueBufferOutput>* outputs);
-
-    struct CancelBufferInput : public Flattenable<CancelBufferInput> {
-        CancelBufferInput() = default;
-
-        // Flattenable protocol
-        static constexpr size_t minFlattenedSize();
-        size_t getFlattenedSize() const;
-        size_t getFdCount() const;
-        status_t flatten(void*& buffer, size_t& size, int*& fds, size_t& count) const;
-        status_t unflatten(void const*& buffer, size_t& size, int const*& fds, size_t& count);
-
-        int slot;
-        sp<Fence> fence;
-    };
-    // Batched version of cancelBuffer().
-    // This method behaves like a sequence of cancelBuffer() calls.
-    // The return value of the batched method will only be about the
-    // transaction. For a local call, the return value will always be NO_ERROR.
-    virtual status_t cancelBuffers(
-            const std::vector<CancelBufferInput>& inputs,
-            std::vector<status_t>* results);
-
-    struct QueryOutput : public LightFlattenable<QueryOutput> {
-        QueryOutput() = default;
-
-        // LightFlattenable protocol
-        inline bool isFixedSize() const { return true; }
-        size_t getFlattenedSize() const;
-        status_t flatten(void* buffer, size_t size) const;
-        status_t unflatten(void const* buffer, size_t size);
-
-        status_t result;
-        int64_t value;
-    };
-    // Batched version of query().
-    // This method behaves like a sequence of query() calls.
-    // The return value of the batched method will only be about the
-    // transaction. For a local call, the return value will always be NO_ERROR.
-    virtual status_t query(const std::vector<int32_t> inputs,
-                           std::vector<QueryOutput>* outputs);
 
 #ifndef NO_BINDER
     // Static method exports any IGraphicBufferProducer object to a parcel. It

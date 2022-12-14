@@ -28,13 +28,13 @@ bool CheckUnwindMaps(UnwindMaps& maps, const MapSet& map_set) {
   if (maps.Total() != map_set.maps.size()) {
     return false;
   }
-  std::shared_ptr<unwindstack::MapInfo> prev_real_map;
-  for (auto& info : maps) {
+  unwindstack::MapInfo* prev_real_map = nullptr;
+  for (size_t i = 0; i < maps.Total(); i++) {
+    unwindstack::MapInfo* info = maps.Get(i);
     if (info == nullptr || map_set.maps.find(info->start()) == map_set.maps.end()) {
       return false;
     }
-    if (prev_real_map != nullptr && prev_real_map->name() == info->name() &&
-        prev_real_map != info->GetPrevRealMap()) {
+    if (info->prev_real_map() != prev_real_map) {
       return false;
     }
     if (!info->IsBlank()) {

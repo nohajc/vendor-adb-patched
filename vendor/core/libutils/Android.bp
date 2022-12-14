@@ -28,23 +28,31 @@ cc_library_headers {
     min_sdk_version: "apex_inherit",
 
     header_libs: [
-        "libbase_headers",
-        "libcutils_headers",
         "liblog_headers",
-        "libprocessgroup_headers",
         "libsystem_headers",
+        "libcutils_headers",
+        "libprocessgroup_headers",
     ],
     export_header_lib_headers: [
-        "libbase_headers",
-        "libcutils_headers",
         "liblog_headers",
-        "libprocessgroup_headers",
         "libsystem_headers",
+        "libcutils_headers",
+        "libprocessgroup_headers",
     ],
     export_include_dirs: ["include"],
 
     target: {
+        android: {
+            header_libs: ["libbacktrace_headers"],
+            export_header_lib_headers: ["libbacktrace_headers"],
+        },
+        linux_glibc: {
+            header_libs: ["libbacktrace_headers"],
+            export_header_lib_headers: ["libbacktrace_headers"],
+        },
         linux_bionic: {
+            header_libs: ["libbacktrace_headers"],
+            export_header_lib_headers: ["libbacktrace_headers"],
             enabled: true,
         },
         windows: {
@@ -90,6 +98,8 @@ cc_defaults {
             cflags: ["-fvisibility=protected"],
 
             shared_libs: [
+                "libprocessgroup",
+                "libdl",
                 "libvndksupport",
             ],
 
@@ -119,9 +129,6 @@ cc_defaults {
 
             enabled: true,
         },
-    },
-    fuzz_config: {
-       cc: ["smoreland@google.com"],
     },
 }
 
@@ -171,8 +178,6 @@ cc_library {
         "//apex_available:platform",
     ],
     min_sdk_version: "apex_inherit",
-
-    afdo: true,
 }
 
 cc_library {
@@ -180,7 +185,6 @@ cc_library {
     defaults: ["libutils_defaults"],
     // TODO(b/153609531): remove when no longer needed.
     native_bridge_supported: true,
-    min_sdk_version: "29",
 
     srcs: [
         "CallStack.cpp",
@@ -188,7 +192,7 @@ cc_library {
 
     shared_libs: [
         "libutils",
-        "libunwindstack",
+        "libbacktrace",
     ],
 
     target: {
@@ -294,14 +298,13 @@ cc_test {
 
     srcs: [
         "BitSet_test.cpp",
-        "Errors_test.cpp",
         "FileMap_test.cpp",
         "LruCache_test.cpp",
         "Mutex_test.cpp",
         "SharedBuffer_test.cpp",
         "Singleton_test.cpp",
-        "String16_test.cpp",
         "String8_test.cpp",
+        "String16_test.cpp",
         "StrongPointer_test.cpp",
         "Timers_test.cpp",
         "Unicode_test.cpp",
@@ -360,7 +363,6 @@ cc_test_library {
         "-Wall",
         "-Werror",
     ],
-    header_libs: ["libutils_headers"],
 }
 
 cc_test_library {
@@ -373,7 +375,6 @@ cc_test_library {
         "-Werror",
     ],
     shared_libs: ["libutils_test_singleton1"],
-    header_libs: ["libutils_headers"],
 }
 
 cc_benchmark {

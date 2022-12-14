@@ -58,7 +58,7 @@ cc_defaults {
                 "-DFEC_NO_KLOG",
             ],
         },
-        host_linux: {
+        linux_glibc: {
             sanitize: {
                 misc_undefined: ["integer"],
             },
@@ -71,7 +71,6 @@ cc_library {
     defaults: ["libfec_default"],
     host_supported: true,
     ramdisk_available: true,
-    vendor_ramdisk_available: true,
     recovery_available: true,
 
     target: {

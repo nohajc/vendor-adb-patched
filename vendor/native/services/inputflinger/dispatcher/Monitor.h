@@ -22,11 +22,9 @@
 namespace android::inputdispatcher {
 
 struct Monitor {
-    std::shared_ptr<InputChannel> inputChannel; // never null
+    sp<InputChannel> inputChannel; // never null
 
-    int32_t pid;
-
-    explicit Monitor(const std::shared_ptr<InputChannel>& inputChannel, int32_t pid);
+    explicit Monitor(const sp<InputChannel>& inputChannel);
 };
 
 // For tracking the offsets we need to apply when adding gesture monitor targets.

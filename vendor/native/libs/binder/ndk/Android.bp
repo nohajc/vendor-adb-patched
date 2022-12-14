@@ -32,11 +32,28 @@ license {
     ],
 }
 
+cc_defaults {
+    name: "libbinder_ndk_host_user",
+    target: {
+        host: {
+            cflags: [
+                "-D__INTRODUCED_IN(n)=",
+                "-D__assert(a,b,c)=",
+                // We want all the APIs to be available on the host.
+                "-D__ANDROID_API__=10000",
+            ],
+        },
+        darwin: {
+            enabled: false,
+        },
+    },
+}
+
 cc_library {
     name: "libbinder_ndk",
 
+    defaults: ["libbinder_ndk_host_user"],
     host_supported: true,
-    recovery_available: true,
 
     llndk: {
         symbol_file: "libbinder_ndk.map.txt",
@@ -100,9 +117,6 @@ cc_library {
             "30",
         ],
     },
-    sanitize: {
-        misc_undefined: ["integer"],
-    },
     tidy: true,
     tidy_flags: [
         // Only check our headers
@@ -113,7 +127,6 @@ cc_library {
         "abseil-*",
         "android-*",
         "bugprone-*",
-        "-bugprone-branch-clone", // b/155034972
         "cert-*",
         "clang-analyzer-*",
         "-clang-analyzer-core.CallAndMessage",
@@ -139,7 +152,6 @@ cc_library_headers {
     name: "libbinder_headers_platform_shared",
     export_include_dirs: ["include_cpp"],
     vendor_available: true,
-    recovery_available: true,
     host_supported: true,
     // TODO(b/153609531): remove when no longer needed.
     native_bridge_supported: true,

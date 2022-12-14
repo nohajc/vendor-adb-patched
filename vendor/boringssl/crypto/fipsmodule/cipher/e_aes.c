@@ -52,6 +52,7 @@
 #include <openssl/aead.h>
 #include <openssl/aes.h>
 #include <openssl/cipher.h>
+#include <openssl/cpu.h>
 #include <openssl/err.h>
 #include <openssl/mem.h>
 #include <openssl/nid.h>
@@ -61,7 +62,6 @@
 #include "../../internal.h"
 #include "../aes/internal.h"
 #include "../modes/internal.h"
-#include "../service_indicator/internal.h"
 #include "../delocate.h"
 
 
@@ -141,22 +141,10 @@ typedef struct {
 
 static int aes_init_key(EVP_CIPHER_CTX *ctx, const uint8_t *key,
                         const uint8_t *iv, int enc) {
-  int ret;
+  int ret, mode;
   EVP_AES_KEY *dat = (EVP_AES_KEY *)ctx->cipher_data;
-  const int mode = ctx->cipher->flags & EVP_CIPH_MODE_MASK;
 
-  if (mode == EVP_CIPH_CTR_MODE) {
-    switch (ctx->key_len) {
-      case 16:
-        boringssl_fips_inc_counter(fips_counter_evp_aes_128_ctr);
-        break;
-
-      case 32:
-        boringssl_fips_inc_counter(fips_counter_evp_aes_256_ctr);
-        break;
-    }
-  }
-
+  mode = ctx->cipher->flags & EVP_CIPH_MODE_MASK;
   if ((mode == EVP_CIPH_ECB_MODE || mode == EVP_CIPH_CBC_MODE) && !enc) {
     if (hwaes_capable()) {
       ret = aes_hw_set_decrypt_key(key, ctx->key_len * 8, &dat->ks.ks);
@@ -365,17 +353,6 @@ static int aes_gcm_init_key(EVP_CIPHER_CTX *ctx, const uint8_t *key,
   if (!iv && !key) {
     return 1;
   }
-
-  switch (ctx->key_len) {
-    case 16:
-      boringssl_fips_inc_counter(fips_counter_evp_aes_128_gcm);
-      break;
-
-    case 32:
-      boringssl_fips_inc_counter(fips_counter_evp_aes_256_gcm);
-      break;
-  }
-
   if (key) {
     OPENSSL_memset(&gctx->gcm, 0, sizeof(gctx->gcm));
     gctx->ctr = aes_ctr_set_key(&gctx->ks.ks, &gctx->gcm.gcm_key, NULL, key,
@@ -486,13 +463,8 @@ static int aes_gcm_ctrl(EVP_CIPHER_CTX *c, int type, int arg, void *ptr) {
       if (arg) {
         OPENSSL_memcpy(gctx->iv, ptr, arg);
       }
-      if (c->encrypt) {
-        // |RAND_bytes| calls within the fipsmodule should be wrapped with state
-        // lock functions to avoid updating the service indicator with the DRBG
-        // functions.
-        FIPS_service_indicator_lock_state();
-        RAND_bytes(gctx->iv + arg, gctx->ivlen - arg);
-        FIPS_service_indicator_unlock_state();
+      if (c->encrypt && !RAND_bytes(gctx->iv + arg, gctx->ivlen - arg)) {
+        return 0;
       }
       gctx->iv_gen = 1;
       return 1;
@@ -916,16 +888,6 @@ static int aead_aes_gcm_init_impl(struct aead_aes_gcm_ctx *gcm_ctx,
                                   size_t key_len, size_t tag_len) {
   const size_t key_bits = key_len * 8;
 
-  switch (key_bits) {
-    case 128:
-      boringssl_fips_inc_counter(fips_counter_evp_aes_128_gcm);
-      break;
-
-    case 256:
-      boringssl_fips_inc_counter(fips_counter_evp_aes_256_gcm);
-      break;
-  }
-
   if (key_bits != 128 && key_bits != 192 && key_bits != 256) {
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BAD_KEY_LENGTH);
     return 0;  // EVP_AEAD_CTX_init should catch this.
@@ -1105,14 +1067,9 @@ static int aead_aes_gcm_open_gather(const EVP_AEAD_CTX *ctx, uint8_t *out,
                                     const uint8_t *in_tag, size_t in_tag_len,
                                     const uint8_t *ad, size_t ad_len) {
   struct aead_aes_gcm_ctx *gcm_ctx = (struct aead_aes_gcm_ctx *)&ctx->state;
-  if (!aead_aes_gcm_open_gather_impl(gcm_ctx, out, nonce, nonce_len, in, in_len,
-                                     in_tag, in_tag_len, ad, ad_len,
-                                     ctx->tag_len)) {
-    return 0;
-  }
-
-  AEAD_GCM_verify_service_indicator(ctx);
-  return 1;
+  return aead_aes_gcm_open_gather_impl(gcm_ctx, out, nonce, nonce_len, in,
+                                       in_len, in_tag, in_tag_len, ad, ad_len,
+                                       ctx->tag_len);
 }
 
 DEFINE_METHOD_FUNCTION(EVP_AEAD, EVP_aead_aes_128_gcm) {
@@ -1197,12 +1154,7 @@ static int aead_aes_gcm_seal_scatter_randnonce(
     return 0;
   }
 
-  // |RAND_bytes| calls within the fipsmodule should be wrapped with state lock
-  // functions to avoid updating the service indicator with the DRBG functions.
-  FIPS_service_indicator_lock_state();
   RAND_bytes(nonce, sizeof(nonce));
-  FIPS_service_indicator_unlock_state();
-
   const struct aead_aes_gcm_ctx *gcm_ctx =
       (const struct aead_aes_gcm_ctx *)&ctx->state;
   if (!aead_aes_gcm_seal_scatter_impl(gcm_ctx, out, out_tag, out_tag_len,
@@ -1217,7 +1169,6 @@ static int aead_aes_gcm_seal_scatter_randnonce(
   memcpy(out_tag + *out_tag_len, nonce, sizeof(nonce));
   *out_tag_len += sizeof(nonce);
 
-  AEAD_GCM_verify_service_indicator(ctx);
   return 1;
 }
 
@@ -1240,15 +1191,10 @@ static int aead_aes_gcm_open_gather_randnonce(
 
   const struct aead_aes_gcm_ctx *gcm_ctx =
       (const struct aead_aes_gcm_ctx *)&ctx->state;
-  if (!aead_aes_gcm_open_gather_impl(
+  return aead_aes_gcm_open_gather_impl(
       gcm_ctx, out, nonce, AES_GCM_NONCE_LENGTH, in, in_len, in_tag,
       in_tag_len - AES_GCM_NONCE_LENGTH, ad, ad_len,
-      ctx->tag_len - AES_GCM_NONCE_LENGTH)) {
-    return 0;
-  }
-
-  AEAD_GCM_verify_service_indicator(ctx);
-  return 1;
+      ctx->tag_len - AES_GCM_NONCE_LENGTH);
 }
 
 DEFINE_METHOD_FUNCTION(EVP_AEAD, EVP_aead_aes_128_gcm_randnonce) {
@@ -1338,14 +1284,9 @@ static int aead_aes_gcm_tls12_seal_scatter(
 
   gcm_ctx->min_next_nonce = given_counter + 1;
 
-  if (!aead_aes_gcm_seal_scatter(ctx, out, out_tag, out_tag_len,
-                                 max_out_tag_len, nonce, nonce_len, in, in_len,
-                                 extra_in, extra_in_len, ad, ad_len)) {
-    return 0;
-  }
-
-  AEAD_GCM_verify_service_indicator(ctx);
-  return 1;
+  return aead_aes_gcm_seal_scatter(ctx, out, out_tag, out_tag_len,
+                                   max_out_tag_len, nonce, nonce_len, in,
+                                   in_len, extra_in, extra_in_len, ad, ad_len);
 }
 
 DEFINE_METHOD_FUNCTION(EVP_AEAD, EVP_aead_aes_128_gcm_tls12) {
@@ -1449,14 +1390,9 @@ static int aead_aes_gcm_tls13_seal_scatter(
 
   gcm_ctx->min_next_nonce = given_counter + 1;
 
-  if (!aead_aes_gcm_seal_scatter(ctx, out, out_tag, out_tag_len,
-                                 max_out_tag_len, nonce, nonce_len, in, in_len,
-                                 extra_in, extra_in_len, ad, ad_len)) {
-    return 0;
-  }
-
-  AEAD_GCM_verify_service_indicator(ctx);
-  return 1;
+  return aead_aes_gcm_seal_scatter(ctx, out, out_tag, out_tag_len,
+                                   max_out_tag_len, nonce, nonce_len, in,
+                                   in_len, extra_in, extra_in_len, ad, ad_len);
 }
 
 DEFINE_METHOD_FUNCTION(EVP_AEAD, EVP_aead_aes_128_gcm_tls13) {

@@ -28,8 +28,12 @@
 
 namespace android {
 
+// ---------------------------------------------------------------------------
+
 class Layer;
 class SurfaceFlinger;
+
+// ---------------------------------------------------------------------------
 
 class Client : public BnSurfaceComposerClient
 {
@@ -50,18 +54,17 @@ private:
     virtual status_t createSurface(const String8& name, uint32_t w, uint32_t h, PixelFormat format,
                                    uint32_t flags, const sp<IBinder>& parent,
                                    LayerMetadata metadata, sp<IBinder>* handle,
-                                   sp<IGraphicBufferProducer>* gbp, int32_t* outLayerId,
+                                   sp<IGraphicBufferProducer>* gbp,
                                    uint32_t* outTransformHint = nullptr);
 
     virtual status_t createWithSurfaceParent(const String8& name, uint32_t w, uint32_t h,
                                              PixelFormat format, uint32_t flags,
                                              const sp<IGraphicBufferProducer>& parent,
                                              LayerMetadata metadata, sp<IBinder>* handle,
-                                             sp<IGraphicBufferProducer>* gbp, int32_t* outLayerId,
+                                             sp<IGraphicBufferProducer>* gbp,
                                              uint32_t* outTransformHint = nullptr);
 
-    status_t mirrorSurface(const sp<IBinder>& mirrorFromHandle, sp<IBinder>* handle,
-                           int32_t* outLayerId);
+    status_t mirrorSurface(const sp<IBinder>& mirrorFromHandle, sp<IBinder>* handle);
 
     virtual status_t clearLayerFrameStats(const sp<IBinder>& handle) const;
 
@@ -77,6 +80,7 @@ private:
     mutable Mutex mLock;
 };
 
+// ---------------------------------------------------------------------------
 }; // namespace android
 
 #endif // ANDROID_SF_CLIENT_H

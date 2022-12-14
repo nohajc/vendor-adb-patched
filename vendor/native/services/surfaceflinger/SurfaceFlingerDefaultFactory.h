@@ -26,13 +26,16 @@ class DefaultFactory : public surfaceflinger::Factory {
 public:
     virtual ~DefaultFactory();
 
+    std::unique_ptr<DispSync> createDispSync(const char* name, bool hasSyncFramework) override;
+    std::unique_ptr<EventControlThread> createEventControlThread(SetVSyncEnabled) override;
     std::unique_ptr<HWComposer> createHWComposer(const std::string& serviceName) override;
     std::unique_ptr<MessageQueue> createMessageQueue() override;
-    std::unique_ptr<scheduler::VsyncConfiguration> createVsyncConfiguration(
-            Fps currentRefreshRate) override;
-    std::unique_ptr<Scheduler> createScheduler(
-            const std::shared_ptr<scheduler::RefreshRateConfigs>&, ISchedulerCallback&) override;
-    sp<SurfaceInterceptor> createSurfaceInterceptor() override;
+    std::unique_ptr<scheduler::PhaseConfiguration> createPhaseConfiguration(
+            const scheduler::RefreshRateConfigs&) override;
+    std::unique_ptr<Scheduler> createScheduler(SetVSyncEnabled,
+                                               const scheduler::RefreshRateConfigs&,
+                                               ISchedulerCallback&) override;
+    std::unique_ptr<SurfaceInterceptor> createSurfaceInterceptor(SurfaceFlinger*) override;
     sp<StartPropertySetThread> createStartPropertySetThread(bool timestampPropertyValue) override;
     sp<DisplayDevice> createDisplayDevice(DisplayDeviceCreationArgs&) override;
     sp<GraphicBuffer> createGraphicBuffer(uint32_t width, uint32_t height, PixelFormat format,
@@ -54,9 +57,6 @@ public:
     sp<BufferStateLayer> createBufferStateLayer(const LayerCreationArgs& args) override;
     sp<EffectLayer> createEffectLayer(const LayerCreationArgs& args) override;
     sp<ContainerLayer> createContainerLayer(const LayerCreationArgs& args) override;
-    std::unique_ptr<FrameTracer> createFrameTracer() override;
-    std::unique_ptr<frametimeline::FrameTimeline> createFrameTimeline(
-            std::shared_ptr<TimeStats> timeStats, pid_t surfaceFlingerPid) override;
 };
 
 } // namespace android::surfaceflinger

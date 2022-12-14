@@ -18,8 +18,8 @@
 #define ANDROID_BUFFEREDTEXTOUTPUT_H
 
 #include <binder/TextOutput.h>
+#include <utils/threads.h>
 #include <sys/uio.h>
-#include <utils/Mutex.h>
 
 // ---------------------------------------------------------------------------
 namespace android {

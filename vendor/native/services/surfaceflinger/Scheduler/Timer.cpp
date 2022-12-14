@@ -89,7 +89,7 @@ nsecs_t Timer::now() const {
 }
 
 void Timer::alarmAt(std::function<void()> const& cb, nsecs_t time) {
-    std::lock_guard lock(mMutex);
+    std::lock_guard<decltype(mMutex)> lk(mMutex);
     using namespace std::literals;
     static constexpr int ns_per_s =
             std::chrono::duration_cast<std::chrono::nanoseconds>(1s).count();
@@ -109,7 +109,7 @@ void Timer::alarmAt(std::function<void()> const& cb, nsecs_t time) {
 }
 
 void Timer::alarmCancel() {
-    std::lock_guard lock(mMutex);
+    std::lock_guard<decltype(mMutex)> lk(mMutex);
 
     struct itimerspec old_timer;
     struct itimerspec new_timer {
@@ -192,7 +192,7 @@ bool Timer::dispatch() {
                 setDebugState(DebugState::Running);
                 std::function<void()> cb;
                 {
-                    std::lock_guard lock(mMutex);
+                    std::lock_guard<decltype(mMutex)> lk(mMutex);
                     cb = mCallback;
                 }
                 if (cb) {
@@ -211,7 +211,7 @@ bool Timer::dispatch() {
 }
 
 void Timer::setDebugState(DebugState state) {
-    std::lock_guard lock(mMutex);
+    std::lock_guard lk(mMutex);
     mDebugState = state;
 }
 
@@ -233,7 +233,7 @@ const char* Timer::strDebugState(DebugState state) const {
 }
 
 void Timer::dump(std::string& result) const {
-    std::lock_guard lock(mMutex);
+    std::lock_guard lk(mMutex);
     StringAppendF(&result, "\t\tDebugState: %s\n", strDebugState(mDebugState));
 }
 

@@ -36,8 +36,7 @@ inline bool equalIgnoringSource(const renderengine::LayerSettings& lhs,
             lhs.sourceDataspace == rhs.sourceDataspace &&
             lhs.colorTransform == rhs.colorTransform &&
             lhs.disableBlending == rhs.disableBlending && lhs.shadow == rhs.shadow &&
-            lhs.backgroundBlurRadius == rhs.backgroundBlurRadius &&
-            lhs.stretchEffect == rhs.stretchEffect;
+            lhs.backgroundBlurRadius == rhs.backgroundBlurRadius;
 }
 
 inline bool equalIgnoringBuffer(const renderengine::Buffer& lhs, const renderengine::Buffer& rhs) {
@@ -46,7 +45,8 @@ inline bool equalIgnoringBuffer(const renderengine::Buffer& lhs, const rendereng
             lhs.textureTransform == rhs.textureTransform &&
             lhs.usePremultipliedAlpha == rhs.usePremultipliedAlpha &&
             lhs.isOpaque == rhs.isOpaque && lhs.isY410BT2020 == rhs.isY410BT2020 &&
-            lhs.maxLuminanceNits == rhs.maxLuminanceNits;
+            lhs.maxMasteringLuminance == rhs.maxMasteringLuminance &&
+            lhs.maxContentLuminance == rhs.maxContentLuminance;
 }
 
 inline bool equalIgnoringBuffer(const renderengine::LayerSettings& lhs,

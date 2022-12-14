@@ -154,8 +154,13 @@ python_binary_host {
     name: "build_verity_metadata",
     srcs: ["build_verity_metadata.py"],
     version: {
-        py3: {
+        py2: {
+            enabled: true,
             embedded_launcher: true,
+        },
+        py3: {
+            enabled: false,
+            embedded_launcher: false,
         },
     },
 }

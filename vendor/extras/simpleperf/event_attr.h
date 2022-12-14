@@ -33,8 +33,6 @@ struct EventAttrWithId {
   std::vector<uint64_t> ids;
 };
 
-inline constexpr uint64_t INFINITE_SAMPLE_PERIOD = 1ULL << 62;
-
 perf_event_attr CreateDefaultPerfEventAttr(const EventType& event_type);
 void DumpPerfEventAttr(const perf_event_attr& attr, size_t indent = 0);
 bool GetCommonEventIdPositionsForAttrs(std::vector<perf_event_attr>& attrs,

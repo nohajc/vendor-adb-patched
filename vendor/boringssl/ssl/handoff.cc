@@ -15,7 +15,6 @@
 #include <openssl/ssl.h>
 
 #include <openssl/bytestring.h>
-#include <openssl/err.h>
 
 #include "internal.h"
 
@@ -94,7 +93,7 @@ bool SSL_serialize_handoff(const SSL *ssl, CBB *out,
       !serialize_features(&seq) ||
       !CBB_flush(out) ||
       !ssl->method->get_message(ssl, &msg) ||
-      !ssl_client_hello_init(ssl, out_hello, msg.body)) {
+      !ssl_client_hello_init(ssl, out_hello, msg)) {
     return false;
   }
 
@@ -232,7 +231,7 @@ static bool apply_remote_features(SSL *ssl, CBS *in) {
 // disqualifies it for split handshakes.
 static bool uses_disallowed_feature(const SSL *ssl) {
   return ssl->method->is_dtls || (ssl->config->cert && ssl->config->cert->dc) ||
-         ssl->config->quic_transport_params.size() > 0 || ssl->ctx->ech_keys;
+         ssl->config->quic_transport_params.size() > 0;
 }
 
 bool SSL_apply_handoff(SSL *ssl, Span<const uint8_t> handoff) {
@@ -338,7 +337,6 @@ bool SSL_serialize_handback(const SSL *ssl, CBB *out) {
   } else {
     session = s3->session_reused ? ssl->session.get() : hs->new_session.get();
   }
-  static const uint8_t kUnusedChannelID[64] = {0};
   if (!CBB_add_asn1(out, &seq, CBS_ASN1_SEQUENCE) ||
       !CBB_add_asn1_uint64(&seq, kHandbackVersion) ||
       !CBB_add_asn1_uint64(&seq, type) ||
@@ -353,7 +351,7 @@ bool SSL_serialize_handback(const SSL *ssl, CBB *out) {
       !CBB_add_asn1_octet_string(&seq, read_iv, read_iv_len) ||
       !CBB_add_asn1_octet_string(&seq, write_iv, write_iv_len) ||
       !CBB_add_asn1_bool(&seq, s3->session_reused) ||
-      !CBB_add_asn1_bool(&seq, hs->channel_id_negotiated) ||
+      !CBB_add_asn1_bool(&seq, s3->channel_id_valid) ||
       !ssl_session_serialize(session, &seq) ||
       !CBB_add_asn1_octet_string(&seq, s3->next_proto_negotiated.data(),
                                  s3->next_proto_negotiated.size()) ||
@@ -362,12 +360,10 @@ bool SSL_serialize_handback(const SSL *ssl, CBB *out) {
       !CBB_add_asn1_octet_string(
           &seq, reinterpret_cast<uint8_t *>(s3->hostname.get()),
           hostname_len) ||
-      !CBB_add_asn1_octet_string(&seq, kUnusedChannelID,
-                                 sizeof(kUnusedChannelID)) ||
-      // These two fields were historically |token_binding_negotiated| and
-      // |negotiated_token_binding_param|.
-      !CBB_add_asn1_bool(&seq, 0) ||
-      !CBB_add_asn1_uint64(&seq, 0) ||
+      !CBB_add_asn1_octet_string(&seq, s3->channel_id,
+                                 sizeof(s3->channel_id)) ||
+      !CBB_add_asn1_bool(&seq, ssl->s3->token_binding_negotiated) ||
+      !CBB_add_asn1_uint64(&seq, ssl->s3->negotiated_token_binding_param) ||
       !CBB_add_asn1_bool(&seq, s3->hs->next_proto_neg_seen) ||
       !CBB_add_asn1_bool(&seq, s3->hs->cert_request) ||
       !CBB_add_asn1_bool(&seq, s3->hs->extended_master_secret) ||
@@ -446,13 +442,12 @@ bool SSL_apply_handback(SSL *ssl, Span<const uint8_t> handback) {
   }
 
   SSL3_STATE *const s3 = ssl->s3;
-  uint64_t handback_version, unused_token_binding_param, cipher, type_u64;
+  uint64_t handback_version, negotiated_token_binding_param, cipher, type_u64;
 
   CBS seq, read_seq, write_seq, server_rand, client_rand, read_iv, write_iv,
-      next_proto, alpn, hostname, unused_channel_id, transcript, key_share;
-  int session_reused, channel_id_negotiated, cert_request,
-      extended_master_secret, ticket_expected, unused_token_binding,
-      next_proto_neg_seen;
+      next_proto, alpn, hostname, channel_id, transcript, key_share;
+  int session_reused, channel_id_valid, cert_request, extended_master_secret,
+      ticket_expected, token_binding_negotiated, next_proto_neg_seen;
   SSL_SESSION *session = nullptr;
 
   CBS handback_cbs(handback);
@@ -480,7 +475,7 @@ bool SSL_apply_handback(SSL *ssl, Span<const uint8_t> handback) {
       !CBS_get_asn1(&seq, &read_iv, CBS_ASN1_OCTETSTRING) ||
       !CBS_get_asn1(&seq, &write_iv, CBS_ASN1_OCTETSTRING) ||
       !CBS_get_asn1_bool(&seq, &session_reused) ||
-      !CBS_get_asn1_bool(&seq, &channel_id_negotiated)) {
+      !CBS_get_asn1_bool(&seq, &channel_id_valid)) {
     return false;
   }
 
@@ -499,9 +494,12 @@ bool SSL_apply_handback(SSL *ssl, Span<const uint8_t> handback) {
   if (!session || !CBS_get_asn1(&seq, &next_proto, CBS_ASN1_OCTETSTRING) ||
       !CBS_get_asn1(&seq, &alpn, CBS_ASN1_OCTETSTRING) ||
       !CBS_get_asn1(&seq, &hostname, CBS_ASN1_OCTETSTRING) ||
-      !CBS_get_asn1(&seq, &unused_channel_id, CBS_ASN1_OCTETSTRING) ||
-      !CBS_get_asn1_bool(&seq, &unused_token_binding) ||
-      !CBS_get_asn1_uint64(&seq, &unused_token_binding_param) ||
+      !CBS_get_asn1(&seq, &channel_id, CBS_ASN1_OCTETSTRING) ||
+      CBS_len(&channel_id) != sizeof(s3->channel_id) ||
+      !CBS_copy_bytes(&channel_id, s3->channel_id,
+                      sizeof(s3->channel_id)) ||
+      !CBS_get_asn1_bool(&seq, &token_binding_negotiated) ||
+      !CBS_get_asn1_uint64(&seq, &negotiated_token_binding_param) ||
       !CBS_get_asn1_bool(&seq, &next_proto_neg_seen) ||
       !CBS_get_asn1_bool(&seq, &cert_request) ||
       !CBS_get_asn1_bool(&seq, &extended_master_secret) ||
@@ -615,7 +613,7 @@ bool SSL_apply_handback(SSL *ssl, Span<const uint8_t> handback) {
       return false;
   }
   s3->session_reused = session_reused;
-  hs->channel_id_negotiated = channel_id_negotiated;
+  s3->channel_id_valid = channel_id_valid;
   s3->next_proto_negotiated.CopyFrom(next_proto);
   s3->alpn_selected.CopyFrom(alpn);
 
@@ -630,6 +628,9 @@ bool SSL_apply_handback(SSL *ssl, Span<const uint8_t> handback) {
     s3->hostname.reset(hostname_str);
   }
 
+  s3->token_binding_negotiated = token_binding_negotiated;
+  s3->negotiated_token_binding_param =
+      static_cast<uint8_t>(negotiated_token_binding_param);
   hs->next_proto_neg_seen = next_proto_neg_seen;
   hs->wait = ssl_hs_flush;
   hs->extended_master_secret = extended_master_secret;
@@ -707,280 +708,3 @@ bool SSL_apply_handback(SSL *ssl, Span<const uint8_t> handback) {
 }
 
 BSSL_NAMESPACE_END
-
-using namespace bssl;
-
-int SSL_serialize_capabilities(const SSL *ssl, CBB *out) {
-  CBB seq;
-  if (!CBB_add_asn1(out, &seq, CBS_ASN1_SEQUENCE) ||
-      !serialize_features(&seq) ||  //
-      !CBB_flush(out)) {
-    return 0;
-  }
-
-  return 1;
-}
-
-int SSL_request_handshake_hints(SSL *ssl, const uint8_t *client_hello,
-                                size_t client_hello_len,
-                                const uint8_t *capabilities,
-                                size_t capabilities_len) {
-  if (SSL_is_dtls(ssl)) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-    return 0;
-  }
-
-  CBS cbs, seq;
-  CBS_init(&cbs, capabilities, capabilities_len);
-  UniquePtr<SSL_HANDSHAKE_HINTS> hints = MakeUnique<SSL_HANDSHAKE_HINTS>();
-  if (hints == nullptr ||
-      !CBS_get_asn1(&cbs, &seq, CBS_ASN1_SEQUENCE) ||
-      !apply_remote_features(ssl, &seq)) {
-    return 0;
-  }
-
-  SSL3_STATE *const s3 = ssl->s3;
-  s3->v2_hello_done = true;
-  s3->has_message = true;
-
-  Array<uint8_t> client_hello_msg;
-  ScopedCBB client_hello_cbb;
-  CBB client_hello_body;
-  if (!ssl->method->init_message(ssl, client_hello_cbb.get(),
-                                 &client_hello_body, SSL3_MT_CLIENT_HELLO) ||
-      !CBB_add_bytes(&client_hello_body, client_hello, client_hello_len) ||
-      !ssl->method->finish_message(ssl, client_hello_cbb.get(),
-                                   &client_hello_msg)) {
-    return 0;
-  }
-
-  s3->hs_buf.reset(BUF_MEM_new());
-  if (!s3->hs_buf || !BUF_MEM_append(s3->hs_buf.get(), client_hello_msg.data(),
-                                     client_hello_msg.size())) {
-    return 0;
-  }
-
-  s3->hs->hints_requested = true;
-  s3->hs->hints = std::move(hints);
-  return 1;
-}
-
-// |SSL_HANDSHAKE_HINTS| is serialized as the following ASN.1 structure. We use
-// implicit tagging to make it a little more compact.
-//
-// HandshakeHints ::= SEQUENCE {
-//     serverRandom            [0] IMPLICIT OCTET STRING OPTIONAL,
-//     keyShareHint            [1] IMPLICIT KeyShareHint OPTIONAL,
-//     signatureHint           [2] IMPLICIT SignatureHint OPTIONAL,
-//     -- At most one of decryptedPSKHint or ignorePSKHint may be present. It
-//     -- corresponds to the first entry in pre_shared_keys. TLS 1.2 session
-//     -- tickets will use a separate hint, to ensure the caller does not mix
-//     -- them up.
-//     decryptedPSKHint        [3] IMPLICIT OCTET STRING OPTIONAL,
-//     ignorePSKHint           [4] IMPLICIT NULL OPTIONAL,
-//     compressCertificateHint [5] IMPLICIT CompressCertificateHint OPTIONAL,
-// }
-//
-// KeyShareHint ::= SEQUENCE {
-//     groupId                 INTEGER,
-//     publicKey               OCTET STRING,
-//     secret                  OCTET STRING,
-// }
-//
-// SignatureHint ::= SEQUENCE {
-//     algorithm               INTEGER,
-//     input                   OCTET STRING,
-//     subjectPublicKeyInfo    OCTET STRING,
-//     signature               OCTET STRING,
-// }
-//
-// CompressCertificateHint ::= SEQUENCE {
-//     algorithm               INTEGER,
-//     input                   OCTET STRING,
-//     compressed              OCTET STRING,
-// }
-
-// HandshakeHints tags.
-static const unsigned kServerRandomTag = CBS_ASN1_CONTEXT_SPECIFIC | 0;
-static const unsigned kKeyShareHintTag =
-    CBS_ASN1_CONSTRUCTED | CBS_ASN1_CONTEXT_SPECIFIC | 1;
-static const unsigned kSignatureHintTag =
-    CBS_ASN1_CONSTRUCTED | CBS_ASN1_CONTEXT_SPECIFIC | 2;
-static const unsigned kDecryptedPSKTag = CBS_ASN1_CONTEXT_SPECIFIC | 3;
-static const unsigned kIgnorePSKTag = CBS_ASN1_CONTEXT_SPECIFIC | 4;
-static const unsigned kCompressCertificateTag = CBS_ASN1_CONTEXT_SPECIFIC | 5;
-
-int SSL_serialize_handshake_hints(const SSL *ssl, CBB *out) {
-  const SSL_HANDSHAKE *hs = ssl->s3->hs.get();
-  if (!ssl->server || !hs->hints_requested) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-    return 0;
-  }
-
-  const SSL_HANDSHAKE_HINTS *hints = hs->hints.get();
-  CBB seq, child;
-  if (!CBB_add_asn1(out, &seq, CBS_ASN1_SEQUENCE)) {
-    return 0;
-  }
-
-  if (!hints->server_random.empty()) {
-    if (!CBB_add_asn1(&seq, &child, kServerRandomTag) ||
-        !CBB_add_bytes(&child, hints->server_random.data(),
-                       hints->server_random.size())) {
-      return 0;
-    }
-  }
-
-  if (hints->key_share_group_id != 0 && !hints->key_share_public_key.empty() &&
-      !hints->key_share_secret.empty()) {
-    if (!CBB_add_asn1(&seq, &child, kKeyShareHintTag) ||
-        !CBB_add_asn1_uint64(&child, hints->key_share_group_id) ||
-        !CBB_add_asn1_octet_string(&child, hints->key_share_public_key.data(),
-                                   hints->key_share_public_key.size()) ||
-        !CBB_add_asn1_octet_string(&child, hints->key_share_secret.data(),
-                                   hints->key_share_secret.size())) {
-      return 0;
-    }
-  }
-
-  if (hints->signature_algorithm != 0 && !hints->signature_input.empty() &&
-      !hints->signature.empty()) {
-    if (!CBB_add_asn1(&seq, &child, kSignatureHintTag) ||
-        !CBB_add_asn1_uint64(&child, hints->signature_algorithm) ||
-        !CBB_add_asn1_octet_string(&child, hints->signature_input.data(),
-                                   hints->signature_input.size()) ||
-        !CBB_add_asn1_octet_string(&child, hints->signature_spki.data(),
-                                   hints->signature_spki.size()) ||
-        !CBB_add_asn1_octet_string(&child, hints->signature.data(),
-                                   hints->signature.size())) {
-      return 0;
-    }
-  }
-
-  if (!hints->decrypted_psk.empty()) {
-    if (!CBB_add_asn1(&seq, &child, kDecryptedPSKTag) ||
-        !CBB_add_bytes(&child, hints->decrypted_psk.data(),
-                       hints->decrypted_psk.size())) {
-      return 0;
-    }
-  }
-
-  if (hints->ignore_psk &&  //
-      !CBB_add_asn1(&seq, &child, kIgnorePSKTag)) {
-    return 0;
-  }
-
-  if (hints->cert_compression_alg_id != 0 &&
-      !hints->cert_compression_input.empty() &&
-      !hints->cert_compression_output.empty()) {
-    if (!CBB_add_asn1(&seq, &child, kCompressCertificateTag) ||
-        !CBB_add_asn1_uint64(&child, hints->cert_compression_alg_id) ||
-        !CBB_add_asn1_octet_string(&child, hints->cert_compression_input.data(),
-                                   hints->cert_compression_input.size()) ||
-        !CBB_add_asn1_octet_string(&child,
-                                   hints->cert_compression_output.data(),
-                                   hints->cert_compression_output.size())) {
-      return 0;
-    }
-  }
-
-  return CBB_flush(out);
-}
-
-int SSL_set_handshake_hints(SSL *ssl, const uint8_t *hints, size_t hints_len) {
-  if (SSL_is_dtls(ssl)) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-    return 0;
-  }
-
-  UniquePtr<SSL_HANDSHAKE_HINTS> hints_obj = MakeUnique<SSL_HANDSHAKE_HINTS>();
-  if (hints_obj == nullptr) {
-    return 0;
-  }
-
-  CBS cbs, seq, server_random, key_share, signature_hint, ticket, ignore_psk,
-      cert_compression;
-  int has_server_random, has_key_share, has_signature_hint, has_ticket,
-      has_ignore_psk, has_cert_compression;
-  CBS_init(&cbs, hints, hints_len);
-  if (!CBS_get_asn1(&cbs, &seq, CBS_ASN1_SEQUENCE) ||
-      !CBS_get_optional_asn1(&seq, &server_random, &has_server_random,
-                             kServerRandomTag) ||
-      !CBS_get_optional_asn1(&seq, &key_share, &has_key_share,
-                             kKeyShareHintTag) ||
-      !CBS_get_optional_asn1(&seq, &signature_hint, &has_signature_hint,
-                             kSignatureHintTag) ||
-      !CBS_get_optional_asn1(&seq, &ticket, &has_ticket, kDecryptedPSKTag) ||
-      !CBS_get_optional_asn1(&seq, &ignore_psk, &has_ignore_psk,
-                             kIgnorePSKTag) ||
-      !CBS_get_optional_asn1(&seq, &cert_compression, &has_cert_compression,
-                             kCompressCertificateTag)) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_COULD_NOT_PARSE_HINTS);
-    return 0;
-  }
-
-  if (has_server_random && !hints_obj->server_random.CopyFrom(server_random)) {
-    return 0;
-  }
-
-  if (has_key_share) {
-    uint64_t group_id;
-    CBS public_key, secret;
-    if (!CBS_get_asn1_uint64(&key_share, &group_id) ||  //
-        group_id == 0 || group_id > 0xffff ||
-        !CBS_get_asn1(&key_share, &public_key, CBS_ASN1_OCTETSTRING) ||
-        !hints_obj->key_share_public_key.CopyFrom(public_key) ||
-        !CBS_get_asn1(&key_share, &secret, CBS_ASN1_OCTETSTRING) ||
-        !hints_obj->key_share_secret.CopyFrom(secret)) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_COULD_NOT_PARSE_HINTS);
-      return 0;
-    }
-    hints_obj->key_share_group_id = static_cast<uint16_t>(group_id);
-  }
-
-  if (has_signature_hint) {
-    uint64_t sig_alg;
-    CBS input, spki, signature;
-    if (!CBS_get_asn1_uint64(&signature_hint, &sig_alg) ||  //
-        sig_alg == 0 || sig_alg > 0xffff ||
-        !CBS_get_asn1(&signature_hint, &input, CBS_ASN1_OCTETSTRING) ||
-        !hints_obj->signature_input.CopyFrom(input) ||
-        !CBS_get_asn1(&signature_hint, &spki, CBS_ASN1_OCTETSTRING) ||
-        !hints_obj->signature_spki.CopyFrom(spki) ||
-        !CBS_get_asn1(&signature_hint, &signature, CBS_ASN1_OCTETSTRING) ||
-        !hints_obj->signature.CopyFrom(signature)) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_COULD_NOT_PARSE_HINTS);
-      return 0;
-    }
-    hints_obj->signature_algorithm = static_cast<uint16_t>(sig_alg);
-  }
-
-  if (has_ticket && !hints_obj->decrypted_psk.CopyFrom(ticket)) {
-    return 0;
-  }
-
-  if (has_ignore_psk) {
-    if (CBS_len(&ignore_psk) != 0) {
-      return 0;
-    }
-    hints_obj->ignore_psk = true;
-  }
-
-  if (has_cert_compression) {
-    uint64_t alg;
-    CBS input, output;
-    if (!CBS_get_asn1_uint64(&cert_compression, &alg) ||  //
-        alg == 0 || alg > 0xffff ||
-        !CBS_get_asn1(&cert_compression, &input, CBS_ASN1_OCTETSTRING) ||
-        !hints_obj->cert_compression_input.CopyFrom(input) ||
-        !CBS_get_asn1(&cert_compression, &output, CBS_ASN1_OCTETSTRING) ||
-        !hints_obj->cert_compression_output.CopyFrom(output)) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_COULD_NOT_PARSE_HINTS);
-      return 0;
-    }
-    hints_obj->cert_compression_alg_id = static_cast<uint16_t>(alg);
-  }
-
-  ssl->s3->hs->hints = std::move(hints_obj);
-  return 1;
-}

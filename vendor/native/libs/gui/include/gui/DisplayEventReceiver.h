@@ -52,53 +52,37 @@ public:
     enum {
         DISPLAY_EVENT_VSYNC = fourcc('v', 's', 'y', 'n'),
         DISPLAY_EVENT_HOTPLUG = fourcc('p', 'l', 'u', 'g'),
-        DISPLAY_EVENT_MODE_CHANGE = fourcc('m', 'o', 'd', 'e'),
+        DISPLAY_EVENT_CONFIG_CHANGED = fourcc('c', 'o', 'n', 'f'),
         DISPLAY_EVENT_NULL = fourcc('n', 'u', 'l', 'l'),
-        DISPLAY_EVENT_FRAME_RATE_OVERRIDE = fourcc('r', 'a', 't', 'e'),
-        DISPLAY_EVENT_FRAME_RATE_OVERRIDE_FLUSH = fourcc('f', 'l', 's', 'h'),
     };
 
     struct Event {
-        // We add __attribute__((aligned(8))) for nsecs_t fields because
-        // we need to make sure all fields are aligned the same with x86
-        // and x64 (long long has different default alignment):
-        //
-        // https://en.wikipedia.org/wiki/Data_structure_alignment
 
         struct Header {
             uint32_t type;
-            PhysicalDisplayId displayId __attribute__((aligned(8)));
+            PhysicalDisplayId displayId;
             nsecs_t timestamp __attribute__((aligned(8)));
         };
 
         struct VSync {
             uint32_t count;
-            nsecs_t expectedVSyncTimestamp __attribute__((aligned(8)));
-            nsecs_t deadlineTimestamp __attribute__((aligned(8)));
-            nsecs_t frameInterval __attribute__((aligned(8)));
-            int64_t vsyncId;
+            nsecs_t expectedVSyncTimestamp;
         };
 
         struct Hotplug {
             bool connected;
         };
 
-        struct ModeChange {
-            int32_t modeId;
-            nsecs_t vsyncPeriod __attribute__((aligned(8)));
-        };
-
-        struct FrameRateOverride {
-            uid_t uid __attribute__((aligned(8)));
-            float frameRateHz __attribute__((aligned(8)));
+        struct Config {
+            int32_t configId;
+            nsecs_t vsyncPeriod;
         };
 
         Header header;
         union {
             VSync vsync;
             Hotplug hotplug;
-            ModeChange modeChange;
-            FrameRateOverride frameRateOverride;
+            Config config;
         };
     };
 
@@ -107,12 +91,13 @@ public:
      * DisplayEventReceiver creates and registers an event connection with
      * SurfaceFlinger. VSync events are disabled by default. Call setVSyncRate
      * or requestNextVsync to receive them.
-     * To receive ModeChanged and/or FrameRateOverrides events specify this in
-     * the constructor. Other events start being delivered immediately.
+     * To receive Config Changed events specify this in the constructor.
+     * Other events start being delivered immediately.
      */
     explicit DisplayEventReceiver(
             ISurfaceComposer::VsyncSource vsyncSource = ISurfaceComposer::eVsyncSourceApp,
-            ISurfaceComposer::EventRegistrationFlags eventRegistration = {});
+            ISurfaceComposer::ConfigChanged configChanged =
+                    ISurfaceComposer::eConfigChangedSuppress);
 
     /*
      * ~DisplayEventReceiver severs the connection with SurfaceFlinger, new events

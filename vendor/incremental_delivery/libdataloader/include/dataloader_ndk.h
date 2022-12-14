@@ -24,9 +24,12 @@ __BEGIN_DECLS
 
 #define DATALOADER_LIBRARY_NAME "libdataloader.so"
 
+// Keep in sync with IDataLoaderStatusListener.aidl
 typedef enum {
-    DATA_LOADER_UNAVAILABLE = 7,
     DATA_LOADER_UNRECOVERABLE = 8,
+
+    DATA_LOADER_FIRST_STATUS = DATA_LOADER_UNRECOVERABLE,
+    DATA_LOADER_LAST_STATUS = DATA_LOADER_UNRECOVERABLE,
 } DataLoaderStatus;
 
 typedef enum {
@@ -40,11 +43,6 @@ typedef enum {
     DATA_LOADER_LOCATION_MEDIA_OBB = 1,
     DATA_LOADER_LOCATION_MEDIA_DATA = 2,
 } DataLoaderLocation;
-
-typedef enum {
-    DATA_LOADER_FEATURE_NONE = 0,
-    DATA_LOADER_FEATURE_UID = 1 << 0,
-} DataLoaderFeatures;
 
 struct DataLoaderParams {
     int type;
@@ -83,7 +81,6 @@ typedef jobject DataLoaderServiceConnectorPtr;
 typedef jobject DataLoaderServiceParamsPtr;
 
 struct DataLoader {
-    // DataLoader v1.
     bool (*onStart)(struct DataLoader* self);
     void (*onStop)(struct DataLoader* self);
     void (*onDestroy)(struct DataLoader* self);
@@ -95,15 +92,6 @@ struct DataLoader {
                            int pendingReadsCount);
     void (*onPageReads)(struct DataLoader* self, const IncFsReadInfo pageReads[],
                         int pageReadsCount);
-
-    // DataLoader v2, with features.
-    // Use DataLoader_Initialize_WithFeatures to set a factory for v2 DataLoader.
-    DataLoaderFeatures (*getFeatures)(struct DataLoader* self);
-
-    void (*onPendingReadsWithUid)(struct DataLoader* self,
-                                  const IncFsReadInfoWithUid pendingReads[], int pendingReadsCount);
-    void (*onPageReadsWithUid)(struct DataLoader* self, const IncFsReadInfoWithUid pageReads[],
-                               int pageReadsCount);
 };
 
 struct DataLoaderFactory {
@@ -113,7 +101,6 @@ struct DataLoaderFactory {
                                    DataLoaderServiceParamsPtr);
 };
 void DataLoader_Initialize(struct DataLoaderFactory*);
-void DataLoader_Initialize_WithFeatures(struct DataLoaderFactory*);
 
 void DataLoader_FilesystemConnector_writeData(DataLoaderFilesystemConnectorPtr, jstring name,
                                               jlong offsetBytes, jlong lengthBytes,

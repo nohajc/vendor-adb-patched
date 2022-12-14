@@ -97,34 +97,6 @@ bool FenceTime::isValid() const {
     return mState != State::INVALID;
 }
 
-status_t FenceTime::wait(int timeout) {
-    // See if we already have a cached value we can return.
-    nsecs_t signalTime = mSignalTime.load(std::memory_order_relaxed);
-    if (signalTime != Fence::SIGNAL_TIME_PENDING) {
-        return NO_ERROR;
-    }
-
-    // Hold a reference to the fence on the stack in case the class'
-    // reference is removed by another thread. This prevents the
-    // fence from being destroyed until the end of this method, where
-    // we conveniently do not have the lock held.
-    sp<Fence> fence;
-    {
-        // With the lock acquired this time, see if we have the cached
-        // value or if we need to poll the fence.
-        std::lock_guard<std::mutex> lock(mMutex);
-        if (!mFence.get()) {
-            // Another thread set the signal time just before we added the
-            // reference to mFence.
-            return NO_ERROR;
-        }
-        fence = mFence;
-    }
-
-    // Make the system call without the lock held.
-    return fence->wait(timeout);
-}
-
 nsecs_t FenceTime::getSignalTime() {
     // See if we already have a cached value we can return.
     nsecs_t signalTime = mSignalTime.load(std::memory_order_relaxed);

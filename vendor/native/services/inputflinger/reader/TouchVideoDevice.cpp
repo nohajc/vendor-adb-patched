@@ -169,9 +169,8 @@ size_t TouchVideoDevice::readAndQueueFrames() {
     mFrames.insert(mFrames.end(), std::make_move_iterator(frames.begin()),
                    std::make_move_iterator(frames.end()));
     if (mFrames.size() > MAX_QUEUE_SIZE) {
-        // A user-space grip suppression process may be processing the video frames, and holding
-        // back the input events. This could result in video frames being produced without the
-        // matching input events. Drop the oldest frame here to prepare for the next input event.
+        ALOGE("More than %zu frames have been accumulated. Dropping %zu frames", MAX_QUEUE_SIZE,
+              mFrames.size() - MAX_QUEUE_SIZE);
         mFrames.erase(mFrames.begin(), mFrames.end() - MAX_QUEUE_SIZE);
     }
     return numFrames;

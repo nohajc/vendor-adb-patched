@@ -131,7 +131,6 @@ public:
     // Public for testing.
     static nsecs_t snapToNextTick(
             nsecs_t timestamp, nsecs_t tickPhase, nsecs_t tickInterval);
-    nsecs_t getReportedCompositeDeadline() const { return mCompositorTiming.deadline; };
 
     nsecs_t getNextCompositeDeadline(const nsecs_t now) const;
     nsecs_t getCompositeInterval() const { return mCompositorTiming.interval; }

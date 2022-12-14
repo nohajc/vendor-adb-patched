@@ -20,7 +20,6 @@
 
 #include <map>
 #include <optional>
-#include <vector>
 
 namespace android {
 
@@ -51,16 +50,6 @@ public:
     Vector<String16> getDeclaredInstances(const String16& iface) override;
 
     std::optional<String16> updatableViaApex(const String16& name) override;
-
-    std::optional<IServiceManager::ConnectionInfo> getConnectionInfo(const String16& name) override;
-
-    status_t registerForNotifications(const String16& name,
-                                      const sp<LocalRegistrationCallback>& callback) override;
-
-    status_t unregisterForNotifications(const String16& name,
-                                        const sp<LocalRegistrationCallback>& callback) override;
-
-    std::vector<IServiceManager::ServiceDebugInfo> getServiceDebugInfo() override;
 
 private:
     std::map<String16, sp<IBinder>> mNameToService;

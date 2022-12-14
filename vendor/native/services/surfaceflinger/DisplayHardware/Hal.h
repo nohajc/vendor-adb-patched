@@ -166,15 +166,4 @@ inline std::string to_string(hardware::graphics::composer::hal::PowerMode mode) 
     }
 }
 
-inline std::string to_string(hardware::graphics::composer::hal::Vsync vsync) {
-    switch (vsync) {
-        case hardware::graphics::composer::hal::Vsync::ENABLE:
-            return "Enable";
-        case hardware::graphics::composer::hal::Vsync::DISABLE:
-            return "Disable";
-        default:
-            return "Unknown";
-    }
-}
-
 } // namespace android

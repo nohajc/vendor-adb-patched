@@ -23,16 +23,6 @@ package {
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
-filegroup {
-    name: "inputconstants_aidl",
-    srcs: [
-        "android/os/BlockUntrustedTouchesMode.aidl",
-        "android/os/IInputConstants.aidl",
-        "android/os/InputEventInjectionResult.aidl",
-        "android/os/InputEventInjectionSync.aidl",
-    ],
-}
-
 cc_library {
     name: "libinput",
     host_supported: true,
@@ -44,16 +34,15 @@ cc_library {
     srcs: [
         "Input.cpp",
         "InputDevice.cpp",
-        "InputEventLabels.cpp",
         "Keyboard.cpp",
         "KeyCharacterMap.cpp",
         "KeyLayoutMap.cpp",
         "PropertyMap.cpp",
         "TouchVideoFrame.cpp",
-        "VelocityControl.cpp",
-        "VelocityTracker.cpp",
         "VirtualKeyMap.cpp",
     ],
+
+    clang: true,
 
     header_libs: ["jni_headers"],
     export_header_lib_headers: ["jni_headers"],
@@ -62,42 +51,25 @@ cc_library {
         "libbase",
         "liblog",
         "libcutils",
-        "libvintf",
-    ],
-
-    static_libs: [
-        "libui-types",
-    ],
-
-    export_static_lib_headers: [
-        "libui-types",
     ],
 
     target: {
         android: {
             srcs: [
+                "IInputFlinger.cpp",
+                "InputApplication.cpp",
                 "InputTransport.cpp",
-                "android/os/BlockUntrustedTouchesMode.aidl",
-                "android/os/IInputConstants.aidl",
-                "android/os/IInputFlinger.aidl",
-                "android/os/InputEventInjectionResult.aidl",
-                "android/os/InputEventInjectionSync.aidl",
+                "InputWindow.cpp",
+                "ISetInputWindowsListener.cpp",
+                "LatencyStatistics.cpp",
+                "VelocityControl.cpp",
+                "VelocityTracker.cpp",
             ],
-
-            export_shared_lib_headers: ["libbinder"],
 
             shared_libs: [
                 "libutils",
                 "libbinder",
                 "libui",
-            ],
-
-            static_libs: [
-                "libgui_window_info_static",
-            ],
-
-            export_static_lib_headers: [
-                "libgui_window_info_static",
             ],
 
             sanitize: {
@@ -108,36 +80,7 @@ cc_library {
             shared: {
                 enabled: false,
             },
-            include_dirs: [
-                "frameworks/native/libs/arect/include",
-            ],
         },
-        host_linux: {
-            srcs: [
-                "InputTransport.cpp",
-                "android/os/IInputConstants.aidl",
-                "android/os/IInputFlinger.aidl",
-            ],
-            static_libs: [
-                "libhostgraphics",
-                "libgui_window_info_static",
-            ],
-            shared_libs: [
-                "libbinder",
-            ],
-
-            export_static_lib_headers: [
-                "libgui_window_info_static",
-            ],
-        },
-    },
-
-    aidl: {
-        local_include_dirs: ["."],
-        export_aidl_headers: true,
-        include_dirs: [
-            "frameworks/native/libs/gui",
-        ],
     },
 }
 

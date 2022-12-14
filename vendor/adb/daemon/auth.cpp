@@ -64,7 +64,6 @@ static android::base::NoDestructor<std::map<uint32_t, weak_ptr<atransport>>> tra
 static uint32_t transport_auth_id = 0;
 
 bool auth_required = true;
-bool socket_access_allowed = true;
 
 static void* transport_to_callback_arg(atransport* transport) {
     uint32_t id = transport_auth_id++;

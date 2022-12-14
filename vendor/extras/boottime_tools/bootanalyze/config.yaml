@@ -61,7 +61,7 @@ events:
   KeyguardShown: KeyguardServiceDelegate.*\*\*\*\* SHOWN CALLED \*\*\*\*
   BootComplete: Starting phase 1000
   BootComplete_kernel: processing action \(sys\.boot_completed=1\)
-  LauncherStart: START.*HOME.*(NexusLauncherActivity|GEL|LensPickerTrampolineActivity|SetupWizard|CarLauncher|launcher.*Launcher)
+  LauncherStart: START.*HOME.*(NexusLauncherActivity|GEL|LensPickerTrampolineActivity|SetupWizard|CarLauncher)
   FsStat: fs_stat, partition:userdata stat:(0x\S+)
 shutdown_events:
   ShutdownStart: ShutdownThread:\sNotifying thread to start shutdown

@@ -86,7 +86,7 @@ public:
                 *ret = nullptr;
                 return android::BAD_VALUE;
             }
-            *ret = std::static_pointer_cast<T>(mParcelable);
+            *ret = std::shared_ptr<T>(mParcelable, reinterpret_cast<T*>(mParcelable.get()));
             return android::OK;
         }
         this->mParcelPtr->setDataPosition(0);
@@ -105,7 +105,7 @@ public:
             return status;
         }
         this->mParcelPtr = nullptr;
-        *ret = std::static_pointer_cast<T>(mParcelable);
+        *ret = std::shared_ptr<T>(mParcelable, reinterpret_cast<T*>(mParcelable.get()));
         return android::OK;
     }
 

@@ -28,8 +28,7 @@ Currently the following tools are supported:
 * mke2fs.android (required by fastboot)
 * simg2img, img2simg, append2simg
 * lpdump, lpmake, lpadd, lpflash, lpunpack
-* mkbootimg, unpack_bootimg, repack_bootimg, avbtool
-* mkdtboimg
+* mkbootimg, unpack_bootimg, repack_bootimg
 
 The build system itself works quite well and is already being used for
 the Alpine Linux [android-tools package][alpine-linux] which I maintain.
@@ -52,10 +51,6 @@ The following libraries are required by android-tools:
 5. [brotli][brotli]
 6. [zstd][zstd]
 7. [lz4][lz4]
-
-Python 3 is optionally needed as a run-time dependency in order to use
-the `mkbootimg`, `unpack_bootimg`, and `repack_bootimg` scripts which
-are all written in Python.
 
 Additionally the following software is required at compile-time:
 

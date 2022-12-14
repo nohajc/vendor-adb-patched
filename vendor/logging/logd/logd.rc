@@ -8,15 +8,14 @@ service logd /system/bin/logd
     group logd system package_info readproc
     capabilities SYSLOG AUDIT_CONTROL
     priority 10
-    task_profiles ServiceCapacityLow
-    onrestart setprop logd.ready false
+    writepid /dev/cpuset/system-background/tasks
 
 service logd-reinit /system/bin/logd --reinit
     oneshot
     disabled
     user logd
     group logd
-    task_profiles ServiceCapacityLow
+    writepid /dev/cpuset/system-background/tasks
 
 # Limit SELinux denial generation to 5/second
 service logd-auditctl /system/bin/auditctl -r 5

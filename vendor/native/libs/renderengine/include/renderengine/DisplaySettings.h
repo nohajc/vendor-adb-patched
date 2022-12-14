@@ -47,8 +47,8 @@ struct DisplaySettings {
     // DataSpace::UNKNOWN otherwise.
     ui::Dataspace outputDataspace = ui::Dataspace::UNKNOWN;
 
-    // Additional color transform to apply after transforming to the output
-    // dataspace, in non-linear space.
+    // Additional color transform to apply in linear space after transforming
+    // to the output dataspace.
     mat4 colorTransform = mat4();
 
     // Region that will be cleared to (0, 0, 0, 1) prior to rendering.
@@ -60,9 +60,6 @@ struct DisplaySettings {
     // capture of a device in landscape while the buffer is in portrait
     // orientation.
     uint32_t orientation = ui::Transform::ROT_0;
-
-    // SDR white point, -1f if unknown
-    float sdrWhitePointNits = -1.f;
 };
 
 static inline bool operator==(const DisplaySettings& lhs, const DisplaySettings& rhs) {

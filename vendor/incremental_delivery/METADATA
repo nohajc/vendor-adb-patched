@@ -1,3 +1,5 @@
 third_party {
-  license_type: NOTICE
+  # would be NOTICE save for:
+  #   incfs/kernel-headers/linux/incrementalfs.h
+  license_type: RESTRICTED
 }

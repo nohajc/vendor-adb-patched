@@ -79,6 +79,9 @@ host:<request>
     interpreted as 'any single device or emulator connected to/running on
     the host'.
 
+<host-prefix>:get-product
+    XXX
+
 <host-prefix>:get-serialno
     Returns the serial number of the corresponding device/emulator.
     Note that emulator serial numbers are of the form "emulator-5554"
@@ -161,22 +164,6 @@ shell:
     this to implement "adb shell", but will also cook the input before
     sending it to the device (see interactive_shell() in commandline.c)
 
-shell,v2: (API>=24)
-    Variant of shell service which uses "shell protocol" in order to
-    differentiate stdin, stderr, and also retrieve exit code.
-
-exec:
-    Variant of shell which uses a raw PTY in order to not mangle output.
-
-abb: (API>=30)
-    Direct connection to Binder on device. This service does not use space
-    for parameter separator but "\u0000". Example:
-    abb:package0install-create
-
-abb_exec: (API>=30)
-    Variant of abb. Use a raw PTY in order to not mangle output. Example:
-    abb_exec:package0install-write
-
 remount:
     Ask adbd to remount the device's filesystem in read-write mode,
     instead of read-only. This is usually necessary before performing
@@ -245,28 +232,6 @@ track-jdwp
     on the device/emulator.
 
     Note that there is no single-shot service to retrieve the list only once.
-
-track-app:
-    Improved version of "track-jdwp" service which also mentions whether the
-    app is profileable and its architecture. Each time the list changes,
-    a new messeage is sent (this service never stops).
-
-    Each message features a hex4 length prefix followed by a
-    human-readable protocol buffer. e.g.:
-
-    process {
-      pid: 18595
-      debuggable: true
-      architecture: "arm64"
-    }
-    process {
-      pid: 18407
-      debuggable: true
-      profileable: true
-      architecture: "arm64"
-    }
-
-    Note: Generate a parser from [app_processes.proto].
 
 sync:
     This starts the file synchronization service, used to implement "adb push"

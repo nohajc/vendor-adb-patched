@@ -29,7 +29,6 @@
 // by SnapshotManager.
 
 #include "android/snapshot/snapshot_fuzz.pb.h"
-#include "libsnapshot/snapshot.h"
 
 namespace android::snapshot {
 
@@ -95,7 +94,6 @@ class SnapshotFuzzEnv {
 
 class SnapshotFuzzDeviceInfo : public ISnapshotManager::IDeviceInfo {
   public:
-    using MergeStatus = ISnapshotManager::IDeviceInfo::MergeStatus;
     // Client is responsible for maintaining the lifetime of |data|.
     SnapshotFuzzDeviceInfo(SnapshotFuzzEnv* env, const FuzzDeviceInfoData& data,
                            std::unique_ptr<TestPartitionOpener>&& partition_opener,
@@ -103,8 +101,7 @@ class SnapshotFuzzDeviceInfo : public ISnapshotManager::IDeviceInfo {
         : env_(env),
           data_(&data),
           partition_opener_(std::move(partition_opener)),
-          metadata_dir_(metadata_dir),
-          dm_(android::dm::DeviceMapper::Instance()) {}
+          metadata_dir_(metadata_dir) {}
 
     // Following APIs are mocked.
     std::string GetMetadataDir() const override { return metadata_dir_; }
@@ -120,7 +117,7 @@ class SnapshotFuzzDeviceInfo : public ISnapshotManager::IDeviceInfo {
     std::string GetSlotSuffix() const override { return CurrentSlotIsA() ? "_a" : "_b"; }
     std::string GetOtherSlotSuffix() const override { return CurrentSlotIsA() ? "_b" : "_a"; }
     bool IsOverlayfsSetup() const override { return data_->is_overlayfs_setup(); }
-    bool SetBootControlMergeStatus(MergeStatus) override {
+    bool SetBootControlMergeStatus(android::hardware::boot::V1_1::MergeStatus) override {
         return data_->allow_set_boot_control_merge_status();
     }
     bool SetSlotAsUnbootable(unsigned int) override {
@@ -128,7 +125,6 @@ class SnapshotFuzzDeviceInfo : public ISnapshotManager::IDeviceInfo {
     }
     bool IsRecovery() const override { return data_->is_recovery(); }
     bool IsFirstStageInit() const override { return false; }
-    android::dm::IDeviceMapper& GetDeviceMapper() override { return dm_; }
     std::unique_ptr<IImageManager> OpenImageManager() const {
         return env_->CheckCreateFakeImageManager();
     }
@@ -141,7 +137,6 @@ class SnapshotFuzzDeviceInfo : public ISnapshotManager::IDeviceInfo {
     std::unique_ptr<TestPartitionOpener> partition_opener_;
     std::string metadata_dir_;
     bool switched_slot_ = false;
-    android::dm::DeviceMapper& dm_;
 
     bool CurrentSlotIsA() const { return data_->slot_suffix_is_a() != switched_slot_; }
 };
@@ -201,7 +196,6 @@ class SnapshotFuzzImageManager : public android::fiemap::IImageManager {
     bool UnmapImageIfExists(const std::string& name) override {
         return impl_->UnmapImageIfExists(name);
     }
-    bool IsImageDisabled(const std::string& name) override { return impl_->IsImageDisabled(name); }
 
   private:
     std::unique_ptr<android::fiemap::IImageManager> impl_;

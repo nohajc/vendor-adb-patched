@@ -23,7 +23,6 @@
 #include <android-base/file.h>
 #include <android-base/parseint.h>
 #include <android-base/strings.h>
-#include <android-base/test_utils.h>
 
 #include "command.h"
 #include "get_test_data.h"
@@ -290,20 +289,6 @@ TEST_F(ReportCommandTest, symbol_filter_option) {
   ASSERT_TRUE(AllItemsWithString(lines, {"main", "func2(int, int)"}));
 }
 
-TEST_F(ReportCommandTest, dso_symbol_filter_with_children_option) {
-  // dso and symbol filter should filter different layers of the callchain separately.
-  Report("perf_display_bitmaps.data", {"--dsos", "/apex/com.android.runtime/lib64/libart.so",
-                                       "--children", "--raw-period", "--sort", "dso"});
-  ASSERT_TRUE(success);
-  ASSERT_NE(content.find("63500000  43250000  /apex/com.android.runtime/lib64/libart.so"),
-            std::string::npos);
-
-  Report("perf_display_bitmaps.data",
-         {"--symbols", "MterpInvokeVirtual", "--children", "--raw-period", "--sort", "symbol"});
-  ASSERT_TRUE(success);
-  ASSERT_NE(content.find("51500000  2500000  MterpInvokeVirtual"), std::string::npos);
-}
-
 TEST_F(ReportCommandTest, use_branch_address) {
   Report(BRANCH_PERF_DATA, {"-b", "--sort", "symbol_from,symbol_to"});
   std::set<std::pair<std::string, std::string>> hit_set;
@@ -458,17 +443,6 @@ TEST_F(ReportCommandTest, max_stack_and_percent_limit_option) {
   ASSERT_NE(content.find("89.03"), std::string::npos);
 }
 
-TEST_F(ReportCommandTest, percent_limit_option) {
-  Report(PERF_DATA);
-  ASSERT_TRUE(success);
-  ASSERT_NE(content.find("7.70%"), std::string::npos);
-  ASSERT_NE(content.find("3.23%"), std::string::npos);
-  Report(PERF_DATA, {"--percent-limit", "3.24"});
-  ASSERT_TRUE(success);
-  ASSERT_NE(content.find("7.70%"), std::string::npos);
-  ASSERT_EQ(content.find("3.23%"), std::string::npos);
-}
-
 TEST_F(ReportCommandTest, kallsyms_option) {
   Report(PERF_DATA, {"--kallsyms", GetTestData("kallsyms")});
   ASSERT_TRUE(success);
@@ -525,13 +499,6 @@ TEST_F(ReportCommandTest, csv_option) {
   ASSERT_NE(content.find("AccEventCount,SelfEventCount,EventName"), std::string::npos);
 }
 
-TEST_F(ReportCommandTest, csv_separator_option) {
-  Report(PERF_DATA, {"--csv", "--csv-separator", ";"});
-  ASSERT_TRUE(success);
-  ASSERT_NE(content.find("EventCount;EventName"), std::string::npos);
-  ASSERT_NE(content.find(";cpu-cycles"), std::string::npos);
-}
-
 TEST_F(ReportCommandTest, dso_path_for_jit_cache) {
   Report("perf_with_jit_symbol.data", {"--sort", "dso"});
   ASSERT_TRUE(success);
@@ -563,94 +530,6 @@ TEST_F(ReportCommandTest, cpu_option) {
   ASSERT_TRUE(success);
   ASSERT_EQ(1806, GetSampleCount());
   ASSERT_FALSE(ReportCmd()->Run({"-i", GetTestData("perf.data"), "--cpu", "-2"}));
-}
-
-TEST_F(ReportCommandTest, print_event_count_option) {
-  // Report record file not recorded with --add-counter.
-  Report("perf.data", {"--print-event-count"});
-  ASSERT_TRUE(success);
-  ASSERT_NE(content.find("EventCount"), std::string::npos);
-  ASSERT_TRUE(std::regex_search(
-      content, std::regex(R"(325005586\s+elf\s+26083\s+26083\s+/elf\s+GlobalFunc)")));
-
-  // Report record file recorded with --add-counter.
-  const std::string record_file = "perf_with_add_counter.data";
-  Report(record_file, {"--print-event-count"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(
-      std::regex_search(content, std::regex(R"(EventCount_cpu-cycles\s+EventCount_instructions)")));
-  ASSERT_TRUE(std::regex_search(
-      content, std::regex(R"(175099\s+140443\s+sleep\s+689664\s+689664.+_dl_addr)")));
-
-  // Report accumulated event counts.
-  Report(record_file, {"--print-event-count", "--children"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(std::regex_search(
-      content,
-      std::regex(
-          R"(AccEventCount_cpu-cycles\s+SelfEventCount_cpu-cycles\s+AccEventCount_instructions\s+)"
-          R"(SelfEventCount_instructions)")));
-  ASSERT_TRUE(std::regex_search(
-      content,
-      std::regex(R"(175099\s+175099\s+140443\s+140443\s+sleep\s+689664\s+689664.+_dl_addr)")));
-  ASSERT_TRUE(std::regex_search(
-      content,
-      std::regex(R"(366116\s+0\s+297474\s+0\s+sleep\s+689664\s+689664.+__libc_start_main)")));
-}
-
-TEST_F(ReportCommandTest, exclude_include_pid_options) {
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS, {"--sort", "pid", "--exclude-pid", "17441"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"17443", "17444"}));
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS, {"--sort", "pid", "--include-pid", "17441"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"17441"}));
-}
-
-TEST_F(ReportCommandTest, exclude_include_tid_options) {
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS,
-         {"--sort", "tid", "--exclude-tid", "17441,17443,17444"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"17445", "17446", "17447"}));
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS,
-         {"--sort", "tid", "--include-tid", "17441,17443,17444"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"17441", "17443", "17444"}));
-}
-
-TEST_F(ReportCommandTest, exclude_include_process_name_options) {
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS, {"--sort", "comm", "--exclude-process-name", "t1"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"simpleperf"}));
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS, {"--sort", "comm", "--include-process-name", "t1"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"t1"}));
-}
-
-TEST_F(ReportCommandTest, exclude_include_thread_name_options) {
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS, {"--sort", "comm", "--exclude-thread-name", "t1"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"simpleperf"}));
-  Report(PERF_DATA_WITH_MULTIPLE_PIDS_AND_TIDS, {"--sort", "comm", "--include-thread-name", "t1"});
-  ASSERT_TRUE(success);
-  ASSERT_TRUE(AllItemsWithString(lines, {"t1"}));
-}
-
-TEST_F(ReportCommandTest, filter_file_option) {
-  std::string filter_data =
-      "GLOBAL_BEGIN 684943449406175\n"
-      "GLOBAL_END 684943449406176";
-  TemporaryFile tmpfile;
-  ASSERT_TRUE(android::base::WriteStringToFd(filter_data, tmpfile.fd));
-  Report("perf_display_bitmaps.data", {"--filter-file", tmpfile.path});
-  ASSERT_TRUE(success);
-  ASSERT_EQ(GetSampleCount(), 1);
-
-  // PERF_DATA uses clock perf, which doesn't match the default clock in filter data.
-  CapturedStderr capture;
-  ASSERT_FALSE(ReportCmd()->Run({"-i", GetTestData(PERF_DATA), "--filter-file", tmpfile.path}));
-  capture.Stop();
-  ASSERT_NE(capture.str().find("doesn't match clock used in time filter"), std::string::npos);
 }
 
 #if defined(__linux__)
@@ -689,8 +568,8 @@ TEST_F(ReportCommandTest, exclude_kernel_callchain) {
   CreateProcesses(1, &workloads);
   std::string pid = std::to_string(workloads[0]->GetPid());
   TemporaryFile tmpfile;
-  ASSERT_TRUE(RecordCmd()->Run({"--trace-offcpu", "-e", "cpu-clock:u", "-p", pid, "--duration", "2",
-                                "-o", tmpfile.path, "-g"}));
+  ASSERT_TRUE(RecordCmd()->Run({"--trace-offcpu", "-e", "cpu-cycles:u", "-p", pid, "--duration",
+                                "2", "-o", tmpfile.path, "-g"}));
   ReportRaw(tmpfile.path, {"-g"});
   ASSERT_TRUE(success);
   ASSERT_EQ(content.find("[kernel.kallsyms]"), std::string::npos);

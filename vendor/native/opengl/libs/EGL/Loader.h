@@ -1,26 +1,29 @@
-/*
+/* 
  ** Copyright 2009, The Android Open Source Project
  **
- ** Licensed under the Apache License, Version 2.0 (the "License");
- ** you may not use this file except in compliance with the License.
- ** You may obtain a copy of the License at
+ ** Licensed under the Apache License, Version 2.0 (the "License"); 
+ ** you may not use this file except in compliance with the License. 
+ ** You may obtain a copy of the License at 
  **
- **     http://www.apache.org/licenses/LICENSE-2.0
+ **     http://www.apache.org/licenses/LICENSE-2.0 
  **
- ** Unless required by applicable law or agreed to in writing, software
- ** distributed under the License is distributed on an "AS IS" BASIS,
- ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- ** See the License for the specific language governing permissions and
+ ** Unless required by applicable law or agreed to in writing, software 
+ ** distributed under the License is distributed on an "AS IS" BASIS, 
+ ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
+ ** See the License for the specific language governing permissions and 
  ** limitations under the License.
  */
 
 #ifndef ANDROID_EGL_LOADER_H
 #define ANDROID_EGL_LOADER_H
 
-#include <EGL/egl.h>
 #include <stdint.h>
 
+#include <EGL/egl.h>
+
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
 struct egl_connection_t;
 
@@ -59,12 +62,16 @@ private:
     void initialize_api(void* dso, egl_connection_t* cnx, uint32_t mask);
     void init_angle_backend(void* dso, egl_connection_t* cnx);
 
-    static __attribute__((noinline)) void init_api(void* dso, const char* const* api,
-                                                   const char* const* ref_api,
-                                                   __eglMustCastToProperFunctionPointerType* curr,
-                                                   getProcAddressType getProcAddress);
+    static __attribute__((noinline))
+    void init_api(void* dso,
+            char const * const * api,
+            char const * const * ref_api,
+            __eglMustCastToProperFunctionPointerType* curr,
+            getProcAddressType getProcAddress);
 };
 
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------
 
 #endif /* ANDROID_EGL_LOADER_H */

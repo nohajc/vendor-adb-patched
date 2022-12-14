@@ -24,7 +24,6 @@
 #include <compositionengine/impl/HwcBufferCache.h>
 #include <gui/ConsumerBase.h>
 #include <gui/IGraphicBufferProducer.h>
-#include <ui/DisplayId.h>
 
 #include "DisplayIdentification.h"
 
@@ -78,7 +77,8 @@ class VirtualDisplaySurface : public compositionengine::DisplaySurface,
                               public BnGraphicBufferProducer,
                               private ConsumerBase {
 public:
-    VirtualDisplaySurface(HWComposer&, VirtualDisplayId, const sp<IGraphicBufferProducer>& sink,
+    VirtualDisplaySurface(HWComposer& hwc, const std::optional<DisplayId>& displayId,
+                          const sp<IGraphicBufferProducer>& sink,
                           const sp<IGraphicBufferProducer>& bqProducer,
                           const sp<IGraphicBufferConsumer>& bqConsumer, const std::string& name);
 
@@ -86,11 +86,11 @@ public:
     // DisplaySurface interface
     //
     virtual status_t beginFrame(bool mustRecompose);
-    virtual status_t prepareFrame(CompositionType);
+    virtual status_t prepareFrame(CompositionType compositionType);
     virtual status_t advanceFrame();
     virtual void onFrameCommitted();
     virtual void dumpAsString(String8& result) const;
-    virtual void resizeBuffers(const ui::Size&) override;
+    virtual void resizeBuffers(const uint32_t w, const uint32_t h);
     virtual const sp<Fence>& getClientTargetAcquireFence() const override;
 
 private:
@@ -104,22 +104,25 @@ private:
     virtual status_t requestBuffer(int pslot, sp<GraphicBuffer>* outBuf);
     virtual status_t setMaxDequeuedBufferCount(int maxDequeuedBuffers);
     virtual status_t setAsyncMode(bool async);
-    virtual status_t dequeueBuffer(int* pslot, sp<Fence>*, uint32_t w, uint32_t h, PixelFormat,
-                                   uint64_t usage, uint64_t* outBufferAge,
+    virtual status_t dequeueBuffer(int* pslot, sp<Fence>* fence, uint32_t w, uint32_t h,
+                                   PixelFormat format, uint64_t usage, uint64_t* outBufferAge,
                                    FrameEventHistoryDelta* outTimestamps);
     virtual status_t detachBuffer(int slot);
-    virtual status_t detachNextBuffer(sp<GraphicBuffer>* outBuffer, sp<Fence>* outFence);
-    virtual status_t attachBuffer(int* slot, const sp<GraphicBuffer>&);
-    virtual status_t queueBuffer(int pslot, const QueueBufferInput&, QueueBufferOutput*);
-    virtual status_t cancelBuffer(int pslot, const sp<Fence>&);
+    virtual status_t detachNextBuffer(sp<GraphicBuffer>* outBuffer,
+            sp<Fence>* outFence);
+    virtual status_t attachBuffer(int* slot, const sp<GraphicBuffer>& buffer);
+    virtual status_t queueBuffer(int pslot,
+            const QueueBufferInput& input, QueueBufferOutput* output);
+    virtual status_t cancelBuffer(int pslot, const sp<Fence>& fence);
     virtual int query(int what, int* value);
-    virtual status_t connect(const sp<IProducerListener>&, int api, bool producerControlledByApp,
-                             QueueBufferOutput*);
-    virtual status_t disconnect(int api, DisconnectMode);
+    virtual status_t connect(const sp<IProducerListener>& listener,
+            int api, bool producerControlledByApp, QueueBufferOutput* output);
+    virtual status_t disconnect(int api, DisconnectMode mode);
     virtual status_t setSidebandStream(const sp<NativeHandle>& stream);
-    virtual void allocateBuffers(uint32_t width, uint32_t height, PixelFormat, uint64_t usage);
+    virtual void allocateBuffers(uint32_t width, uint32_t height,
+            PixelFormat format, uint64_t usage);
     virtual status_t allowAllocation(bool allow);
-    virtual status_t setGenerationNumber(uint32_t);
+    virtual status_t setGenerationNumber(uint32_t generationNumber);
     virtual String8 getConsumerName() const override;
     virtual status_t setSharedBufferMode(bool sharedBufferMode) override;
     virtual status_t setAutoRefresh(bool autoRefresh) override;
@@ -132,9 +135,10 @@ private:
     //
     // Utility methods
     //
-    static Source fbSourceForCompositionType(CompositionType);
-    status_t dequeueBuffer(Source, PixelFormat, uint64_t usage, int* sslot, sp<Fence>*);
-    void updateQueueBufferOutput(QueueBufferOutput&&);
+    static Source fbSourceForCompositionType(CompositionType type);
+    status_t dequeueBuffer(Source source, PixelFormat format, uint64_t usage,
+            int* sslot, sp<Fence>* fence);
+    void updateQueueBufferOutput(QueueBufferOutput&& qbo);
     void resetPerFrameState();
     status_t refreshOutputBuffer();
 
@@ -144,14 +148,14 @@ private:
     // internally in the VirtualDisplaySurface. To minimize the number of times
     // a producer slot switches which source it comes from, we map source slot
     // numbers to producer slot numbers differently for each source.
-    static int mapSource2ProducerSlot(Source, int sslot);
-    static int mapProducer2SourceSlot(Source, int pslot);
+    static int mapSource2ProducerSlot(Source source, int sslot);
+    static int mapProducer2SourceSlot(Source source, int pslot);
 
     //
     // Immutable after construction
     //
     HWComposer& mHwc;
-    const VirtualDisplayId mDisplayId;
+    const std::optional<DisplayId> mDisplayId;
     const std::string mDisplayName;
     sp<IGraphicBufferProducer> mSource[2]; // indexed by SOURCE_*
     uint32_t mDefaultOutputFormat;

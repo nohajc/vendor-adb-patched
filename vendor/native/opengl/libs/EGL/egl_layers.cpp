@@ -85,21 +85,17 @@ const void* getNextLayerProcAddress(void* layer_id, const char* name) {
 
         // Look up which GPA we should use
         int gpaIndex = func_indices["eglGetProcAddress"];
-        ALOGV("getNextLayerProcAddress - name(%s) gpaIndex(%i) <- using GPA from this index", name,
-              gpaIndex);
+        ALOGV("getNextLayerProcAddress - name(%s) gpaIndex(%i) <- using GPA from this index", name, gpaIndex);
         EGLFuncPointer gpaNext = (*next_layer_funcs)[gpaIndex];
-        ALOGV("getNextLayerProcAddress - name(%s) gpaIndex(%i) gpaNext(%llu) <- using GPA at this "
-              "address",
-              name, gpaIndex, (unsigned long long)gpaNext);
+        ALOGV("getNextLayerProcAddress - name(%s) gpaIndex(%i) gpaNext(%llu) <- using GPA at this address", name, gpaIndex, (unsigned long long)gpaNext);
+
 
         // Call it for the requested function
         typedef void* (*PFNEGLGETPROCADDRESSPROC)(const char*);
         PFNEGLGETPROCADDRESSPROC next = reinterpret_cast<PFNEGLGETPROCADDRESSPROC>(gpaNext);
 
         val = reinterpret_cast<EGLFuncPointer>(next(name));
-        ALOGV("getNextLayerProcAddress - name(%s) gpaIndex(%i) gpaNext(%llu) Got back (%llu) from "
-              "GPA",
-              name, gpaIndex, (unsigned long long)gpaNext, (unsigned long long)val);
+        ALOGV("getNextLayerProcAddress - name(%s) gpaIndex(%i) gpaNext(%llu) Got back (%llu) from GPA", name, gpaIndex, (unsigned long long)gpaNext, (unsigned long long)val);
 
         // We should store it now, but to do that, we need to move func_idx to the class so we can
         // increment it separately
@@ -109,9 +105,7 @@ const void* getNextLayerProcAddress(void* layer_id, const char* name) {
 
     int index = func_indices[name];
     val = (*next_layer_funcs)[index];
-    ALOGV("getNextLayerProcAddress - name(%s) index(%i) entry(%llu) - Got a hit, returning known "
-          "entry",
-          name, index, (unsigned long long)val);
+    ALOGV("getNextLayerProcAddress - name(%s) index(%i) entry(%llu) - Got a hit, returning known entry", name, index, (unsigned long long)val);
     return reinterpret_cast<void*>(val);
 }
 
@@ -123,26 +117,20 @@ void SetupFuncMaps(FunctionTable& functions, char const* const* entries, EGLFunc
         // Some names overlap, only fill with initial entry
         // This does mean that some indices will not be used
         if (func_indices.find(name) == func_indices.end()) {
-            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), No entry for func_indices, assigning "
-                  "now",
-                  name, func_idx);
+            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), No entry for func_indices, assigning now", name, func_idx);
             func_names[func_idx] = name;
             func_indices[name] = func_idx;
         } else {
-            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), Found entry for func_indices", name,
-                  func_idx);
+            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), Found entry for func_indices", name, func_idx);
         }
 
         // Populate layer_functions once with initial value
         // These values will arrive in priority order, starting with platform entries
         if (functions[func_idx] == nullptr) {
-            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), No entry for functions, assigning "
-                  "(%llu)",
-                  name, func_idx, (unsigned long long)*curr);
+            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), No entry for functions, assigning (%llu)", name, func_idx, (unsigned long long) *curr);
             functions[func_idx] = *curr;
         } else {
-            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), Found entry for functions (%llu)", name,
-                  func_idx, (unsigned long long)functions[func_idx]);
+            ALOGV("SetupFuncMaps - name(%s), func_idx(%i), Found entry for functions (%llu)", name, func_idx, (unsigned long long) functions[func_idx]);
         }
 
         entries++;
@@ -392,8 +380,8 @@ void LayerLoader::LoadLayers() {
                 auto app_namespace = android::GraphicsEnv::getInstance().getAppNamespace();
                 if (app_namespace && !android::base::StartsWith(layer, kSystemLayerLibraryDir)) {
                     char* error_message = nullptr;
-                    dlhandle_ = OpenNativeLibraryInNamespace(app_namespace, layer.c_str(),
-                                                             &native_bridge_, &error_message);
+                    dlhandle_ = OpenNativeLibraryInNamespace(
+                        app_namespace, layer.c_str(), &native_bridge_, &error_message);
                     if (!dlhandle_) {
                         ALOGE("Failed to load layer %s with error: %s", layer.c_str(),
                               error_message);

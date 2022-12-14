@@ -21,7 +21,6 @@
 #include <utils/StrongPointer.h>
 #include <utils/String16.h>
 
-#include <binder/IBinder.h>
 #include <binder/Parcelable.h>
 
 namespace android {
@@ -44,7 +43,6 @@ class Surface : public Parcelable {
 
     String16 name;
     sp<IGraphicBufferProducer> graphicBufferProducer;
-    sp<IBinder> surfaceControlHandle;
 
     virtual status_t writeToParcel(Parcel* parcel) const override;
     virtual status_t readFromParcel(const Parcel* parcel) override;

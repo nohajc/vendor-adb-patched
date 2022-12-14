@@ -61,7 +61,6 @@ struct EocdRecord {
   uint16_t comment_length;
 
   EocdRecord() = default;
-
  private:
   DISALLOW_COPY_AND_ASSIGN(EocdRecord);
 } __attribute__((packed));
@@ -117,7 +116,6 @@ struct CentralDirectoryRecord {
   uint32_t local_file_header_offset;
 
   CentralDirectoryRecord() = default;
-
  private:
   DISALLOW_COPY_AND_ASSIGN(CentralDirectoryRecord);
 } __attribute__((packed));
@@ -157,7 +155,6 @@ struct LocalFileHeader {
   uint16_t extra_field_length;
 
   LocalFileHeader() = default;
-
  private:
   DISALLOW_COPY_AND_ASSIGN(LocalFileHeader);
 } __attribute__((packed));
@@ -183,7 +180,6 @@ struct DataDescriptor {
   uint64_t uncompressed_size;
 
   DataDescriptor() = default;
-
  private:
   DISALLOW_COPY_AND_ASSIGN(DataDescriptor);
 };
@@ -204,7 +200,6 @@ struct Zip64EocdLocator {
   uint32_t num_of_disks;
 
   Zip64EocdLocator() = default;
-
  private:
   DISALLOW_COPY_AND_ASSIGN(Zip64EocdLocator);
 } __attribute__((packed));
@@ -241,7 +236,6 @@ struct Zip64EocdRecord {
   uint64_t cd_start_offset;
 
   Zip64EocdRecord() = default;
-
  private:
   DISALLOW_COPY_AND_ASSIGN(Zip64EocdRecord);
 } __attribute__((packed));
@@ -269,7 +263,6 @@ struct Zip64ExtendedInfo {
   // the disk_number is not used.
   // uint32_t disk_num;
   Zip64ExtendedInfo() = default;
-
  private:
   DISALLOW_COPY_AND_ASSIGN(Zip64ExtendedInfo);
 };

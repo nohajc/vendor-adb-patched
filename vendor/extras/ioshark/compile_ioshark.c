@@ -22,7 +22,7 @@
 #include <signal.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <errno.h>
+#include <sys/errno.h>
 #include <fcntl.h>
 #include <ctype.h>
 #include "ioshark.h"

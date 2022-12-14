@@ -64,10 +64,6 @@ cc_binary {
     srcs: [
         "main.cpp",
     ],
-
-    shared_libs: [
-        "packagemanager_aidl-cpp",
-    ],
 }
 
 cc_binary {

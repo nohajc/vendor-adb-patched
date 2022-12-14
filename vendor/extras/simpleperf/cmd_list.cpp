@@ -51,8 +51,8 @@ static EventTypeStatus IsEventTypeSupported(const EventType& event_type) {
     return IsEventAttrSupported(attr, event_type.name) ? EventTypeStatus::SUPPORTED
                                                        : EventTypeStatus::NOT_SUPPORTED;
   }
-  if (event_type.limited_arch == "arm" && GetTargetArch() != ARCH_ARM &&
-      GetTargetArch() != ARCH_ARM64) {
+  if (event_type.limited_arch == "arm" && GetBuildArch() != ARCH_ARM &&
+      GetBuildArch() != ARCH_ARM64) {
     return EventTypeStatus::NOT_SUPPORTED;
   }
   // Because the kernel may not check whether the raw event is supported by the cpu pmu.
@@ -87,7 +87,7 @@ static EventTypeStatus IsEventTypeSupported(const EventType& event_type) {
 static void PrintEventTypesOfType(const std::string& type_name, const std::string& type_desc,
                                   const std::function<bool(const EventType&)>& is_type_fn) {
   printf("List of %s:\n", type_desc.c_str());
-  if (GetTargetArch() == ARCH_ARM || GetTargetArch() == ARCH_ARM64) {
+  if (GetBuildArch() == ARCH_ARM || GetBuildArch() == ARCH_ARM64) {
     if (type_name == "raw") {
       printf(
           // clang-format off

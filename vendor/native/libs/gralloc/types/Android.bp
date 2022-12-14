@@ -23,6 +23,7 @@ package {
 
 cc_library {
     name: "libgralloctypes",
+    defaults: ["libbinder_ndk_host_user"],
     cflags: [
         "-Wall",
         "-Werror",
@@ -32,7 +33,7 @@ cc_library {
     target: {
         darwin: {
             enabled: false,
-        },
+        }
     },
 
     vendor_available: true,
@@ -47,18 +48,18 @@ cc_library {
     min_sdk_version: "29",
 
     srcs: [
-        "Gralloc4.cpp",
+        "Gralloc4.cpp"
     ],
 
     shared_libs: [
-        "android.hardware.graphics.common-V2-ndk",
+        "android.hardware.graphics.common-V2-ndk_platform",
         "android.hardware.graphics.mapper@4.0",
         "libhidlbase",
         "liblog",
     ],
 
     export_shared_lib_headers: [
-        "android.hardware.graphics.common-V2-ndk",
+        "android.hardware.graphics.common-V2-ndk_platform",
         "android.hardware.graphics.mapper@4.0",
         "libhidlbase",
     ],

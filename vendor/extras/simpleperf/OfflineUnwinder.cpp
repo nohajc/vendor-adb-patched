@@ -51,9 +51,8 @@ namespace simpleperf {
 // darwin/windows. Use static_assert to make sure they are on the same page.
 static_assert(map_flags::PROT_JIT_SYMFILE_MAP == unwindstack::MAPS_FLAGS_JIT_SYMFILE_MAP);
 
-#define CHECK_ERROR_CODE(error_code_name)                \
-  static_assert(UnwindStackErrorCode::error_code_name == \
-                (UnwindStackErrorCode)unwindstack::ErrorCode::error_code_name)
+#define CHECK_ERROR_CODE(error_code_name) \
+  static_assert(UnwindStackErrorCode::error_code_name == unwindstack::ErrorCode::error_code_name)
 
 CHECK_ERROR_CODE(ERROR_NONE);
 CHECK_ERROR_CODE(ERROR_MEMORY_INVALID);
@@ -66,9 +65,6 @@ CHECK_ERROR_CODE(ERROR_INVALID_ELF);
 CHECK_ERROR_CODE(ERROR_THREAD_DOES_NOT_EXIST);
 CHECK_ERROR_CODE(ERROR_THREAD_TIMEOUT);
 CHECK_ERROR_CODE(ERROR_SYSTEM_CALL);
-CHECK_ERROR_CODE(ERROR_BAD_ARCH);
-CHECK_ERROR_CODE(ERROR_MAPS_PARSE);
-CHECK_ERROR_CODE(ERROR_INVALID_PARAMETER);
 CHECK_ERROR_CODE(ERROR_MAX);
 
 // Max frames seen so far is 463, in http://b/110923759.
@@ -145,7 +141,7 @@ unwindstack::Regs* OfflineUnwinderImpl::GetBacktraceRegs(const RegSet& regs) {
   }
 }
 
-static std::shared_ptr<unwindstack::MapInfo> CreateMapInfo(const MapEntry* entry) {
+static unwindstack::MapInfo* CreateMapInfo(const MapEntry* entry) {
   std::string name_holder;
   const char* name = entry->dso->GetDebugFilePath().data();
   uint64_t pgoff = entry->pgoff;
@@ -168,8 +164,8 @@ static std::shared_ptr<unwindstack::MapInfo> CreateMapInfo(const MapEntry* entry
       name = name_holder.data();
     }
   }
-  return unwindstack::MapInfo::Create(entry->start_addr, entry->get_end_addr(), pgoff,
-                                      PROT_READ | entry->flags, name);
+  return new unwindstack::MapInfo(nullptr, nullptr, entry->start_addr, entry->get_end_addr(), pgoff,
+                                  PROT_READ | entry->flags, name);
 }
 
 void UnwindMaps::UpdateMaps(const MapSet& map_set) {
@@ -205,7 +201,7 @@ void UnwindMaps::UpdateMaps(const MapSet& map_set) {
 
   if (has_removed_entry) {
     entries_.resize(std::remove(entries_.begin(), entries_.end(), nullptr) - entries_.begin());
-    maps_.resize(std::remove(maps_.begin(), maps_.end(), std::shared_ptr<unwindstack::MapInfo>()) -
+    maps_.resize(std::remove(maps_.begin(), maps_.end(), std::unique_ptr<unwindstack::MapInfo>()) -
                  maps_.begin());
   }
 
@@ -277,17 +273,17 @@ bool OfflineUnwinderImpl::UnwindCallChain(const ThreadEntry& thread, const RegSe
   for (auto& frame : unwinder.frames()) {
     // Unwinding in arm architecture can return 0 pc address.
 
-    // If frame.map_info == nullptr, this frame doesn't hit any map, it could be:
+    // If frame.map.start == 0, this frame doesn't hit any map, it could be:
     // 1. In an executable map not backed by a file. Note that RecordCommand::ShouldOmitRecord()
     //    may omit maps only exist memory.
-    // 2. An incorrectly unwound frame. Likely caused by invalid stack data, as in
+    // 2. An incorrectly unwound frame. Like caused by invalid stack data, as in
     //    SampleRecord::GetValidStackSize(). Or caused by incomplete JIT debug info.
     // We want to remove this frame and callchains following it in either case.
-    if (frame.map_info == nullptr) {
+    if (frame.pc == 0 || frame.map_start == 0) {
       is_callchain_broken_for_incomplete_jit_debug_info_ = true;
       break;
     }
-    if (frame.map_info->flags() & unwindstack::MAPS_FLAGS_JIT_SYMFILE_MAP) {
+    if (frame.map_flags & unwindstack::MAPS_FLAGS_JIT_SYMFILE_MAP) {
       last_jit_method_frame = ips->size();
     }
     ips->push_back(frame.pc);

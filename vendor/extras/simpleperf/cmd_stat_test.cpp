@@ -59,16 +59,16 @@ TEST(stat_cmd, rN_event) {
   TEST_REQUIRE_HW_COUNTER();
   OMIT_TEST_ON_NON_NATIVE_ABIS();
   size_t event_number;
-  if (GetTargetArch() == ARCH_ARM64 || GetTargetArch() == ARCH_ARM) {
+  if (GetBuildArch() == ARCH_ARM64 || GetBuildArch() == ARCH_ARM) {
     // As in D5.10.2 of the ARMv8 manual, ARM defines the event number space for PMU. part of the
     // space is for common event numbers (which will stay the same for all ARM chips), part of the
     // space is for implementation defined events. Here 0x08 is a common event for instructions.
     event_number = 0x08;
-  } else if (GetTargetArch() == ARCH_X86_32 || GetTargetArch() == ARCH_X86_64) {
+  } else if (GetBuildArch() == ARCH_X86_32 || GetBuildArch() == ARCH_X86_64) {
     // As in volume 3 chapter 19 of the Intel manual, 0x00c0 is the event number for instruction.
     event_number = 0x00c0;
   } else {
-    GTEST_LOG_(INFO) << "Omit arch " << GetTargetArch();
+    GTEST_LOG_(INFO) << "Omit arch " << GetBuildArch();
     return;
   }
   std::string event_name = android::base::StringPrintf("r%zx", event_number);
@@ -79,12 +79,12 @@ TEST(stat_cmd, pmu_event) {
   TEST_REQUIRE_PMU_COUNTER();
   TEST_REQUIRE_HW_COUNTER();
   std::string event_string;
-  if (GetTargetArch() == ARCH_X86_64) {
+  if (GetBuildArch() == ARCH_X86_64) {
     event_string = "cpu/instructions/";
-  } else if (GetTargetArch() == ARCH_ARM64) {
+  } else if (GetBuildArch() == ARCH_ARM64) {
     event_string = "armv8_pmuv3/inst_retired/";
   } else {
-    GTEST_LOG_(INFO) << "Omit arch " << GetTargetArch();
+    GTEST_LOG_(INFO) << "Omit arch " << GetBuildArch();
     return;
   }
   TEST_IN_ROOT(ASSERT_TRUE(StatCmd()->Run({"-a", "-e", event_string, "sleep", "1"})));
@@ -371,10 +371,6 @@ TEST(stat_cmd, counter_sum) {
   ASSERT_EQ(counter.value, 2);
   ASSERT_EQ(counter.time_enabled, 4);
   ASSERT_EQ(counter.time_running, 6);
-}
-
-TEST(stat_cmd, print_hw_counter_option) {
-  ASSERT_TRUE(StatCmd()->Run({"--print-hw-counter"}));
 }
 
 class StatCmdSummaryBuilderTest : public ::testing::Test {

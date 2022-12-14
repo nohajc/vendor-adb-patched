@@ -14,35 +14,45 @@
  ** limitations under the License.
  */
 
-#include <EGL/egl.h>
-#include <android-base/properties.h>
-#include <log/log.h>
 #include <stdlib.h>
 
+#include <EGL/egl.h>
+
+#include <android-base/properties.h>
+
+#include <log/log.h>
+
 #include "../egl_impl.h"
+
+#include "egldefs.h"
+#include "egl_tls.h"
+#include "egl_display.h"
+#include "egl_object.h"
+#include "egl_layers.h"
 #include "CallStack.h"
 #include "Loader.h"
-#include "egl_display.h"
-#include "egl_layers.h"
-#include "egl_object.h"
-#include "egl_tls.h"
-#include "egldefs.h"
 
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
 egl_connection_t gEGLImpl;
 gl_hooks_t gHooks[2];
 gl_hooks_t gHooksNoContext;
 pthread_key_t gGLWrapperKey = -1;
 
-void setGLHooksThreadSpecific(gl_hooks_t const* value) {
+// ----------------------------------------------------------------------------
+
+void setGLHooksThreadSpecific(gl_hooks_t const *value) {
     setGlThreadSpecific(value);
 }
 
+/*****************************************************************************/
+
 static int gl_no_context() {
     if (egl_tls_t::logNoContextCall()) {
-        const char* const error = "call to OpenGL ES API with "
-                                  "no current context (logged once per thread)";
+        char const* const error = "call to OpenGL ES API with "
+                "no current context (logged once per thread)";
         if (LOG_NDEBUG) {
             ALOGE(error);
         } else {
@@ -55,9 +65,10 @@ static int gl_no_context() {
     return 0;
 }
 
-static void early_egl_init(void) {
+static void early_egl_init(void)
+{
     int numHooks = sizeof(gHooksNoContext) / sizeof(EGLFuncPointer);
-    EGLFuncPointer* iter = reinterpret_cast<EGLFuncPointer*>(&gHooksNoContext);
+    EGLFuncPointer *iter = reinterpret_cast<EGLFuncPointer*>(&gHooksNoContext);
     for (int hook = 0; hook < numHooks; ++hook) {
         *(iter++) = reinterpret_cast<EGLFuncPointer>(gl_no_context);
     }
@@ -65,40 +76,75 @@ static void early_egl_init(void) {
     setGLHooksThreadSpecific(&gHooksNoContext);
 }
 
-const GLubyte* egl_get_string_for_current_context(GLenum name) {
-    // NOTE: returning NULL here will fall-back to the default
-    // implementation.
+static pthread_once_t once_control = PTHREAD_ONCE_INIT;
+static int sEarlyInitState = pthread_once(&once_control, &early_egl_init);
 
-    EGLContext context = egl_tls_t::getContext();
-    if (context == EGL_NO_CONTEXT) return nullptr;
+// ----------------------------------------------------------------------------
 
-    const egl_context_t* const c = get_context(context);
-    if (c == nullptr) // this should never happen, by construction
-        return nullptr;
+egl_display_ptr validate_display(EGLDisplay dpy) {
+    egl_display_ptr dp = get_display(dpy);
+    if (!dp)
+        return setError(EGL_BAD_DISPLAY, egl_display_ptr(nullptr));
+    if (!dp->isReady())
+        return setError(EGL_NOT_INITIALIZED, egl_display_ptr(nullptr));
 
-    if (name != GL_EXTENSIONS) return nullptr;
-
-    return (const GLubyte*)c->gl_extensions.c_str();
+    return dp;
 }
 
-const GLubyte* egl_get_string_for_current_context(GLenum name, GLuint index) {
+egl_display_ptr validate_display_connection(EGLDisplay dpy,
+        egl_connection_t*& cnx) {
+    cnx = nullptr;
+    egl_display_ptr dp = validate_display(dpy);
+    if (!dp)
+        return dp;
+    cnx = &gEGLImpl;
+    if (cnx->dso == nullptr) {
+        return setError(EGL_BAD_CONFIG, egl_display_ptr(nullptr));
+    }
+    return dp;
+}
+
+// ----------------------------------------------------------------------------
+
+const GLubyte * egl_get_string_for_current_context(GLenum name) {
     // NOTE: returning NULL here will fall-back to the default
     // implementation.
 
     EGLContext context = egl_tls_t::getContext();
-    if (context == EGL_NO_CONTEXT) return nullptr;
+    if (context == EGL_NO_CONTEXT)
+        return nullptr;
 
-    const egl_context_t* const c = get_context(context);
+    egl_context_t const * const c = get_context(context);
     if (c == nullptr) // this should never happen, by construction
         return nullptr;
 
-    if (name != GL_EXTENSIONS) return nullptr;
+    if (name != GL_EXTENSIONS)
+        return nullptr;
+
+    return (const GLubyte *)c->gl_extensions.c_str();
+}
+
+const GLubyte * egl_get_string_for_current_context(GLenum name, GLuint index) {
+    // NOTE: returning NULL here will fall-back to the default
+    // implementation.
+
+    EGLContext context = egl_tls_t::getContext();
+    if (context == EGL_NO_CONTEXT)
+        return nullptr;
+
+    egl_context_t const * const c = get_context(context);
+    if (c == nullptr) // this should never happen, by construction
+        return nullptr;
+
+    if (name != GL_EXTENSIONS)
+        return nullptr;
 
     // if index is out of bounds, assume it will be in the default
     // implementation too, so we don't have to generate a GL error here
-    if (index >= c->tokenized_gl_extensions.size()) return nullptr;
+    if (index >= c->tokenized_gl_extensions.size())
+        return nullptr;
 
-    return (const GLubyte*)c->tokenized_gl_extensions[index].c_str();
+    return (const GLubyte *)c->tokenized_gl_extensions[index].c_str();
 }
 
 GLint egl_get_num_extensions_for_current_context() {
@@ -106,9 +152,10 @@ GLint egl_get_num_extensions_for_current_context() {
     // implementation.
 
     EGLContext context = egl_tls_t::getContext();
-    if (context == EGL_NO_CONTEXT) return -1;
+    if (context == EGL_NO_CONTEXT)
+        return -1;
 
-    const egl_context_t* const c = get_context(context);
+    egl_context_t const * const c = get_context(context);
     if (c == nullptr) // this should never happen, by construction
         return -1;
 
@@ -119,8 +166,7 @@ egl_connection_t* egl_get_connection() {
     return &gEGLImpl;
 }
 
-static pthread_once_t once_control = PTHREAD_ONCE_INIT;
-static int sEarlyInitState = pthread_once(&once_control, &early_egl_init);
+// ----------------------------------------------------------------------------
 
 static EGLBoolean egl_init_drivers_locked() {
     if (sEarlyInitState) {
@@ -147,6 +193,7 @@ static EGLBoolean egl_init_drivers_locked() {
 
     return cnx->dso ? EGL_TRUE : EGL_FALSE;
 }
+
 
 // this mutex protects driver load logic as a critical section since it accesses to global variable
 // like gEGLImpl
@@ -181,10 +228,13 @@ void gl_unimplemented() {
     }
 }
 
-void gl_noop() {}
+void gl_noop() {
+}
 
-void setGlThreadSpecific(gl_hooks_t const* value) {
-    gl_hooks_t const* volatile* tls_hooks = get_tls_hooks();
+// ----------------------------------------------------------------------------
+
+void setGlThreadSpecific(gl_hooks_t const *value) {
+    gl_hooks_t const * volatile * tls_hooks = get_tls_hooks();
     tls_hooks[TLS_SLOT_OPENGL_API] = value;
 }
 
@@ -220,4 +270,8 @@ char const * const platform_names[] = {
 #undef GL_ENTRY
 #undef EGL_ENTRY
 
+
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------
+

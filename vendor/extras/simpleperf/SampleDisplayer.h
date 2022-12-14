@@ -20,7 +20,6 @@
 #include <inttypes.h>
 
 #include <functional>
-#include <optional>
 #include <string>
 
 #include <android-base/logging.h>
@@ -185,8 +184,8 @@ class CallgraphDisplayer {
 template <typename EntryT, typename InfoT>
 class SampleDisplayer {
  public:
-  using display_sample_func_t = std::function<std::string(const EntryT*)>;
-  using display_sample_with_info_func_t = std::function<std::string(const EntryT*, const InfoT*)>;
+  typedef std::string (*display_sample_func_t)(const EntryT*);
+  typedef std::string (*display_sample_with_info_func_t)(const EntryT*, const InfoT*);
   using exclusive_display_sample_func_t = std::function<void(FILE*, const EntryT*)>;
 
  private:
@@ -199,15 +198,9 @@ class SampleDisplayer {
 
  public:
   void SetInfo(const InfoT* info) { info_ = info; }
-  void SetReportFormat(bool report_csv, const std::string& csv_separator) {
-    report_csv_ = report_csv;
-    csv_separator_ = csv_separator;
-  }
-  void SetFilterFunction(const std::function<bool(const EntryT*, const InfoT*)>& filter) {
-    filter_func_ = filter;
-  }
+  void SetReportFormat(bool report_csv) { report_csv_ = report_csv; }
 
-  void AddDisplayFunction(const std::string& name, const display_sample_func_t& func) {
+  void AddDisplayFunction(const std::string& name, display_sample_func_t func) {
     Item item;
     item.name = name;
     item.width = name.size();
@@ -216,8 +209,7 @@ class SampleDisplayer {
     display_v_.push_back(item);
   }
 
-  void AddDisplayFunction(const std::string& name,
-                          const display_sample_with_info_func_t& func_with_info) {
+  void AddDisplayFunction(const std::string& name, display_sample_with_info_func_t func_with_info) {
     Item item;
     item.name = name;
     item.width = name.size();
@@ -226,15 +218,12 @@ class SampleDisplayer {
     display_v_.push_back(item);
   }
 
-  void AddExclusiveDisplayFunction(const exclusive_display_sample_func_t& func) {
+  void AddExclusiveDisplayFunction(exclusive_display_sample_func_t func) {
     exclusive_display_v_.push_back(func);
   }
 
   void AdjustWidth(const EntryT* sample) {
     if (report_csv_) {
-      return;
-    }
-    if (filter_func_ && !filter_func_.value()(sample, info_)) {
       return;
     }
     for (auto& item : display_v_) {
@@ -248,8 +237,7 @@ class SampleDisplayer {
     for (size_t i = 0; i < display_v_.size(); ++i) {
       auto& item = display_v_[i];
       if (report_csv_) {
-        fprintf(fp, "%s%s", item.name.c_str(),
-                (i + 1 == display_v_.size()) ? "\n" : csv_separator_.c_str());
+        fprintf(fp, "%s%c", item.name.c_str(), (i + 1 == display_v_.size()) ? '\n' : ',');
       } else {
         if (i != display_v_.size() - 1) {
           fprintf(fp, "%-*s  ", static_cast<int>(item.width), item.name.c_str());
@@ -261,20 +249,17 @@ class SampleDisplayer {
   }
 
   void PrintSample(FILE* fp, const EntryT* sample) {
-    if (filter_func_ && !filter_func_.value()(sample, info_)) {
-      return;
-    }
     for (size_t i = 0; i < display_v_.size(); ++i) {
       auto& item = display_v_[i];
       std::string data =
           (item.func != nullptr) ? item.func(sample) : item.func_with_info(sample, info_);
       if (report_csv_) {
-        if (data.find(csv_separator_) == std::string::npos) {
+        if (data.find(',') == std::string::npos) {
           fprintf(fp, "%s", data.c_str());
         } else {
           fprintf(fp, "\"%s\"", data.c_str());
         }
-        fputs((i + 1 == display_v_.size()) ? "\n" : csv_separator_.c_str(), fp);
+        fputc((i + 1 == display_v_.size()) ? '\n' : ',', fp);
       } else {
         if (i != display_v_.size() - 1) {
           fprintf(fp, "%-*s  ", static_cast<int>(item.width), data.c_str());
@@ -292,9 +277,7 @@ class SampleDisplayer {
   const InfoT* info_;
   std::vector<Item> display_v_;
   std::vector<exclusive_display_sample_func_t> exclusive_display_v_;
-  std::optional<std::function<bool(const EntryT*, const InfoT*)>> filter_func_;
   bool report_csv_ = false;
-  std::string csv_separator_;
 };
 
 }  // namespace simpleperf

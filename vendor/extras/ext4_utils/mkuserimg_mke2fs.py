@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # Copyright (C) 2018 The Android Open Source Project
 #
@@ -41,7 +41,7 @@ def RunCommand(cmd, env):
   logging.info("Running: " + " ".join(cmd))
 
   p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                       env=env_copy, text=True)
+                       env=env_copy)
   output, _ = p.communicate()
 
   return output, p.returncode
@@ -165,11 +165,11 @@ def ConstructE2fsCommands(args):
 
   if args.flash_erase_block_size:
     mke2fs_extended_opts.append("stripe_width={}".format(
-        int(args.flash_erase_block_size) // BLOCKSIZE))
+        int(args.flash_erase_block_size) / BLOCKSIZE))
   if args.flash_logical_block_size:
     # stride should be the max of 8kb and the logical block size
     stride = max(int(args.flash_logical_block_size), 8192)
-    mke2fs_extended_opts.append("stride={}".format(stride // BLOCKSIZE))
+    mke2fs_extended_opts.append("stride={}".format(stride / BLOCKSIZE))
   if args.mke2fs_hash_seed:
     mke2fs_extended_opts.append("hash_seed=" + args.mke2fs_hash_seed)
 
@@ -194,7 +194,7 @@ def ConstructE2fsCommands(args):
     mke2fs_opts += ["-E", ','.join(mke2fs_extended_opts)]
 
   # Round down the filesystem length to be a multiple of the block size
-  blocks = int(args.fs_size) // BLOCKSIZE
+  blocks = int(args.fs_size) / BLOCKSIZE
   mke2fs_cmd = (["mke2fs"] + mke2fs_opts +
                 ["-t", args.ext_variant, "-b", str(BLOCKSIZE), args.output_file,
                  str(blocks)])

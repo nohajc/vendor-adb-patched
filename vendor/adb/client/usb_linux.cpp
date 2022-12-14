@@ -16,7 +16,6 @@
 
 #define TRACE_TAG USB
 
-#include "termux_adb.h"
 #include "sysdeps.h"
 
 #include "client/usb.h"
@@ -35,6 +34,7 @@
 #include <sys/time.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 #include <chrono>
@@ -60,7 +60,7 @@ using namespace std::literals;
 
 struct usb_handle {
     ~usb_handle() {
-      if (fd != -1) termuxadb::unix_close(fd);
+      if (fd != -1) unix_close(fd);
     }
 
     std::string path;
@@ -72,8 +72,8 @@ struct usb_handle {
     unsigned zero_mask;
     unsigned writeable = 1;
 
-    usbdevfs_urb *urb_in;
-    usbdevfs_urb *urb_out;
+    usbdevfs_urb urb_in;
+    usbdevfs_urb urb_out;
 
     bool urb_in_busy = false;
     bool urb_out_busy = false;
@@ -127,20 +127,19 @@ static void find_usb_device(const std::string& base,
                             void (*register_device_callback)(const char*, const char*,
                                                              unsigned char, unsigned char, int, int,
                                                              unsigned, size_t)) {
-
-    std::unique_ptr<DIR, int(*)(DIR*)> bus_dir(termuxadb::opendir(base.c_str()), termuxadb::closedir);
+    std::unique_ptr<DIR, int(*)(DIR*)> bus_dir(opendir(base.c_str()), closedir);
     if (!bus_dir) return;
 
     dirent* de;
-    while ((de = termuxadb::readdir(bus_dir.get())) != nullptr) {
+    while ((de = readdir(bus_dir.get())) != nullptr) {
         if (contains_non_digit(de->d_name)) continue;
 
         std::string bus_name = base + "/" + de->d_name;
 
-        std::unique_ptr<DIR, int(*)(DIR*)> dev_dir(termuxadb::opendir(bus_name.c_str()), termuxadb::closedir);
+        std::unique_ptr<DIR, int(*)(DIR*)> dev_dir(opendir(bus_name.c_str()), closedir);
         if (!dev_dir) continue;
 
-        while ((de = termuxadb::readdir(dev_dir.get()))) {
+        while ((de = readdir(dev_dir.get()))) {
             unsigned char devdesc[4096];
             unsigned char* bufptr = devdesc;
             unsigned char* bufend;
@@ -150,6 +149,7 @@ static void find_usb_device(const std::string& base,
             struct usb_endpoint_descriptor *ep1, *ep2;
             unsigned zero_mask = 0;
             size_t max_packet_size = 0;
+            unsigned vid, pid;
 
             if (contains_non_digit(de->d_name)) continue;
 
@@ -158,7 +158,7 @@ static void find_usb_device(const std::string& base,
                 continue;
             }
 
-            int fd = termuxadb::unix_open(dev_name, O_RDONLY | O_CLOEXEC);
+            int fd = unix_open(dev_name, O_RDONLY | O_CLOEXEC);
             if (fd == -1) {
                 continue;
             }
@@ -169,7 +169,7 @@ static void find_usb_device(const std::string& base,
                 // should have device and configuration descriptors, and atleast two endpoints
             if (desclength < USB_DT_DEVICE_SIZE + USB_DT_CONFIG_SIZE) {
                 D("desclength %zu is too small", desclength);
-                termuxadb::unix_close(fd);
+                unix_close(fd);
                 continue;
             }
 
@@ -177,19 +177,20 @@ static void find_usb_device(const std::string& base,
             bufptr += USB_DT_DEVICE_SIZE;
 
             if((device->bLength != USB_DT_DEVICE_SIZE) || (device->bDescriptorType != USB_DT_DEVICE)) {
-                termuxadb::unix_close(fd);
+                unix_close(fd);
                 continue;
             }
 
-            DBGX("[ %s is V:%04x P:%04x ]\n", dev_name.c_str(), device->idVendor,
-                 device->idProduct);
+            vid = device->idVendor;
+            pid = device->idProduct;
+            DBGX("[ %s is V:%04x P:%04x ]\n", dev_name.c_str(), vid, pid);
 
-            // should have config descriptor next
+                // should have config descriptor next
             config = (struct usb_config_descriptor *)bufptr;
             bufptr += USB_DT_CONFIG_SIZE;
             if (config->bLength != USB_DT_CONFIG_SIZE || config->bDescriptorType != USB_DT_CONFIG) {
                 D("usb_config_descriptor not found");
-                termuxadb::unix_close(fd);
+                unix_close(fd);
                 continue;
             }
 
@@ -296,7 +297,7 @@ static void find_usb_device(const std::string& base,
                 }
             } // end of while
 
-            termuxadb::unix_close(fd);
+            unix_close(fd);
         }
     }
 }
@@ -305,7 +306,7 @@ static int usb_bulk_write(usb_handle* h, const void* data, int len) {
     std::unique_lock<std::mutex> lock(h->mutex);
     D("++ usb_bulk_write ++");
 
-    usbdevfs_urb* urb = h->urb_out;
+    usbdevfs_urb* urb = &h->urb_out;
     memset(urb, 0, sizeof(*urb));
     urb->type = USBDEVFS_URB_TYPE_BULK;
     urb->endpoint = h->ep_out;
@@ -344,7 +345,7 @@ static int usb_bulk_read(usb_handle* h, void* data, int len) {
     std::unique_lock<std::mutex> lock(h->mutex);
     D("++ usb_bulk_read ++");
 
-    usbdevfs_urb* urb = h->urb_in;
+    usbdevfs_urb* urb = &h->urb_in;
     memset(urb, 0, sizeof(*urb));
     urb->type = USBDEVFS_URB_TYPE_BULK;
     urb->endpoint = h->ep_in;
@@ -389,7 +390,7 @@ static int usb_bulk_read(usb_handle* h, void* data, int len) {
         }
         D("[ urb @%p status = %d, actual = %d ]", out, out->status, out->actual_length);
 
-        if (out == h->urb_in) {
+        if (out == &h->urb_in) {
             D("[ reap urb - IN complete ]");
             h->urb_in_busy = false;
             if (urb->status != 0) {
@@ -398,7 +399,7 @@ static int usb_bulk_read(usb_handle* h, void* data, int len) {
             }
             return urb->actual_length;
         }
-        if (out == h->urb_out) {
+        if (out == &h->urb_out) {
             D("[ reap urb - OUT compelete ]");
             h->urb_out_busy = false;
             h->cv.notify_all();
@@ -502,10 +503,10 @@ void usb_kick(usb_handle* h) {
             ** but this ensures that a reader blocked on REAPURB
             ** will get unblocked
             */
-            ioctl(h->fd, USBDEVFS_DISCARDURB, h->urb_in);
-            ioctl(h->fd, USBDEVFS_DISCARDURB, h->urb_out);
-            h->urb_in->status = -ENODEV;
-            h->urb_out->status = -ENODEV;
+            ioctl(h->fd, USBDEVFS_DISCARDURB, &h->urb_in);
+            ioctl(h->fd, USBDEVFS_DISCARDURB, &h->urb_out);
+            h->urb_in.status = -ENODEV;
+            h->urb_out.status = -ENODEV;
             h->urb_in_busy = false;
             h->urb_out_busy = false;
             h->cv.notify_all();
@@ -521,8 +522,6 @@ int usb_close(usb_handle* h) {
 
     D("-- usb close %p (fd = %d) --", h, h->fd);
 
-    delete h->urb_in;
-    delete h->urb_out;
     delete h;
 
     return 0;
@@ -535,24 +534,6 @@ size_t usb_get_max_packet_size(usb_handle* h) {
 static void register_device(const char* dev_name, const char* dev_path, unsigned char ep_in,
                             unsigned char ep_out, int interface, int serial_index,
                             unsigned zero_mask, size_t max_packet_size) {
-    // Read the device's serial number.
-    std::string serial_path =
-            android::base::StringPrintf("/sys/bus/usb/devices/%s/serial", dev_path + 4);
-    std::string serial;
-    if (!android::base::ReadFileToString(serial_path, &serial)) {
-        D("[ usb read %s failed: %s ]", serial_path.c_str(), strerror(errno));
-        // We don't actually want to treat an unknown serial as an error because
-        // devices aren't able to communicate a serial number in early bringup.
-        // http://b/20883914
-        serial = "";
-    }
-    serial = android::base::Trim(serial);
-
-    if (!transport_server_owns_device(dev_path, serial)) {
-        // We aren't allowed to communicate with this device. Don't open this device.
-        return;
-    }
-
     // Since Linux will not reassign the device ID (and dev_name) as long as the
     // device is open, we can add to the list here once we open it and remove
     // from the list when we're finally closed and everything will work out
@@ -576,16 +557,14 @@ static void register_device(const char* dev_name, const char* dev_path, unsigned
     usb->ep_out = ep_out;
     usb->zero_mask = zero_mask;
     usb->max_packet_size = max_packet_size;
-    usb->urb_in = new usbdevfs_urb;
-    usb->urb_out = new usbdevfs_urb;
 
     // Initialize mark so we don't get garbage collected after the device scan.
     usb->mark = true;
 
-    usb->fd = termuxadb::unix_open(usb->path, O_RDWR | O_CLOEXEC);
+    usb->fd = unix_open(usb->path, O_RDWR | O_CLOEXEC);
     if (usb->fd == -1) {
         // Opening RW failed, so see if we have RO access.
-        usb->fd = termuxadb::unix_open(usb->path, O_RDONLY | O_CLOEXEC);
+        usb->fd = unix_open(usb->path, O_RDONLY | O_CLOEXEC);
         if (usb->fd == -1) {
             D("[ usb open %s failed: %s]", usb->path.c_str(), strerror(errno));
             return;
@@ -602,6 +581,19 @@ static void register_device(const char* dev_name, const char* dev_path, unsigned
             return;
         }
     }
+
+    // Read the device's serial number.
+    std::string serial_path = android::base::StringPrintf(
+        "/sys/bus/usb/devices/%s/serial", dev_path + 4);
+    std::string serial;
+    if (!android::base::ReadFileToString(serial_path, &serial)) {
+        D("[ usb read %s failed: %s ]", serial_path.c_str(), strerror(errno));
+        // We don't actually want to treat an unknown serial as an error because
+        // devices aren't able to communicate a serial number in early bringup.
+        // http://b/20883914
+        serial = "";
+    }
+    serial = android::base::Trim(serial);
 
     // Add to the end of the active handles.
     usb_handle* done_usb = usb.release();

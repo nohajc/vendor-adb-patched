@@ -122,7 +122,7 @@ OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_192_gcm(void);
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_gcm(void);
 
 // EVP_aead_chacha20_poly1305 is the AEAD built from ChaCha20 and
-// Poly1305 as described in RFC 8439.
+// Poly1305 as described in RFC 7539.
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_chacha20_poly1305(void);
 
 // EVP_aead_xchacha20_poly1305 is ChaCha20-Poly1305 with an extended nonce that
@@ -212,15 +212,15 @@ union evp_aead_ctx_st_state {
   uint64_t alignment;
 };
 
-// An evp_aead_ctx_st (typedefed as |EVP_AEAD_CTX| in base.h) represents an AEAD
-// algorithm configured with a specific key and message-independent IV.
-struct evp_aead_ctx_st {
+// An EVP_AEAD_CTX represents an AEAD algorithm configured with a specific key
+// and message-independent IV.
+typedef struct evp_aead_ctx_st {
   const EVP_AEAD *aead;
   union evp_aead_ctx_st_state state;
   // tag_len may contain the actual length of the authentication tag if it is
   // known at initialization time.
   uint8_t tag_len;
-};
+} EVP_AEAD_CTX;
 
 // EVP_AEAD_MAX_KEY_LENGTH contains the maximum key length used by
 // any AEAD defined in this header.
@@ -397,9 +397,12 @@ OPENSSL_EXPORT const EVP_AEAD *EVP_AEAD_CTX_aead(const EVP_AEAD_CTX *ctx);
 
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_128_cbc_sha1_tls(void);
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_128_cbc_sha1_tls_implicit_iv(void);
+OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_128_cbc_sha256_tls(void);
 
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_cbc_sha1_tls(void);
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_cbc_sha1_tls_implicit_iv(void);
+OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_cbc_sha256_tls(void);
+OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_cbc_sha384_tls(void);
 
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_des_ede3_cbc_sha1_tls(void);
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_des_ede3_cbc_sha1_tls_implicit_iv(void);

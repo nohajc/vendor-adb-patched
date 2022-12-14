@@ -62,20 +62,16 @@ struct Hash : Ability<T, Hash> {
 
 template <typename T, typename W, template <typename> class... Ability>
 struct StrongTyping : Ability<StrongTyping<T, W, Ability...>>... {
-    constexpr StrongTyping() = default;
-    constexpr explicit StrongTyping(T const& value) : mValue(value) {}
+    StrongTyping() : mValue(0) {}
+    explicit StrongTyping(T const& value) : mValue(value) {}
     StrongTyping(StrongTyping const&) = default;
     StrongTyping& operator=(StrongTyping const&) = default;
     explicit inline operator T() const { return mValue; }
     T const& value() const { return mValue; }
     T& value() { return mValue; }
 
-    friend std::ostream& operator<<(std::ostream& os, const StrongTyping<T, W, Ability...>& value) {
-        return os << value.value();
-    }
-
 private:
-    T mValue{0};
+    T mValue;
 };
 } // namespace android
 

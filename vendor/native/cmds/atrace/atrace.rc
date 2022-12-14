@@ -35,8 +35,6 @@ on late-init
     chmod 0666 /sys/kernel/tracing/events/sched/sched_pi_setprio/enable
     chmod 0666 /sys/kernel/debug/tracing/events/sched/sched_process_exit/enable
     chmod 0666 /sys/kernel/tracing/events/sched/sched_process_exit/enable
-    chmod 0666 /sys/kernel/debug/tracing/events/sched/sched_process_free/enable
-    chmod 0666 /sys/kernel/tracing/events/sched/sched_process_free/enable
     chmod 0666 /sys/kernel/debug/tracing/events/sched/sched_waking/enable
     chmod 0666 /sys/kernel/tracing/events/sched/sched_waking/enable
     chmod 0666 /sys/kernel/debug/tracing/events/sched/sched_wakeup_new/enable
@@ -267,39 +265,8 @@ on late-init
     chmod 0666 /sys/kernel/tracing/per_cpu/cpu14/trace
     chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu15/trace
     chmod 0666 /sys/kernel/tracing/per_cpu/cpu15/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu16/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu16/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu17/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu17/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu18/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu18/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu19/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu19/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu20/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu20/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu21/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu21/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu22/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu22/trace
-    chmod 0666 /sys/kernel/debug/tracing/per_cpu/cpu23/trace
-    chmod 0666 /sys/kernel/tracing/per_cpu/cpu23/trace
 
-# Setup synthetic events
-    chmod 0666 /sys/kernel/tracing/synthetic_events
-    chmod 0666 /sys/kernel/debug/tracing/synthetic_events
-
-    # rss_stat_throttled
-    write /sys/kernel/tracing/synthetic_events "rss_stat_throttled unsigned int mm_id; unsigned int curr; int member; long size"
-    write /sys/kernel/debug/tracing/synthetic_events "rss_stat_throttled unsigned int mm_id; unsigned int curr; int member; long size"
-
-    # allow creating event triggers
-    chmod 0666 /sys/kernel/debug/tracing/events/kmem/rss_stat/trigger
-    chmod 0666 /sys/kernel/tracing/events/kmem/rss_stat/trigger
-
-# Only create the tracing instance if persist.mm_events.enabled
-# Attempting to remove the tracing instance after it has been created
-# will likely fail with EBUSY as it would be in use by traced_probes.
-on post-fs-data && property:persist.mm_events.enabled=true
+on post-fs-data
 # Create MM Events Tracing Instance for Kmem Activity Trigger
     mkdir /sys/kernel/debug/tracing/instances/mm_events 0755 system system
     mkdir /sys/kernel/tracing/instances/mm_events 0755 system system
@@ -308,17 +275,9 @@ on post-fs-data && property:persist.mm_events.enabled=true
     chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/buffer_size_kb
     chmod 0666 /sys/kernel/tracing/instances/mm_events/buffer_size_kb
 
-# Set the default buffer size to the minimum
-    write /sys/kernel/debug/tracing/instances/mm_events/buffer_size_kb 1
-    write /sys/kernel/tracing/instances/mm_events/buffer_size_kb 1
-
 # Read and enable tracing
     chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/tracing_on
     chmod 0666 /sys/kernel/tracing/instances/mm_events/tracing_on
-
-# Tracing disabled by default
-    write /sys/kernel/debug/tracing/instances/mm_events/tracing_on 0
-    write /sys/kernel/tracing/instances/mm_events/tracing_on 0
 
 # Read and truncate kernel trace
     chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/trace
@@ -367,22 +326,6 @@ on post-fs-data && property:persist.mm_events.enabled=true
     chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu14/trace
     chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu15/trace
     chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu15/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu16/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu16/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu17/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu17/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu18/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu18/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu19/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu19/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu20/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu20/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu21/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu21/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu22/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu22/trace
-    chmod 0666 /sys/kernel/debug/tracing/instances/mm_events/per_cpu/cpu23/trace
-    chmod 0666 /sys/kernel/tracing/instances/mm_events/per_cpu/cpu23/trace
 
 on property:persist.debug.atrace.boottrace=1
     start boottrace

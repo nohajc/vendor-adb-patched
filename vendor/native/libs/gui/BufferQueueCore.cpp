@@ -34,6 +34,7 @@
 #include <gui/BufferQueueCore.h>
 #include <gui/IConsumerListener.h>
 #include <gui/IProducerListener.h>
+#include <gui/ISurfaceComposer.h>
 #include <private/gui/ComposerService.h>
 
 #include <system/window.h>

@@ -59,9 +59,6 @@ public:
     virtual EventHubInterface* getEventHub() = 0;
 
     virtual int32_t getNextId() = 0;
-
-    virtual void updateLedMetaState(int32_t metaState) = 0;
-    virtual int32_t getLedMetaState() = 0;
 };
 
 } // namespace android

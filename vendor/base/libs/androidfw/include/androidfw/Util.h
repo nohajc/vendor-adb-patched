@@ -128,12 +128,8 @@ std::string Utf16ToUtf8(const StringPiece16& utf16);
 std::vector<std::string> SplitAndLowercase(const android::StringPiece& str, char sep);
 
 template <typename T>
-inline bool IsFourByteAligned(const incfs::map_ptr<T>& data) {
+bool IsFourByteAligned(const incfs::map_ptr<T>& data) {
   return ((size_t)data.unsafe_ptr() & 0x3U) == 0;
-}
-
-inline bool IsFourByteAligned(const void* data) {
-  return ((size_t)data & 0x3U) == 0;
 }
 
 }  // namespace util

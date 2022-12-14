@@ -86,11 +86,9 @@ cc_defaults {
     shared_libs: [
         "android.hardware.dumpstate@1.0",
         "android.hardware.dumpstate@1.1",
-        "android.hardware.dumpstate-V1-ndk",
         "libziparchive",
         "libbase",
         "libbinder",
-        "libbinder_ndk",
         "libcrypto",
         "libcutils",
         "libdebuggerd_client",
@@ -101,9 +99,7 @@ cc_defaults {
         "libhidlbase",
         "liblog",
         "libutils",
-        "libvintf",
         "libbinderdebug",
-        "packagemanager_aidl-cpp",
     ],
     srcs: [
         "DumpstateService.cpp",
@@ -176,6 +172,7 @@ cc_test {
     test_config: "dumpstate_smoke_test.xml",
     test_suites: ["device-tests"],
 }
+
 
 // =======================#
 // dumpstate_test_fixture #

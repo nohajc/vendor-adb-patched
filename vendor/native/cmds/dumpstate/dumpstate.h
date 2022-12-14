@@ -25,7 +25,6 @@
 #include <string>
 #include <vector>
 
-#include <aidl/android/hardware/dumpstate/IDumpstateDevice.h>
 #include <android-base/macros.h>
 #include <android-base/unique_fd.h>
 #include <android/hardware/dumpstate/1.1/types.h>
@@ -38,6 +37,11 @@
 #include "DumpstateUtil.h"
 #include "DumpPool.h"
 #include "TaskQueue.h"
+
+// Workaround for const char *args[MAX_ARGS_ARRAY_SIZE] variables until they're converted to
+// std::vector<std::string>
+// TODO: remove once not used
+#define MAX_ARGS_ARRAY_SIZE 1000
 
 // TODO: move everything under this namespace
 // TODO: and then remove explicitly android::os::dumpstate:: prefixes
@@ -157,6 +161,12 @@ class Progress {
 static std::string VERSION_CURRENT = "2.0";
 
 /*
+ * Temporary version that adds a anr-traces.txt entry. Once tools support it, the current version
+ * will be bumped to 3.0.
+ */
+static std::string VERSION_SPLIT_ANR = "3.0-dev-split-anr";
+
+/*
  * "Alias" for the current version.
  */
 static std::string VERSION_DEFAULT = "default";
@@ -207,6 +217,9 @@ class Dumpstate {
     static android::os::dumpstate::CommandOptions DEFAULT_DUMPSYS;
 
     static Dumpstate& GetInstance();
+
+    /* Checkes whether dumpstate is generating a zipped bugreport. */
+    bool IsZipping() const;
 
     /* Initialize dumpstate fields before starting bugreport generation */
     void Initialize();
@@ -392,18 +405,19 @@ class Dumpstate {
         bool limited_only = false;
         // Whether progress updates should be published.
         bool do_progress_updates = false;
-        // this is used to derive dumpstate HAL bug report mode
+        // The mode we'll use when calling IDumpstateDevice::dumpstateBoard.
         // TODO(b/148168577) get rid of the AIDL values, replace them with the HAL values instead.
         // The HAL is actually an API surface that can be validated, while the AIDL is not (@hide).
-        BugreportMode bugreport_mode = Dumpstate::BugreportMode::BUGREPORT_DEFAULT;
+        ::android::hardware::dumpstate::V1_1::DumpstateMode dumpstate_hal_mode =
+            ::android::hardware::dumpstate::V1_1::DumpstateMode::DEFAULT;
         // File descriptor to output zip file. Takes precedence over out_dir.
         android::base::unique_fd bugreport_fd;
         // File descriptor to screenshot file.
         android::base::unique_fd screenshot_fd;
         // Custom output directory.
         std::string out_dir;
-        // Bugreport mode of the bugreport as a string
-        std::string bugreport_mode_string;
+        // Bugreport mode of the bugreport.
+        std::string bugreport_mode;
         // Command-line arguments as string
         std::string args;
         // Notification title and description
@@ -478,7 +492,7 @@ class Dumpstate {
     // This is useful for debugging.
     std::string log_path_;
 
-    // Full path of the bugreport zip file inside bugreport_internal_dir_.
+    // Full path of the bugreport file, be it zip or text, inside bugreport_internal_dir_.
     std::string path_;
 
     // Full path of the file containing the screenshot (when requested).
@@ -627,9 +641,6 @@ void do_dmesg();
 
 /* Prints the contents of all the routing tables, both IPv4 and IPv6. */
 void dump_route_tables();
-
-/* Dump subdirectories of cgroupfs if the corresponding process is frozen */
-void dump_frozen_cgroupfs();
 
 /* Play a sound via Stagefright */
 void play_sound(const char *path);

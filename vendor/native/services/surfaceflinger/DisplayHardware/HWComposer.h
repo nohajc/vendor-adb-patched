@@ -27,20 +27,18 @@
 #include <vector>
 
 #include <android-base/thread_annotations.h>
-#include <ui/FenceTime.h>
+#include <ui/Fence.h>
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wextra"
 #include <ui/GraphicTypes.h>
-#pragma clang diagnostic pop // ignored "-Wconversion -Wextra"
+#pragma clang diagnostic pop
 
 #include <utils/StrongPointer.h>
 #include <utils/Timers.h>
 
 #include "DisplayIdentification.h"
-#include "DisplayMode.h"
 #include "HWC2.h"
 #include "Hal.h"
 
@@ -66,8 +64,6 @@ struct KnownHWCGenericLayerMetadata {
     const uint32_t id;
 };
 
-// See the comment for SurfaceFlinger::getHwComposer for the thread safety rules for accessing
-// this class.
 class HWComposer {
 public:
     struct DeviceRequestedChanges {
@@ -82,43 +78,27 @@ public:
         ClientTargetProperty clientTargetProperty;
     };
 
-    struct HWCDisplayMode {
-        hal::HWConfigId hwcId;
-        int32_t width = -1;
-        int32_t height = -1;
-        nsecs_t vsyncPeriod = -1;
-        int32_t dpiX = -1;
-        int32_t dpiY = -1;
-        int32_t configGroup = -1;
-
-        friend std::ostream& operator<<(std::ostream& os, const HWCDisplayMode& mode) {
-            return os << "id=" << mode.hwcId << " res=" << mode.width << "x" << mode.height
-                      << " vsyncPeriod=" << mode.vsyncPeriod << " dpi=" << mode.dpiX << "x"
-                      << mode.dpiY << " group=" << mode.configGroup;
-        }
-    };
-
     virtual ~HWComposer();
 
-    virtual void setCallback(HWC2::ComposerCallback*) = 0;
+    virtual void setConfiguration(HWC2::ComposerCallback* callback, int32_t sequenceId) = 0;
 
-    virtual bool getDisplayIdentificationData(hal::HWDisplayId, uint8_t* outPort,
+    virtual bool getDisplayIdentificationData(hal::HWDisplayId hwcDisplayId, uint8_t* outPort,
                                               DisplayIdentificationData* outData) const = 0;
 
-    virtual bool hasCapability(hal::Capability) const = 0;
-    virtual bool hasDisplayCapability(HalDisplayId, hal::DisplayCapability) const = 0;
+    virtual bool hasCapability(hal::Capability capability) const = 0;
+    virtual bool hasDisplayCapability(DisplayId displayId,
+                                      hal::DisplayCapability capability) const = 0;
 
-    virtual size_t getMaxVirtualDisplayCount() const = 0;
-    virtual size_t getMaxVirtualDisplayDimension() const = 0;
+    // Attempts to allocate a virtual display and returns its ID if created on the HWC device.
+    virtual std::optional<DisplayId> allocateVirtualDisplay(uint32_t width, uint32_t height,
+                                                            ui::PixelFormat* format) = 0;
 
-    // Attempts to allocate a virtual display on the HWC. The maximum number of virtual displays
-    // supported by the HWC can be queried in advance, but allocation may fail for other reasons.
-    virtual bool allocateVirtualDisplay(HalVirtualDisplayId, ui::Size, ui::PixelFormat*) = 0;
-
-    virtual void allocatePhysicalDisplay(hal::HWDisplayId, PhysicalDisplayId) = 0;
+    virtual void allocatePhysicalDisplay(hal::HWDisplayId hwcDisplayId, DisplayId displayId) = 0;
 
     // Attempts to create a new layer on this display
-    virtual std::shared_ptr<HWC2::Layer> createLayer(HalDisplayId) = 0;
+    virtual HWC2::Layer* createLayer(DisplayId displayId) = 0;
+    // Destroy a previously created layer
+    virtual void destroyLayer(DisplayId displayId, HWC2::Layer* layer) = 0;
 
     // Gets any required composition change requests from the HWC device.
     //
@@ -128,103 +108,105 @@ public:
     // with fewer handshakes, but this does not work if client composition is
     // expected.
     virtual status_t getDeviceCompositionChanges(
-            HalDisplayId, bool frameUsesClientComposition,
-            std::chrono::steady_clock::time_point earliestPresentTime,
-            const std::shared_ptr<FenceTime>& previousPresentFence,
+            DisplayId, bool frameUsesClientComposition,
             std::optional<DeviceRequestedChanges>* outChanges) = 0;
 
-    virtual status_t setClientTarget(HalDisplayId, uint32_t slot, const sp<Fence>& acquireFence,
-                                     const sp<GraphicBuffer>& target, ui::Dataspace) = 0;
+    virtual status_t setClientTarget(DisplayId displayId, uint32_t slot,
+                                     const sp<Fence>& acquireFence, const sp<GraphicBuffer>& target,
+                                     ui::Dataspace dataspace) = 0;
 
     // Present layers to the display and read releaseFences.
-    virtual status_t presentAndGetReleaseFences(
-            HalDisplayId, std::chrono::steady_clock::time_point earliestPresentTime,
-            const std::shared_ptr<FenceTime>& previousPresentFence) = 0;
+    virtual status_t presentAndGetReleaseFences(DisplayId displayId) = 0;
 
     // set power mode
-    virtual status_t setPowerMode(PhysicalDisplayId, hal::PowerMode) = 0;
+    virtual status_t setPowerMode(DisplayId displayId, hal::PowerMode mode) = 0;
 
     // Sets a color transform to be applied to the result of composition
-    virtual status_t setColorTransform(HalDisplayId, const mat4& transform) = 0;
+    virtual status_t setColorTransform(DisplayId displayId, const mat4& transform) = 0;
 
-    // reset state when a display is disconnected
-    virtual void disconnectDisplay(HalDisplayId) = 0;
+    // reset state when an external, non-virtual display is disconnected
+    virtual void disconnectDisplay(DisplayId displayId) = 0;
 
     // get the present fence received from the last call to present.
-    virtual sp<Fence> getPresentFence(HalDisplayId) const = 0;
+    virtual sp<Fence> getPresentFence(DisplayId displayId) const = 0;
 
     // Get last release fence for the given layer
-    virtual sp<Fence> getLayerReleaseFence(HalDisplayId, HWC2::Layer*) const = 0;
+    virtual sp<Fence> getLayerReleaseFence(DisplayId displayId, HWC2::Layer* layer) const = 0;
 
     // Set the output buffer and acquire fence for a virtual display.
-    virtual status_t setOutputBuffer(HalVirtualDisplayId, const sp<Fence>& acquireFence,
+    // Returns INVALID_OPERATION if displayId is not a virtual display.
+    virtual status_t setOutputBuffer(DisplayId displayId, const sp<Fence>& acquireFence,
                                      const sp<GraphicBuffer>& buffer) = 0;
 
     // After SurfaceFlinger has retrieved the release fences for all the frames,
     // it can call this to clear the shared pointers in the release fence map
-    virtual void clearReleaseFences(HalDisplayId) = 0;
+    virtual void clearReleaseFences(DisplayId displayId) = 0;
 
     // Fetches the HDR capabilities of the given display
-    virtual status_t getHdrCapabilities(HalDisplayId, HdrCapabilities* outCapabilities) = 0;
+    virtual status_t getHdrCapabilities(DisplayId displayId, HdrCapabilities* outCapabilities) = 0;
 
-    virtual int32_t getSupportedPerFrameMetadata(HalDisplayId) const = 0;
+    virtual int32_t getSupportedPerFrameMetadata(DisplayId displayId) const = 0;
 
     // Returns the available RenderIntent of the given display.
-    virtual std::vector<ui::RenderIntent> getRenderIntents(HalDisplayId, ui::ColorMode) const = 0;
+    virtual std::vector<ui::RenderIntent> getRenderIntents(DisplayId displayId,
+                                                           ui::ColorMode colorMode) const = 0;
 
-    virtual mat4 getDataspaceSaturationMatrix(HalDisplayId, ui::Dataspace) = 0;
+    virtual mat4 getDataspaceSaturationMatrix(DisplayId displayId, ui::Dataspace dataspace) = 0;
 
     // Returns the attributes of the color sampling engine.
-    virtual status_t getDisplayedContentSamplingAttributes(HalDisplayId, ui::PixelFormat* outFormat,
+    virtual status_t getDisplayedContentSamplingAttributes(DisplayId displayId,
+                                                           ui::PixelFormat* outFormat,
                                                            ui::Dataspace* outDataspace,
                                                            uint8_t* outComponentMask) = 0;
-    virtual status_t setDisplayContentSamplingEnabled(HalDisplayId, bool enabled,
+    virtual status_t setDisplayContentSamplingEnabled(DisplayId displayId, bool enabled,
                                                       uint8_t componentMask,
                                                       uint64_t maxFrames) = 0;
-    virtual status_t getDisplayedContentSample(HalDisplayId, uint64_t maxFrames, uint64_t timestamp,
+    virtual status_t getDisplayedContentSample(DisplayId displayId, uint64_t maxFrames,
+                                               uint64_t timestamp,
                                                DisplayedFrameStats* outStats) = 0;
 
     // Sets the brightness of a display.
-    virtual std::future<status_t> setDisplayBrightness(PhysicalDisplayId, float brightness) = 0;
+    virtual std::future<status_t> setDisplayBrightness(DisplayId displayId, float brightness) = 0;
 
     // Events handling ---------------------------------------------------------
 
     // Returns stable display ID (and display name on connection of new or previously disconnected
     // display), or std::nullopt if hotplug event was ignored.
     // This function is called from SurfaceFlinger.
-    virtual std::optional<DisplayIdentificationInfo> onHotplug(hal::HWDisplayId,
-                                                               hal::Connection) = 0;
+    virtual std::optional<DisplayIdentificationInfo> onHotplug(hal::HWDisplayId hwcDisplayId,
+                                                               hal::Connection connection) = 0;
 
-    // If true we'll update the DeviceProductInfo on subsequent hotplug connected events.
-    // TODO(b/157555476): Remove when the framework has proper support for headless mode
-    virtual bool updatesDeviceProductInfoOnHotplugReconnect() const = 0;
+    virtual bool onVsync(hal::HWDisplayId hwcDisplayId, int64_t timestamp) = 0;
+    virtual void setVsyncEnabled(DisplayId displayId, hal::Vsync enabled) = 0;
 
-    virtual bool onVsync(hal::HWDisplayId, int64_t timestamp) = 0;
-    virtual void setVsyncEnabled(PhysicalDisplayId, hal::Vsync enabled) = 0;
+    virtual nsecs_t getRefreshTimestamp(DisplayId displayId) const = 0;
+    virtual bool isConnected(DisplayId displayId) const = 0;
 
-    virtual bool isConnected(PhysicalDisplayId) const = 0;
+    // Non-const because it can update configMap inside of mDisplayData
+    virtual std::vector<std::shared_ptr<const HWC2::Display::Config>> getConfigs(
+            DisplayId displayId) const = 0;
 
-    virtual std::vector<HWCDisplayMode> getModes(PhysicalDisplayId) const = 0;
+    virtual std::shared_ptr<const HWC2::Display::Config> getActiveConfig(
+            DisplayId displayId) const = 0;
+    virtual int getActiveConfigIndex(DisplayId displayId) const = 0;
 
-    virtual std::optional<hal::HWConfigId> getActiveMode(PhysicalDisplayId) const = 0;
+    virtual std::vector<ui::ColorMode> getColorModes(DisplayId displayId) const = 0;
 
-    virtual std::vector<ui::ColorMode> getColorModes(PhysicalDisplayId) const = 0;
-
-    virtual status_t setActiveColorMode(PhysicalDisplayId, ui::ColorMode mode,
-                                        ui::RenderIntent) = 0;
+    virtual status_t setActiveColorMode(DisplayId displayId, ui::ColorMode mode,
+                                        ui::RenderIntent renderIntent) = 0;
 
     // Composer 2.4
-    virtual ui::DisplayConnectionType getDisplayConnectionType(PhysicalDisplayId) const = 0;
-    virtual bool isVsyncPeriodSwitchSupported(PhysicalDisplayId) const = 0;
-    virtual status_t getDisplayVsyncPeriod(PhysicalDisplayId displayId,
-                                           nsecs_t* outVsyncPeriod) const = 0;
-    virtual status_t setActiveModeWithConstraints(PhysicalDisplayId, hal::HWConfigId,
-                                                  const hal::VsyncPeriodChangeConstraints&,
-                                                  hal::VsyncPeriodChangeTimeline* outTimeline) = 0;
-    virtual status_t setAutoLowLatencyMode(PhysicalDisplayId, bool on) = 0;
+    virtual DisplayConnectionType getDisplayConnectionType(DisplayId) const = 0;
+    virtual bool isVsyncPeriodSwitchSupported(DisplayId displayId) const = 0;
+    virtual nsecs_t getDisplayVsyncPeriod(DisplayId displayId) const = 0;
+    virtual status_t setActiveConfigWithConstraints(
+            DisplayId displayId, size_t configId,
+            const hal::VsyncPeriodChangeConstraints& constraints,
+            hal::VsyncPeriodChangeTimeline* outTimeline) = 0;
+    virtual status_t setAutoLowLatencyMode(DisplayId displayId, bool on) = 0;
     virtual status_t getSupportedContentTypes(
-            PhysicalDisplayId, std::vector<hal::ContentType>* outSupportedContentTypes) = 0;
-    virtual status_t setContentType(PhysicalDisplayId, hal::ContentType) = 0;
+            DisplayId displayId, std::vector<hal::ContentType>* outSupportedContentTypes) = 0;
+    virtual status_t setContentType(DisplayId displayId, hal::ContentType contentType) = 0;
     virtual const std::unordered_map<std::string, bool>& getSupportedLayerGenericMetadata()
             const = 0;
 
@@ -237,8 +219,8 @@ public:
     virtual std::optional<hal::HWDisplayId> getInternalHwcDisplayId() const = 0;
     virtual std::optional<hal::HWDisplayId> getExternalHwcDisplayId() const = 0;
 
-    virtual std::optional<PhysicalDisplayId> toPhysicalDisplayId(hal::HWDisplayId) const = 0;
-    virtual std::optional<hal::HWDisplayId> fromPhysicalDisplayId(PhysicalDisplayId) const = 0;
+    virtual std::optional<DisplayId> toPhysicalDisplayId(hal::HWDisplayId hwcDisplayId) const = 0;
+    virtual std::optional<hal::HWDisplayId> fromPhysicalDisplayId(DisplayId displayId) const = 0;
 };
 
 namespace impl {
@@ -250,114 +232,118 @@ public:
 
     ~HWComposer() override;
 
-    void setCallback(HWC2::ComposerCallback*) override;
+    void setConfiguration(HWC2::ComposerCallback* callback, int32_t sequenceId) override;
 
-    bool getDisplayIdentificationData(hal::HWDisplayId, uint8_t* outPort,
+    bool getDisplayIdentificationData(hal::HWDisplayId hwcDisplayId, uint8_t* outPort,
                                       DisplayIdentificationData* outData) const override;
 
-    bool hasCapability(hal::Capability) const override;
-    bool hasDisplayCapability(HalDisplayId, hal::DisplayCapability) const override;
+    bool hasCapability(hal::Capability capability) const override;
+    bool hasDisplayCapability(DisplayId displayId,
+                              hal::DisplayCapability capability) const override;
 
-    size_t getMaxVirtualDisplayCount() const override;
-    size_t getMaxVirtualDisplayDimension() const override;
-
-    bool allocateVirtualDisplay(HalVirtualDisplayId, ui::Size, ui::PixelFormat*) override;
+    // Attempts to allocate a virtual display and returns its ID if created on the HWC device.
+    std::optional<DisplayId> allocateVirtualDisplay(uint32_t width, uint32_t height,
+                                                    ui::PixelFormat* format) override;
 
     // Called from SurfaceFlinger, when the state for a new physical display needs to be recreated.
-    void allocatePhysicalDisplay(hal::HWDisplayId, PhysicalDisplayId) override;
+    void allocatePhysicalDisplay(hal::HWDisplayId hwcDisplayId, DisplayId displayId) override;
 
     // Attempts to create a new layer on this display
-    std::shared_ptr<HWC2::Layer> createLayer(HalDisplayId) override;
+    HWC2::Layer* createLayer(DisplayId displayId) override;
+    // Destroy a previously created layer
+    void destroyLayer(DisplayId displayId, HWC2::Layer* layer) override;
 
     status_t getDeviceCompositionChanges(
-            HalDisplayId, bool frameUsesClientComposition,
-            std::chrono::steady_clock::time_point earliestPresentTime,
-            const std::shared_ptr<FenceTime>& previousPresentFence,
+            DisplayId, bool frameUsesClientComposition,
             std::optional<DeviceRequestedChanges>* outChanges) override;
 
-    status_t setClientTarget(HalDisplayId, uint32_t slot, const sp<Fence>& acquireFence,
-                             const sp<GraphicBuffer>& target, ui::Dataspace) override;
+    status_t setClientTarget(DisplayId displayId, uint32_t slot, const sp<Fence>& acquireFence,
+                             const sp<GraphicBuffer>& target, ui::Dataspace dataspace) override;
 
     // Present layers to the display and read releaseFences.
-    status_t presentAndGetReleaseFences(
-            HalDisplayId, std::chrono::steady_clock::time_point earliestPresentTime,
-            const std::shared_ptr<FenceTime>& previousPresentFence) override;
+    status_t presentAndGetReleaseFences(DisplayId displayId) override;
 
     // set power mode
-    status_t setPowerMode(PhysicalDisplayId, hal::PowerMode mode) override;
+    status_t setPowerMode(DisplayId displayId, hal::PowerMode mode) override;
 
     // Sets a color transform to be applied to the result of composition
-    status_t setColorTransform(HalDisplayId, const mat4& transform) override;
+    status_t setColorTransform(DisplayId displayId, const mat4& transform) override;
 
-    // reset state when a display is disconnected
-    void disconnectDisplay(HalDisplayId) override;
+    // reset state when an external, non-virtual display is disconnected
+    void disconnectDisplay(DisplayId displayId) override;
 
     // get the present fence received from the last call to present.
-    sp<Fence> getPresentFence(HalDisplayId) const override;
+    sp<Fence> getPresentFence(DisplayId displayId) const override;
 
     // Get last release fence for the given layer
-    sp<Fence> getLayerReleaseFence(HalDisplayId, HWC2::Layer*) const override;
+    sp<Fence> getLayerReleaseFence(DisplayId displayId, HWC2::Layer* layer) const override;
 
     // Set the output buffer and acquire fence for a virtual display.
-    status_t setOutputBuffer(HalVirtualDisplayId, const sp<Fence>& acquireFence,
+    // Returns INVALID_OPERATION if displayId is not a virtual display.
+    status_t setOutputBuffer(DisplayId displayId, const sp<Fence>& acquireFence,
                              const sp<GraphicBuffer>& buffer) override;
 
     // After SurfaceFlinger has retrieved the release fences for all the frames,
     // it can call this to clear the shared pointers in the release fence map
-    void clearReleaseFences(HalDisplayId) override;
+    void clearReleaseFences(DisplayId displayId) override;
 
     // Fetches the HDR capabilities of the given display
-    status_t getHdrCapabilities(HalDisplayId, HdrCapabilities* outCapabilities) override;
+    status_t getHdrCapabilities(DisplayId displayId, HdrCapabilities* outCapabilities) override;
 
-    int32_t getSupportedPerFrameMetadata(HalDisplayId) const override;
+    int32_t getSupportedPerFrameMetadata(DisplayId displayId) const override;
 
     // Returns the available RenderIntent of the given display.
-    std::vector<ui::RenderIntent> getRenderIntents(HalDisplayId, ui::ColorMode) const override;
+    std::vector<ui::RenderIntent> getRenderIntents(DisplayId displayId,
+                                                   ui::ColorMode colorMode) const override;
 
-    mat4 getDataspaceSaturationMatrix(HalDisplayId, ui::Dataspace) override;
+    mat4 getDataspaceSaturationMatrix(DisplayId displayId, ui::Dataspace dataspace) override;
 
     // Returns the attributes of the color sampling engine.
-    status_t getDisplayedContentSamplingAttributes(HalDisplayId, ui::PixelFormat* outFormat,
+    status_t getDisplayedContentSamplingAttributes(DisplayId displayId, ui::PixelFormat* outFormat,
                                                    ui::Dataspace* outDataspace,
                                                    uint8_t* outComponentMask) override;
-    status_t setDisplayContentSamplingEnabled(HalDisplayId, bool enabled, uint8_t componentMask,
-                                              uint64_t maxFrames) override;
-    status_t getDisplayedContentSample(HalDisplayId, uint64_t maxFrames, uint64_t timestamp,
+    status_t setDisplayContentSamplingEnabled(DisplayId displayId, bool enabled,
+                                              uint8_t componentMask, uint64_t maxFrames) override;
+    status_t getDisplayedContentSample(DisplayId displayId, uint64_t maxFrames, uint64_t timestamp,
                                        DisplayedFrameStats* outStats) override;
-    std::future<status_t> setDisplayBrightness(PhysicalDisplayId, float brightness) override;
+    std::future<status_t> setDisplayBrightness(DisplayId displayId, float brightness) override;
 
     // Events handling ---------------------------------------------------------
 
-    // Returns PhysicalDisplayId (and display name on connection of new or previously disconnected
+    // Returns stable display ID (and display name on connection of new or previously disconnected
     // display), or std::nullopt if hotplug event was ignored.
-    std::optional<DisplayIdentificationInfo> onHotplug(hal::HWDisplayId, hal::Connection) override;
+    std::optional<DisplayIdentificationInfo> onHotplug(hal::HWDisplayId hwcDisplayId,
+                                                       hal::Connection connection) override;
 
-    bool updatesDeviceProductInfoOnHotplugReconnect() const override;
+    bool onVsync(hal::HWDisplayId hwcDisplayId, int64_t timestamp) override;
+    void setVsyncEnabled(DisplayId displayId, hal::Vsync enabled) override;
 
-    bool onVsync(hal::HWDisplayId, int64_t timestamp) override;
-    void setVsyncEnabled(PhysicalDisplayId, hal::Vsync enabled) override;
+    nsecs_t getRefreshTimestamp(DisplayId displayId) const override;
+    bool isConnected(DisplayId displayId) const override;
 
-    bool isConnected(PhysicalDisplayId) const override;
+    // Non-const because it can update configMap inside of mDisplayData
+    std::vector<std::shared_ptr<const HWC2::Display::Config>> getConfigs(
+            DisplayId displayId) const override;
 
-    std::vector<HWCDisplayMode> getModes(PhysicalDisplayId) const override;
+    std::shared_ptr<const HWC2::Display::Config> getActiveConfig(
+            DisplayId displayId) const override;
+    int getActiveConfigIndex(DisplayId displayId) const override;
 
-    std::optional<hal::HWConfigId> getActiveMode(PhysicalDisplayId) const override;
+    std::vector<ui::ColorMode> getColorModes(DisplayId displayId) const override;
 
-    std::vector<ui::ColorMode> getColorModes(PhysicalDisplayId) const override;
-
-    status_t setActiveColorMode(PhysicalDisplayId, ui::ColorMode, ui::RenderIntent) override;
+    status_t setActiveColorMode(DisplayId displayId, ui::ColorMode mode,
+                                ui::RenderIntent renderIntent) override;
 
     // Composer 2.4
-    ui::DisplayConnectionType getDisplayConnectionType(PhysicalDisplayId) const override;
-    bool isVsyncPeriodSwitchSupported(PhysicalDisplayId) const override;
-    status_t getDisplayVsyncPeriod(PhysicalDisplayId displayId,
-                                   nsecs_t* outVsyncPeriod) const override;
-    status_t setActiveModeWithConstraints(PhysicalDisplayId, hal::HWConfigId,
-                                          const hal::VsyncPeriodChangeConstraints&,
-                                          hal::VsyncPeriodChangeTimeline* outTimeline) override;
-    status_t setAutoLowLatencyMode(PhysicalDisplayId, bool) override;
-    status_t getSupportedContentTypes(PhysicalDisplayId, std::vector<hal::ContentType>*) override;
-    status_t setContentType(PhysicalDisplayId, hal::ContentType) override;
+    DisplayConnectionType getDisplayConnectionType(DisplayId) const override;
+    bool isVsyncPeriodSwitchSupported(DisplayId displayId) const override;
+    nsecs_t getDisplayVsyncPeriod(DisplayId displayId) const override;
+    status_t setActiveConfigWithConstraints(DisplayId displayId, size_t configId,
+                                            const hal::VsyncPeriodChangeConstraints& constraints,
+                                            hal::VsyncPeriodChangeTimeline* outTimeline) override;
+    status_t setAutoLowLatencyMode(DisplayId displayId, bool) override;
+    status_t getSupportedContentTypes(DisplayId displayId, std::vector<hal::ContentType>*) override;
+    status_t setContentType(DisplayId displayId, hal::ContentType) override;
 
     const std::unordered_map<std::string, bool>& getSupportedLayerGenericMetadata() const override;
 
@@ -374,12 +360,21 @@ public:
         return mExternalHwcDisplayId;
     }
 
-    std::optional<PhysicalDisplayId> toPhysicalDisplayId(hal::HWDisplayId) const override;
-    std::optional<hal::HWDisplayId> fromPhysicalDisplayId(PhysicalDisplayId) const override;
+    std::optional<DisplayId> toPhysicalDisplayId(hal::HWDisplayId hwcDisplayId) const override;
+    std::optional<hal::HWDisplayId> fromPhysicalDisplayId(DisplayId displayId) const override;
 
 private:
     // For unit tests
     friend TestableSurfaceFlinger;
+
+    std::optional<DisplayIdentificationInfo> onHotplugConnect(hal::HWDisplayId hwcDisplayId);
+    std::optional<DisplayIdentificationInfo> onHotplugDisconnect(hal::HWDisplayId hwcDisplayId);
+    bool shouldIgnoreHotplugConnect(hal::HWDisplayId hwcDisplayId,
+                                    bool hasDisplayIdentificationData) const;
+
+    void loadCapabilities();
+    void loadLayerMetadataSupport();
+    uint32_t getMaxVirtualDisplayCount() const;
 
     struct DisplayData {
         bool isVirtual = false;
@@ -388,6 +383,8 @@ private:
         std::unordered_map<HWC2::Layer*, sp<Fence>> releaseFences;
         buffer_handle_t outbufHandle = nullptr;
         sp<Fence> outbufAcquireFence = Fence::NO_FENCE;
+        mutable std::unordered_map<int32_t,
+                std::shared_ptr<const HWC2::Display::Config>> configMap;
 
         bool validateWasSkipped;
         hal::Error presentError;
@@ -397,33 +394,25 @@ private:
         std::mutex vsyncEnabledLock;
         hal::Vsync vsyncEnabled GUARDED_BY(vsyncEnabledLock) = hal::Vsync::DISABLE;
 
-        nsecs_t lastHwVsync = 0;
+        mutable std::mutex lastHwVsyncLock;
+        nsecs_t lastHwVsync GUARDED_BY(lastHwVsyncLock) = 0;
     };
 
-    std::optional<DisplayIdentificationInfo> onHotplugConnect(hal::HWDisplayId);
-    std::optional<DisplayIdentificationInfo> onHotplugDisconnect(hal::HWDisplayId);
-    bool shouldIgnoreHotplugConnect(hal::HWDisplayId, bool hasDisplayIdentificationData) const;
-
-    int32_t getAttribute(hal::HWDisplayId hwcDisplayId, hal::HWConfigId configId,
-                         hal::Attribute attribute) const;
-
-    void loadCapabilities();
-    void loadLayerMetadataSupport();
-
-    std::unordered_map<HalDisplayId, DisplayData> mDisplayData;
+    std::unordered_map<DisplayId, DisplayData> mDisplayData;
 
     std::unique_ptr<android::Hwc2::Composer> mComposer;
     std::unordered_set<hal::Capability> mCapabilities;
     std::unordered_map<std::string, bool> mSupportedLayerGenericMetadata;
     bool mRegisteredCallback = false;
 
-    std::unordered_map<hal::HWDisplayId, PhysicalDisplayId> mPhysicalDisplayIdMap;
+    std::unordered_map<hal::HWDisplayId, DisplayId> mPhysicalDisplayIdMap;
     std::optional<hal::HWDisplayId> mInternalHwcDisplayId;
     std::optional<hal::HWDisplayId> mExternalHwcDisplayId;
     bool mHasMultiDisplaySupport = false;
 
-    const size_t mMaxVirtualDisplayDimension;
-    const bool mUpdateDeviceProductInfoOnHotplugReconnect;
+    std::unordered_set<DisplayId> mFreeVirtualDisplayIds;
+    uint32_t mNextVirtualDisplayId = 0;
+    uint32_t mRemainingHwcVirtualDisplays{getMaxVirtualDisplayCount()};
 };
 
 } // namespace impl

@@ -37,8 +37,8 @@ class DeployAgentBufferCallback : public StandardStreamsCallbackInterface {
   public:
     DeployAgentBufferCallback(std::vector<char>* outBuffer, std::vector<char>* errBuffer);
 
-    virtual bool OnStdout(const char* buffer, size_t length);
-    virtual bool OnStderr(const char* buffer, size_t length);
+    virtual void OnStdout(const char* buffer, int length);
+    virtual void OnStderr(const char* buffer, int length);
     virtual int Done(int status);
 
   private:
@@ -58,14 +58,12 @@ DeployAgentBufferCallback::DeployAgentBufferCallback(std::vector<char>* outBuffe
     mpErrBuffer = errBuffer;
 }
 
-bool DeployAgentBufferCallback::OnStdout(const char* buffer, size_t length) {
+void DeployAgentBufferCallback::OnStdout(const char* buffer, int length) {
     appendBuffer(mpOutBuffer, buffer, length);
-    return true;
 }
 
-bool DeployAgentBufferCallback::OnStderr(const char* buffer, size_t length) {
+void DeployAgentBufferCallback::OnStderr(const char* buffer, int length) {
     appendBuffer(mpErrBuffer, buffer, length);
-    return true;
 }
 
 int DeployAgentBufferCallback::Done(int status) {

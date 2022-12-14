@@ -22,7 +22,7 @@ namespace idlcli {
 class IdlCli;
 
 class CommandVibrator : public CommandWithSubcommands<CommandVibrator> {
-    std::string getDescription() const override { return "Invoke Vibrator IDL APIs."; }
+    std::string getDescription() const override { return "Invoke Vibrator HIDL APIs."; }
 
     std::string getUsageSummary() const override { return "<api> [arguments]"; }
 

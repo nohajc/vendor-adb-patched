@@ -22,15 +22,12 @@
 
 #include "InputHost.h"
 
-#include <android/os/BnInputFlinger.h>
-#include <binder/Binder.h>
 #include <cutils/compiler.h>
-#include <utils/String16.h>
+#include <input/IInputFlinger.h>
+#include <input/ISetInputWindowsListener.h>
 #include <utils/String8.h>
+#include <utils/String16.h>
 #include <utils/StrongPointer.h>
-
-using android::gui::FocusRequest;
-using android::os::BnInputFlinger;
 
 namespace android {
 
@@ -42,15 +39,14 @@ public:
 
     InputFlinger() ANDROID_API;
 
-    status_t dump(int fd, const Vector<String16>& args) override;
-    binder::Status createInputChannel(const std::string&, InputChannel*) override {
-        return binder::Status::ok();
-    }
-    binder::Status removeInputChannel(const sp<IBinder>&) override { return binder::Status::ok(); }
-    binder::Status setFocusedWindow(const FocusRequest&) override { return binder::Status::ok(); }
+    virtual status_t dump(int fd, const Vector<String16>& args);
+    void setInputWindows(const std::vector<InputWindowInfo>&,
+            const sp<ISetInputWindowsListener>&) {}
+    void registerInputChannel(const sp<InputChannel>&) {}
+    void unregisterInputChannel(const sp<InputChannel>&) {}
 
 private:
-    ~InputFlinger() override;
+    virtual ~InputFlinger();
 
     void dumpInternal(String8& result);
 

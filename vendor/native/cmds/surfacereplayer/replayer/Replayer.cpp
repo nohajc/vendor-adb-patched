@@ -28,6 +28,7 @@
 #include <gui/Surface.h>
 #include <private/gui/ComposerService.h>
 
+#include <ui/DisplayInfo.h>
 #include <utils/Log.h>
 #include <utils/String8.h>
 #include <utils/Trace.h>
@@ -386,6 +387,10 @@ status_t Replayer::doSurfaceTransaction(
             case SurfaceChange::SurfaceChangeCase::kMatrix:
                 setMatrix(transaction, change.id(), change.matrix());
                 break;
+            case SurfaceChange::SurfaceChangeCase::kOverrideScalingMode:
+                setOverrideScalingMode(transaction, change.id(),
+                        change.override_scaling_mode());
+                break;
             case SurfaceChange::SurfaceChangeCase::kTransparentRegionHint:
                 setTransparentRegionHint(transaction, change.id(),
                         change.transparent_region_hint());
@@ -402,17 +407,25 @@ status_t Replayer::doSurfaceTransaction(
             case SurfaceChange::SurfaceChangeCase::kSecureFlag:
                 setSecureFlag(transaction, change.id(), change.secure_flag());
                 break;
+            case SurfaceChange::SurfaceChangeCase::kDeferredTransaction:
+                waitUntilDeferredTransactionLayerExists(change.deferred_transaction(), lock);
+                setDeferredTransaction(transaction, change.id(),
+                        change.deferred_transaction());
+                break;
             case SurfaceChange::SurfaceChangeCase::kReparent:
                 setReparentChange(transaction, change.id(), change.reparent());
+                break;
+            case SurfaceChange::SurfaceChangeCase::kReparentChildren:
+                setReparentChildrenChange(transaction, change.id(), change.reparent_children());
                 break;
             case SurfaceChange::SurfaceChangeCase::kRelativeParent:
                 setRelativeParentChange(transaction, change.id(), change.relative_parent());
                 break;
+            case SurfaceChange::SurfaceChangeCase::kDetachChildren:
+                setDetachChildrenChange(transaction, change.id(), change.detach_children());
+                break;
             case SurfaceChange::SurfaceChangeCase::kShadowRadius:
                 setShadowRadiusChange(transaction, change.id(), change.shadow_radius());
-                break;
-            case SurfaceChange::SurfaceChangeCase::kBlurRegions:
-                setBlurRegionsChange(transaction, change.id(), change.blur_regions());
                 break;
             default:
                 status = 1;
@@ -487,7 +500,7 @@ void Replayer::setCrop(SurfaceComposerClient::Transaction& t,
 
     Rect r = Rect(cc.rectangle().left(), cc.rectangle().top(), cc.rectangle().right(),
             cc.rectangle().bottom());
-    t.setCrop(mLayers[id], r);
+    t.setCrop_legacy(mLayers[id], r);
 }
 
 void Replayer::setCornerRadius(SurfaceComposerClient::Transaction& t,
@@ -510,6 +523,12 @@ void Replayer::setMatrix(SurfaceComposerClient::Transaction& t,
     ALOGV("Layer %d: Setting Matrix -- dsdx=%f, dtdx=%f, dsdy=%f, dtdy=%f", id, mc.dsdx(),
             mc.dtdx(), mc.dsdy(), mc.dtdy());
     t.setMatrix(mLayers[id], mc.dsdx(), mc.dtdx(), mc.dsdy(), mc.dtdy());
+}
+
+void Replayer::setOverrideScalingMode(SurfaceComposerClient::Transaction& t,
+        layer_id id, const OverrideScalingModeChange& osmc) {
+    ALOGV("Layer %d: Setting Override Scaling Mode -- mode=%d", id, osmc.override_scaling_mode());
+    t.setOverrideScalingMode(mLayers[id], osmc.override_scaling_mode());
 }
 
 void Replayer::setTransparentRegionHint(SurfaceComposerClient::Transaction& t,
@@ -553,6 +572,21 @@ void Replayer::setSecureFlag(SurfaceComposerClient::Transaction& t,
     layer_id flag = sfc.secure_flag() ? layer_state_t::eLayerSecure : 0;
 
     t.setFlags(mLayers[id], flag, layer_state_t::eLayerSecure);
+}
+
+void Replayer::setDeferredTransaction(SurfaceComposerClient::Transaction& t,
+        layer_id id, const DeferredTransactionChange& dtc) {
+    ALOGV("Layer %d: Setting Deferred Transaction -- layer_id=%d, "
+          "frame_number=%llu",
+            id, dtc.layer_id(), dtc.frame_number());
+    if (mLayers.count(dtc.layer_id()) == 0 || mLayers[dtc.layer_id()] == nullptr) {
+        ALOGE("Layer %d not found in Deferred Transaction", dtc.layer_id());
+        return;
+    }
+
+    auto handle = mLayers[dtc.layer_id()]->getHandle();
+
+    t.deferTransactionUntil_legacy(mLayers[id], handle, dtc.frame_number());
 }
 
 void Replayer::setDisplaySurface(SurfaceComposerClient::Transaction& t,
@@ -658,6 +692,13 @@ void Replayer::waitUntilTimestamp(int64_t timestamp) {
     std::this_thread::sleep_for(std::chrono::nanoseconds(timestamp - mCurrentTime));
 }
 
+void Replayer::waitUntilDeferredTransactionLayerExists(
+        const DeferredTransactionChange& dtc, std::unique_lock<std::mutex>& lock) {
+    if (mLayers.count(dtc.layer_id()) == 0 || mLayers[dtc.layer_id()] == nullptr) {
+        mLayerCond.wait(lock, [&] { return (mLayers[dtc.layer_id()] != nullptr); });
+    }
+}
+
 status_t Replayer::loadSurfaceComposerClient() {
     mComposerClient = new SurfaceComposerClient;
     return mComposerClient->initCheck();
@@ -665,11 +706,11 @@ status_t Replayer::loadSurfaceComposerClient() {
 
 void Replayer::setReparentChange(SurfaceComposerClient::Transaction& t,
         layer_id id, const ReparentChange& c) {
-    sp<SurfaceControl> newSurfaceControl = nullptr;
+    sp<IBinder> newParentHandle = nullptr;
     if (mLayers.count(c.parent_id()) != 0 && mLayers[c.parent_id()] != nullptr) {
-        newSurfaceControl = mLayers[c.parent_id()];
+        newParentHandle = mLayers[c.parent_id()]->getHandle();
     }
-    t.reparent(mLayers[id], newSurfaceControl);
+    t.reparent(mLayers[id], newParentHandle);
 }
 
 void Replayer::setRelativeParentChange(SurfaceComposerClient::Transaction& t,
@@ -678,31 +719,24 @@ void Replayer::setRelativeParentChange(SurfaceComposerClient::Transaction& t,
         ALOGE("Layer %d not found in set relative parent transaction", c.relative_parent_id());
         return;
     }
-    t.setRelativeLayer(mLayers[id], mLayers[c.relative_parent_id()], c.z());
+    t.setRelativeLayer(mLayers[id], mLayers[c.relative_parent_id()]->getHandle(), c.z());
+}
+
+void Replayer::setDetachChildrenChange(SurfaceComposerClient::Transaction& t,
+        layer_id id, const DetachChildrenChange& c) {
+    t.detachChildren(mLayers[id]);
+}
+
+void Replayer::setReparentChildrenChange(SurfaceComposerClient::Transaction& t,
+        layer_id id, const ReparentChildrenChange& c) {
+    if (mLayers.count(c.parent_id()) == 0 || mLayers[c.parent_id()] == nullptr) {
+        ALOGE("Layer %d not found in reparent children transaction", c.parent_id());
+        return;
+    }
+    t.reparentChildren(mLayers[id], mLayers[c.parent_id()]->getHandle());
 }
 
 void Replayer::setShadowRadiusChange(SurfaceComposerClient::Transaction& t,
         layer_id id, const ShadowRadiusChange& c) {
     t.setShadowRadius(mLayers[id], c.radius());
-}
-
-void Replayer::setBlurRegionsChange(SurfaceComposerClient::Transaction& t,
-        layer_id id, const BlurRegionsChange& c) {
-    std::vector<BlurRegion> regions;
-    for(size_t i=0; i < c.blur_regions_size(); i++) {
-        auto protoRegion = c.blur_regions(i);
-        regions.push_back(BlurRegion{
-            .blurRadius = protoRegion.blur_radius(),
-            .alpha = protoRegion.alpha(),
-            .cornerRadiusTL = protoRegion.corner_radius_tl(),
-            .cornerRadiusTR = protoRegion.corner_radius_tr(),
-            .cornerRadiusBL = protoRegion.corner_radius_bl(),
-            .cornerRadiusBR = protoRegion.corner_radius_br(),
-            .left = protoRegion.left(),
-            .top = protoRegion.top(),
-            .right = protoRegion.right(),
-            .bottom = protoRegion.bottom()
-        });
-    }
-    t.setBlurRegions(mLayers[id], regions);
 }

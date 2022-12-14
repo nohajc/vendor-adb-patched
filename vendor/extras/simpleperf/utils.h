@@ -198,8 +198,6 @@ static inline void HashCombine(size_t& seed, const T& val) {
   seed ^= std::hash<T>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 }
 
-size_t SafeStrlen(const char* s, const char* end);
-
 }  // namespace simpleperf
 
 #endif  // SIMPLE_PERF_UTILS_H_

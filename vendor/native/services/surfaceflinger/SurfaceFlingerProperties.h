@@ -95,15 +95,6 @@ bool use_frame_rate_api(bool defaultValue);
 int32_t display_update_imminent_timeout_ms(int32_t defaultValue);
 
 android::ui::DisplayPrimaries getDisplayNativePrimaries();
-
-bool update_device_product_info_on_hotplug_reconnect(bool defaultValue);
-
-bool enable_frame_rate_override(bool defaultValue);
-
-bool enable_layer_caching(bool defaultValue);
-
-bool enable_sdr_dimming(bool defaultValue);
-
 } // namespace sysprop
 } // namespace android
 #endif // SURFACEFLINGERPROPERTIES_H_

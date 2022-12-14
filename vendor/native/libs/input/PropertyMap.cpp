@@ -107,22 +107,23 @@ void PropertyMap::addAll(const PropertyMap* map) {
     }
 }
 
-android::base::Result<std::unique_ptr<PropertyMap>> PropertyMap::load(const char* filename) {
-    std::unique_ptr<PropertyMap> outMap = std::make_unique<PropertyMap>();
-    if (outMap == nullptr) {
-        return android::base::Error(NO_MEMORY) << "Error allocating property map.";
-    }
+status_t PropertyMap::load(const String8& filename, PropertyMap** outMap) {
+    *outMap = nullptr;
 
-    Tokenizer* rawTokenizer;
-    status_t status = Tokenizer::open(String8(filename), &rawTokenizer);
-    std::unique_ptr<Tokenizer> tokenizer(rawTokenizer);
+    Tokenizer* tokenizer;
+    status_t status = Tokenizer::open(filename, &tokenizer);
     if (status) {
-        ALOGE("Error %d opening property file %s.", status, filename);
+        ALOGE("Error %d opening property file %s.", status, filename.string());
     } else {
+        PropertyMap* map = new PropertyMap();
+        if (!map) {
+            ALOGE("Error allocating property map.");
+            status = NO_MEMORY;
+        } else {
 #if DEBUG_PARSER_PERFORMANCE
             nsecs_t startTime = systemTime(SYSTEM_TIME_MONOTONIC);
 #endif
-            Parser parser(outMap.get(), tokenizer.get());
+            Parser parser(map, tokenizer);
             status = parser.parse();
 #if DEBUG_PARSER_PERFORMANCE
             nsecs_t elapsedTime = systemTime(SYSTEM_TIME_MONOTONIC) - startTime;
@@ -131,10 +132,14 @@ android::base::Result<std::unique_ptr<PropertyMap>> PropertyMap::load(const char
                   elapsedTime / 1000000.0);
 #endif
             if (status) {
-                return android::base::Error(BAD_VALUE) << "Could not parse " << filename;
+                delete map;
+            } else {
+                *outMap = map;
             }
+        }
+        delete tokenizer;
     }
-    return std::move(outMap);
+    return status;
 }
 
 // --- PropertyMap::Parser ---

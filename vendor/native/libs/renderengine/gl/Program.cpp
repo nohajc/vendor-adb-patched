@@ -82,14 +82,6 @@ Program::Program(const ProgramCache::Key& /*needs*/, const char* vertex, const c
     }
 }
 
-Program::~Program() {
-    glDetachShader(mProgram, mVertexShader);
-    glDetachShader(mProgram, mFragmentShader);
-    glDeleteShader(mVertexShader);
-    glDeleteShader(mFragmentShader);
-    glDeleteProgram(mProgram);
-}
-
 bool Program::isValid() const {
     return mInitialized;
 }

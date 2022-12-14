@@ -96,10 +96,11 @@
 #define USAGE_STRING "USAGE: newrole [ -r role ] [ -t type ] [ -l level ] [ -p ] [ -V ] [ -- args ]"
 
 #ifdef USE_PAM
-#define PAM_SERVICE_CONFIG "/etc/selinux/newrole_pam.conf"
+#define PAM_SERVICE_CONFIG "/etc/selinux/newrole_pam.conf";
 #endif
 
 #define DEFAULT_PATH "/usr/bin:/bin"
+#define DEFAULT_CONTEXT_SIZE 255	/* first guess at context size */
 
 extern char **environ;
 
@@ -114,7 +115,7 @@ extern char **environ;
  *
  * Returns malloc'd memory
  */
-static char *build_new_range(const char *newlevel, const char *range)
+static char *build_new_range(char *newlevel, const char *range)
 {
 	char *newrangep = NULL;
 	const char *tmpptr;
@@ -165,7 +166,7 @@ static char *build_new_range(const char *newlevel, const char *range)
 #include <security/pam_appl.h>	/* for PAM functions */
 #include <security/pam_misc.h>	/* for misc_conv PAM utility function */
 
-static const char *service_name = "newrole";
+const char *service_name = "newrole";
 
 /* authenticate_via_pam()
  *
@@ -181,7 +182,7 @@ static const char *service_name = "newrole";
  * program.  This is the only function in this program that makes PAM
  * calls.
  */
-static int authenticate_via_pam(const char *ttyn, pam_handle_t * pam_handle)
+int authenticate_via_pam(const char *ttyn, pam_handle_t * pam_handle)
 {
 
 	int result = 0;		/* set to 0 (not authenticated) by default */
@@ -229,13 +230,14 @@ static int free_hashtab_entry(hashtab_key_t key, hashtab_datum_t d,
 
 static unsigned int reqsymhash(hashtab_t h, const_hashtab_key_t key)
 {
-	const char *p;
+	char *p, *keyp;
 	size_t size;
 	unsigned int val;
 
 	val = 0;
-	size = strlen(key);
-	for (p = key; ((size_t) (p - key)) < size; p++)
+	keyp = (char *)key;
+	size = strlen(keyp);
+	for (p = keyp; ((size_t) (p - keyp)) < size; p++)
 		val =
 		    (val << 4 | (val >> (8 * sizeof(unsigned int) - 4))) ^ (*p);
 	return val & (h->size - 1);
@@ -333,14 +335,6 @@ static int read_pam_config(void)
 
 #define PASSWORD_PROMPT _("Password:")	/* prompt for getpass() */
 
-static void memzero(void *ptr, size_t size)
-{
-	volatile unsigned char * volatile p = ptr;
-	while (size--) {
-		*p++ = '\0';
-	}
-}
-
 /* authenticate_via_shadow_passwd()
  *
  * in:     uname - the calling user's user name
@@ -354,12 +348,11 @@ static void memzero(void *ptr, size_t size)
  * This function uses the shadow passwd file to thenticate the user running
  * this program.
  */
-static int authenticate_via_shadow_passwd(const char *uname)
+int authenticate_via_shadow_passwd(const char *uname)
 {
 	struct spwd *p_shadow_line;
 	char *unencrypted_password_s;
 	char *encrypted_password_s;
-	int ret;
 
 	setspent();
 	p_shadow_line = getspnam(uname);
@@ -377,18 +370,10 @@ static int authenticate_via_shadow_passwd(const char *uname)
 	}
 
 	/* Use crypt() to encrypt user's input password. */
-	errno = 0;
 	encrypted_password_s = crypt(unencrypted_password_s,
 				     p_shadow_line->sp_pwdp);
-	memzero(unencrypted_password_s, strlen(unencrypted_password_s));
-	if (errno || !encrypted_password_s) {
-		fprintf(stderr, _("Cannot encrypt password.\n"));
-		return 0;
-	}
-
-	ret = !strcmp(encrypted_password_s, p_shadow_line->sp_pwdp);
-	memzero(encrypted_password_s, strlen(encrypted_password_s));
-	return ret;
+	memset(unencrypted_password_s, 0, strlen(unencrypted_password_s));
+	return (!strcmp(encrypted_password_s, p_shadow_line->sp_pwdp));
 }
 #endif				/* if/else USE_PAM */
 
@@ -638,7 +623,7 @@ static inline int drop_capabilities(__attribute__ ((__unused__)) int full)
  * This function will set the uid values to be that of caller's uid, and
  * will drop any privilege which may have been raised.
  */
-static int transition_to_caller_uid(void)
+static int transition_to_caller_uid()
 {
 	uid_t uid = getuid();
 
@@ -658,8 +643,8 @@ static int transition_to_caller_uid(void)
 #ifdef AUDIT_LOG_PRIV
 /* Send audit message */
 static
-int send_audit_message(int success, const char *old_context,
-		       const char *new_context, const char *ttyn)
+int send_audit_message(int success, security_context_t old_context,
+		       security_context_t new_context, const char *ttyn)
 {
 	char *msg = NULL;
 	int rc;
@@ -692,9 +677,9 @@ int send_audit_message(int success, const char *old_context,
 #else
 static inline
     int send_audit_message(int success __attribute__ ((unused)),
-			   const char *old_context
+			   security_context_t old_context
 			   __attribute__ ((unused)),
-			   const char *new_context
+			   security_context_t new_context
 			   __attribute__ ((unused)), const char *ttyn
 			   __attribute__ ((unused)))
 {
@@ -710,14 +695,14 @@ static inline
  * This function will not fail if it can not relabel the tty when selinux is
  * in permissive mode.
  */
-static int relabel_tty(const char *ttyn, const char *new_context,
-		       char **tty_context,
-		       char **new_tty_context)
+static int relabel_tty(const char *ttyn, security_context_t new_context,
+		       security_context_t * tty_context,
+		       security_context_t * new_tty_context)
 {
 	int fd, rc;
 	int enforcing = security_getenforce();
-	char *tty_con = NULL;
-	char *new_tty_con = NULL;
+	security_context_t tty_con = NULL;
+	security_context_t new_tty_con = NULL;
 
 	if (!ttyn)
 		return 0;
@@ -790,11 +775,11 @@ static int relabel_tty(const char *ttyn, const char *new_context,
  * Returns zero on success, non-zero otherwise
  */
 static int restore_tty_label(int fd, const char *ttyn,
-			     const char *tty_context,
-			     const char *new_tty_context)
+			     security_context_t tty_context,
+			     security_context_t new_tty_context)
 {
 	int rc = 0;
-	char *chk_tty_context = NULL;
+	security_context_t chk_tty_context = NULL;
 
 	if (!ttyn)
 		goto skip_relabel;
@@ -831,8 +816,8 @@ static int restore_tty_label(int fd, const char *ttyn,
  * Returns zero on success, non-zero otherwise.
  */
 static int parse_command_line_arguments(int argc, char **argv, char *ttyn,
-					const char *old_context,
-					char **new_context,
+					security_context_t old_context,
+					security_context_t * new_context,
 					int *preserve_environment)
 {
 	int flag_index;		/* flag index in argv[] */
@@ -842,8 +827,8 @@ static int parse_command_line_arguments(int argc, char **argv, char *ttyn,
 	char *type_ptr = NULL;	/* stores malloc'd data from get_default_type */
 	char *level_s = NULL;	/* level spec'd by user in argv[] */
 	char *range_ptr = NULL;
-	char *new_con = NULL;
-	char *tty_con = NULL;
+	security_context_t new_con = NULL;
+	security_context_t tty_con = NULL;
 	context_t context = NULL;	/* manipulatable form of new_context */
 	const struct option long_options[] = {
 		{"role", 1, 0, 'r'},
@@ -865,6 +850,7 @@ static int parse_command_line_arguments(int argc, char **argv, char *ttyn,
 		case 'V':
 			printf("newrole: %s version %s\n", PACKAGE, VERSION);
 			exit(0);
+			break;
 		case 'p':
 			*preserve_environment = 1;
 			break;
@@ -1035,10 +1021,10 @@ static int set_signal_handles(void)
 
 int main(int argc, char *argv[])
 {
-	char *new_context = NULL;	/* target security context */
-	char *old_context = NULL;	/* original security context */
-	char *tty_context = NULL;	/* current context of tty */
-	char *new_tty_context = NULL;	/* new context of tty */
+	security_context_t new_context = NULL;	/* target security context */
+	security_context_t old_context = NULL;	/* original securiy context */
+	security_context_t tty_context = NULL;	/* current context of tty */
+	security_context_t new_tty_context = NULL;	/* new context of tty */
 
 	struct passwd pw;	/* struct derived from passwd file line */
 	char *ttyn = NULL;	/* tty path */
@@ -1253,7 +1239,6 @@ int main(int argc, char *argv[])
 		free(pw.pw_dir);
 		free(pw.pw_shell);
 		free(shell_argv0);
-		free(new_context);
 		return exit_code;
 	}
 

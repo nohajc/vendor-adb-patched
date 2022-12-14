@@ -46,7 +46,6 @@ using android::base::Dirname;
 using android::base::ReadFileToString;
 using android::base::Readlink;
 using android::base::Realpath;
-using android::base::Split;
 using android::base::StartsWith;
 using android::base::StringPrintf;
 using android::base::Trim;
@@ -188,36 +187,6 @@ void SysfsPermissions::SetPermissions(const std::string& path) const {
     }
 }
 
-std::string DeviceHandler::GetPartitionNameForDevice(const std::string& query_device) {
-    static const auto partition_map = [] {
-        std::vector<std::pair<std::string, std::string>> partition_map;
-        auto parser = [&partition_map](const std::string& key, const std::string& value) {
-            if (key != "androidboot.partition_map") {
-                return;
-            }
-            for (const auto& map : Split(value, ";")) {
-                auto map_pieces = Split(map, ",");
-                if (map_pieces.size() != 2) {
-                    LOG(ERROR) << "Expected a comma separated device,partition mapping, but found '"
-                               << map << "'";
-                    continue;
-                }
-                partition_map.emplace_back(map_pieces[0], map_pieces[1]);
-            }
-        };
-        ImportKernelCmdline(parser);
-        ImportBootconfig(parser);
-        return partition_map;
-    }();
-
-    for (const auto& [device, partition] : partition_map) {
-        if (query_device == device) {
-            return partition;
-        }
-    }
-    return {};
-}
-
 // Given a path that may start with a platform device, find the parent platform device by finding a
 // parent directory with a 'subsystem' symlink that points to the platform bus.
 // If it doesn't start with a platform device, return false
@@ -307,8 +276,8 @@ void DeviceHandler::MakeDevice(const std::string& path, bool block, int major, i
         PLOG(ERROR) << "setegid(" << gid << ") for " << path << " device failed";
         goto out;
     }
-    /* If the node already exists update its SELinux label and the file mode to handle cases when
-     * it was created with the wrong context and file mode during coldboot procedure. */
+    /* If the node already exists update its SELinux label to handle cases when
+     * it was created with the wrong context during coldboot procedure. */
     if (mknod(path.c_str(), mode, dev) && (errno == EEXIST) && !secontext.empty()) {
         char* fcon = nullptr;
         int rc = lgetfilecon(path.c_str(), &fcon);
@@ -330,11 +299,6 @@ void DeviceHandler::MakeDevice(const std::string& path, bool block, int major, i
             if (gid != s.st_gid) {
                 new_group = gid;
             }
-        if (mode != s.st_mode) {
-            if (chmod(path.c_str(), mode) != 0) {
-                PLOG(ERROR) << "Cannot chmod " << path << " to " << mode;
-            }
-        }
         } else {
             PLOG(ERROR) << "Cannot stat " << path;
         }
@@ -425,10 +389,6 @@ std::vector<std::string> DeviceHandler::GetBlockDeviceSymlinks(const Uevent& uev
         // If we don't have a partition name but we are a partition on a boot device, create a
         // symlink of /dev/block/by-name/<device_name> for symmetry.
         links.emplace_back("/dev/block/by-name/" + uevent.device_name);
-        auto partition_name = GetPartitionNameForDevice(uevent.device_name);
-        if (!partition_name.empty()) {
-            links.emplace_back("/dev/block/by-name/" + partition_name);
-        }
     }
 
     auto last_slash = uevent.path.rfind('/');

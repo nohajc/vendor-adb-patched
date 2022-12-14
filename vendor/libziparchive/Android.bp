@@ -19,7 +19,6 @@ package {
 
 cc_defaults {
     name: "libziparchive_flags",
-    cpp_std: "c++2a",
     cflags: [
         // ZLIB_CONST turns on const for input buffers, which is pretty standard.
         "-DZLIB_CONST",
@@ -62,7 +61,6 @@ cc_defaults {
 
 cc_defaults {
     name: "libziparchive_defaults",
-    local_include_dirs: ["incfs_support/include/"],
     srcs: [
         "zip_archive.cc",
         "zip_archive_stream_entry.cc",
@@ -91,29 +89,8 @@ cc_defaults {
     export_include_dirs: ["include"],
 }
 
-cc_defaults {
-    name: "incfs_support_defaults",
-    cflags: ["-DZIPARCHIVE_DISABLE_CALLBACK_API=1"],
-    export_include_dirs: ["incfs_support/include/"],
-    tidy: true,
-    tidy_checks: [
-        "android-*",
-        "cert-*",
-        "clang-analyzer-security*",
-        "-cert-err34-c",
-        "clang-analyzer-security*",
-        // Disabling due to many unavoidable warnings from POSIX API usage.
-        "-google-runtime-int",
-        "-google-explicit-constructor",
-        // do not call 'longjmp'; consider using exception handling instead - library relies on it
-        "-cert-err52-cpp",
-        // typedef pointer used with const: all Zip* typedefs generate this when declared as const
-        "-misc-misplaced-const",
-    ],
-}
-
-cc_defaults {
-    name: "libziparchive_lib_defaults",
+cc_library {
+    name: "libziparchive",
     host_supported: true,
     vendor_available: true,
     product_available: true,
@@ -148,23 +125,6 @@ cc_defaults {
         "com.android.virt",
     ],
     min_sdk_version: "apex_inherit",
-}
-
-cc_library {
-    name: "libziparchive",
-    defaults: ["libziparchive_lib_defaults"],
-    cflags: [
-        // Disable incfs hardending code for the default library
-        "-DINCFS_SUPPORT_DISABLED=1",
-    ],
-}
-
-cc_library_static {
-    name: "libziparchive_for_incfs",
-    defaults: ["libziparchive_lib_defaults", "incfs_support_defaults"],
-    srcs: [
-        "incfs_support/signal_handling.cpp",
-    ],
 }
 
 // Tests.
@@ -251,25 +211,7 @@ cc_binary {
 cc_fuzz {
     name: "libziparchive_fuzzer",
     srcs: ["libziparchive_fuzzer.cpp"],
-    static_libs: [
-        "libziparchive",
-        "libbase",
-        "libz",
-        "liblog"
-    ],
-    host_supported: true,
-    corpus: ["testdata/*"],
-}
-
-cc_fuzz {
-    name: "libziparchive_for_incfs_fuzzer",
-    srcs: ["libziparchive_fuzzer.cpp"],
-    static_libs: [
-        "libziparchive_for_incfs",
-        "libbase",
-        "libz",
-        "liblog"
-    ],
+    static_libs: ["libziparchive", "libbase", "libz", "liblog"],
     host_supported: true,
     corpus: ["testdata/*"],
 }
@@ -298,6 +240,16 @@ python_test_host {
     name: "ziparchive_tests_large",
     srcs: ["test_ziparchive_large.py"],
     main: "test_ziparchive_large.py",
+    version: {
+        py2: {
+            enabled: true,
+            embedded_launcher: false,
+        },
+        py3: {
+            enabled: false,
+            embedded_launcher: false,
+        },
+    },
     test_suites: ["general-tests"],
     test_options: {
         unit_test: false,

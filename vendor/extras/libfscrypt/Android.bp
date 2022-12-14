@@ -20,7 +20,6 @@ license {
 cc_library {
     name: "libfscrypt",
     ramdisk_available: true,
-    vendor_ramdisk_available: true,
     recovery_available: true,
     srcs: [
         "fscrypt.cpp",

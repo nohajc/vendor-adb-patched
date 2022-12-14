@@ -59,7 +59,7 @@ type templateAndKey struct {
 	key      *ecdsa.PrivateKey
 }
 
-func generateCertificateOrPanic(path string, subject, issuer *templateAndKey) []byte {
+func generateCertificateOrPanic(path string, subject, issuer *templateAndKey) {
 	cert, err := x509.CreateCertificate(rand.Reader, &subject.template, &issuer.template, &subject.key.PublicKey, issuer.key)
 	if err != nil {
 		panic(err)
@@ -73,7 +73,6 @@ func generateCertificateOrPanic(path string, subject, issuer *templateAndKey) []
 	if err != nil {
 		panic(err)
 	}
-	return cert
 }
 
 func main() {
@@ -97,7 +96,6 @@ func main() {
 			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 			KeyUsage:              x509.KeyUsageCertSign,
 			SignatureAlgorithm:    x509.ECDSAWithSHA256,
-			SubjectKeyId:          []byte("root"),
 		},
 		key: rootKey,
 	}
@@ -112,7 +110,6 @@ func main() {
 			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 			KeyUsage:              x509.KeyUsageCertSign,
 			SignatureAlgorithm:    x509.ECDSAWithSHA256,
-			SubjectKeyId:          []byte("intermediate"),
 		},
 		key: intermediateKey,
 	}
@@ -128,8 +125,6 @@ func main() {
 			KeyUsage:              x509.KeyUsageCertSign,
 			SignatureAlgorithm:    x509.ECDSAWithSHA256,
 			DNSNames:              []string{"www.example.com"},
-			SubjectKeyId:          []byte("leaf"),
-			PermittedDNSDomains:   []string{"www.example.com"},
 		},
 		key: leafKey,
 	}
@@ -137,15 +132,10 @@ func main() {
 	// Generate a valid certificate chain from the templates.
 	generateCertificateOrPanic("invalid_extension_root.pem", &root, &root)
 	generateCertificateOrPanic("invalid_extension_intermediate.pem", &intermediate, &root)
-	leafDER := generateCertificateOrPanic("invalid_extension_leaf.pem", &leaf, &intermediate)
+	generateCertificateOrPanic("invalid_extension_leaf.pem", &leaf, &intermediate)
 
-	leafCert, err := x509.ParseCertificate(leafDER)
-	if err != nil {
-		panic(err)
-	}
-
-	// Make copies of the certificates with invalid extensions. These copies may
-	// be substituted into the valid chain.
+	// Make copies of each of the three certificates with invalid extensions.
+	// These copies may be substituted into the valid chain.
 	for _, ext := range extensions {
 		invalidExtension := []pkix.Extension{{Id: ext.oid, Value: []byte("INVALID")}}
 
@@ -160,24 +150,6 @@ func main() {
 		leafInvalid := leaf
 		leafInvalid.template.ExtraExtensions = invalidExtension
 		generateCertificateOrPanic(fmt.Sprintf("invalid_extension_leaf_%s.pem", ext.name), &leafInvalid, &intermediate)
-
-		// Additionally generate a copy of the leaf certificate with extra data in
-		// the extension.
-		var trailingDataExtension []pkix.Extension
-		for _, leafExt := range leafCert.Extensions {
-			if leafExt.Id.Equal(ext.oid) {
-				newValue := make([]byte, len(leafExt.Value)+1)
-				copy(newValue, leafExt.Value)
-				trailingDataExtension = append(trailingDataExtension, pkix.Extension{Id: ext.oid, Critical: leafExt.Critical, Value: newValue})
-			}
-		}
-		if len(trailingDataExtension) != 1 {
-			panic(fmt.Sprintf("could not find sample extension %s", ext.name))
-		}
-
-		leafTrailingData := leaf
-		leafTrailingData.template.ExtraExtensions = trailingDataExtension
-		generateCertificateOrPanic(fmt.Sprintf("trailing_data_leaf_%s.pem", ext.name), &leafTrailingData, &intermediate)
 	}
 }
 

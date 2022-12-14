@@ -125,6 +125,10 @@ static const struct KnownAEAD kAEADs[] = {
      "aes_128_cbc_sha1_tls_implicit_iv_tests.txt",
      kLimitedImplementation | RequiresADLength(11)},
 
+    {"AES_128_CBC_SHA256_TLS", EVP_aead_aes_128_cbc_sha256_tls,
+     "aes_128_cbc_sha256_tls_tests.txt",
+     kLimitedImplementation | RequiresADLength(11)},
+
     {"AES_256_CBC_SHA1_TLS", EVP_aead_aes_256_cbc_sha1_tls,
      "aes_256_cbc_sha1_tls_tests.txt",
      kLimitedImplementation | RequiresADLength(11)},
@@ -132,6 +136,14 @@ static const struct KnownAEAD kAEADs[] = {
     {"AES_256_CBC_SHA1_TLSImplicitIV",
      EVP_aead_aes_256_cbc_sha1_tls_implicit_iv,
      "aes_256_cbc_sha1_tls_implicit_iv_tests.txt",
+     kLimitedImplementation | RequiresADLength(11)},
+
+    {"AES_256_CBC_SHA256_TLS", EVP_aead_aes_256_cbc_sha256_tls,
+     "aes_256_cbc_sha256_tls_tests.txt",
+     kLimitedImplementation | RequiresADLength(11)},
+
+    {"AES_256_CBC_SHA384_TLS", EVP_aead_aes_256_cbc_sha384_tls,
+     "aes_256_cbc_sha384_tls_tests.txt",
      kLimitedImplementation | RequiresADLength(11)},
 
     {"DES_EDE3_CBC_SHA1_TLS", EVP_aead_des_ede3_cbc_sha1_tls,
@@ -796,7 +808,6 @@ TEST_P(PerAEADTest, ABI) {
                             : sizeof(ad_buf) - 1;
 
   uint8_t nonce[EVP_AEAD_MAX_NONCE_LENGTH];
-  OPENSSL_memset(nonce, 'N', sizeof(nonce));
   const size_t nonce_len = EVP_AEAD_nonce_length(aead());
   ASSERT_LE(nonce_len, sizeof(nonce));
 
@@ -1007,8 +1018,4 @@ TEST(AEADTest, WycheproofXChaCha20Poly1305) {
         t->IgnoreInstruction("keySize");
         RunWycheproofTestCase(t, EVP_aead_xchacha20_poly1305());
       });
-}
-
-TEST(AEADTest, FreeNull) {
-  EVP_AEAD_CTX_free(nullptr);
 }

@@ -125,10 +125,6 @@ public:
 
     bool isSensorActive(int handle) const;
 
-    // To update the BatchParams of a SensorEventConnection when the mic toggle changes its state
-    // while the Sensors Off toggle is on.
-    void onMicSensorAccessChanged(void* ident, int handle, nsecs_t samplingPeriodNs);
-
     // Dumpable
     virtual std::string dump() const override;
     virtual void dump(util::ProtoOutputStream* proto) const override;
@@ -138,14 +134,6 @@ private:
     sp<::android::hardware::sensors::V2_1::implementation::ISensorsWrapperBase> mSensors;
     Vector<sensor_t> mSensorList;
     std::unordered_map<int32_t, sensor_t*> mConnectedDynamicSensors;
-
-    // A bug in the Sensors HIDL spec which marks onDynamicSensorsConnected as oneway causes dynamic
-    // meta events and onDynamicSensorsConnected to be received out of order. This mutex + CV are
-    // used to block meta event processing until onDynamicSensorsConnected is received to simplify
-    // HAL implementations.
-    std::mutex mDynamicSensorsMutex;
-    std::condition_variable mDynamicSensorsCv;
-    static constexpr std::chrono::seconds MAX_DYN_SENSOR_WAIT{5};
 
     static const nsecs_t MINIMUM_EVENTS_PERIOD =   1000000; // 1000 Hz
     mutable Mutex mLock; // protect mActivationCount[].batchParams

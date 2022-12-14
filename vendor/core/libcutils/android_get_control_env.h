@@ -17,7 +17,13 @@
 #pragma once
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 int __android_get_control_from_env(const char* prefix, const char* name)
         __attribute__((visibility("hidden")));
 
+#ifdef __cplusplus
+}
+#endif

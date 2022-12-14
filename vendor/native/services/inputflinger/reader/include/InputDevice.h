@@ -17,7 +17,6 @@
 #ifndef _UI_INPUTREADER_INPUT_DEVICE_H
 #define _UI_INPUTREADER_INPUT_DEVICE_H
 
-#include <ftl/Flags.h>
 #include <input/DisplayViewport.h>
 #include <input/InputDevice.h>
 #include <input/PropertyMap.h>
@@ -32,11 +31,7 @@
 #include "InputReaderContext.h"
 
 namespace android {
-// TODO b/180733860 support multiple battery in API and remove this.
-constexpr int32_t DEFAULT_BATTERY_ID = 1;
 
-class PeripheralController;
-class PeripheralControllerInterface;
 class InputDeviceContext;
 class InputMapper;
 
@@ -53,7 +48,7 @@ public:
     inline int32_t getGeneration() const { return mGeneration; }
     inline const std::string getName() const { return mIdentifier.name; }
     inline const std::string getDescriptor() { return mIdentifier.descriptor; }
-    inline Flags<InputDeviceClass> getClasses() const { return mClasses; }
+    inline uint32_t getClasses() const { return mClasses; }
     inline uint32_t getSources() const { return mSources; }
     inline bool hasEventHubDevices() const { return !mDevices.empty(); }
 
@@ -80,29 +75,15 @@ public:
     void timeoutExpired(nsecs_t when);
     void updateExternalStylusState(const StylusState& state);
 
-    InputDeviceInfo getDeviceInfo();
+    void getDeviceInfo(InputDeviceInfo* outDeviceInfo);
     int32_t getKeyCodeState(uint32_t sourceMask, int32_t keyCode);
     int32_t getScanCodeState(uint32_t sourceMask, int32_t scanCode);
     int32_t getSwitchState(uint32_t sourceMask, int32_t switchCode);
     bool markSupportedKeyCodes(uint32_t sourceMask, size_t numCodes, const int32_t* keyCodes,
                                uint8_t* outFlags);
-    void vibrate(const VibrationSequence& sequence, ssize_t repeat, int32_t token);
+    void vibrate(const nsecs_t* pattern, size_t patternSize, ssize_t repeat, int32_t token);
     void cancelVibrate(int32_t token);
-    bool isVibrating();
-    std::vector<int32_t> getVibratorIds();
-    void cancelTouch(nsecs_t when, nsecs_t readTime);
-    bool enableSensor(InputDeviceSensorType sensorType, std::chrono::microseconds samplingPeriod,
-                      std::chrono::microseconds maxBatchReportLatency);
-    void disableSensor(InputDeviceSensorType sensorType);
-    void flushSensor(InputDeviceSensorType sensorType);
-
-    std::optional<int32_t> getBatteryCapacity();
-    std::optional<int32_t> getBatteryStatus();
-
-    bool setLightColor(int32_t lightId, int32_t color);
-    bool setLightPlayerId(int32_t lightId, int32_t playerId);
-    std::optional<int32_t> getLightColor(int32_t lightId);
-    std::optional<int32_t> getLightPlayerId(int32_t lightId);
+    void cancelTouch(nsecs_t when);
 
     int32_t getMetaState();
     void updateMetaState(int32_t keyCode);
@@ -115,8 +96,6 @@ public:
     inline EventHubInterface* getEventHub() { return mContext->getEventHub(); }
 
     std::optional<int32_t> getAssociatedDisplayId();
-
-    void updateLedState(bool reset);
 
     size_t getMapperCount();
 
@@ -135,20 +114,6 @@ public:
         return *mapper;
     }
 
-    // construct and add a controller to the input device
-    template <class T>
-    T& addController(int32_t eventHubId) {
-        // ensure a device entry exists for this eventHubId
-        addEventHubDevice(eventHubId, false);
-
-        // create controller
-        auto& devicePair = mDevices[eventHubId];
-        auto& deviceContext = devicePair.first;
-
-        mController = std::make_unique<T>(*deviceContext);
-        return *(reinterpret_cast<T*>(mController.get()));
-    }
-
 private:
     InputReaderContext* mContext;
     int32_t mId;
@@ -156,20 +121,16 @@ private:
     int32_t mControllerNumber;
     InputDeviceIdentifier mIdentifier;
     std::string mAlias;
-    Flags<InputDeviceClass> mClasses;
+    uint32_t mClasses;
 
     // map from eventHubId to device context and mappers
     using MapperVector = std::vector<std::unique_ptr<InputMapper>>;
     using DevicePair = std::pair<std::unique_ptr<InputDeviceContext>, MapperVector>;
-    // Map from EventHub ID to pair of device context and vector of mapper.
     std::unordered_map<int32_t, DevicePair> mDevices;
-    // Misc devices controller for lights, battery, etc.
-    std::unique_ptr<PeripheralControllerInterface> mController;
 
     uint32_t mSources;
     bool mIsExternal;
     std::optional<uint8_t> mAssociatedDisplayPort;
-    std::optional<std::string> mAssociatedDisplayUniqueId;
     std::optional<DisplayViewport> mAssociatedViewport;
     bool mHasMic;
     bool mDropUntilNextSync;
@@ -245,9 +206,7 @@ public:
     inline int32_t getId() { return mDeviceId; }
     inline int32_t getEventHubId() { return mId; }
 
-    inline Flags<InputDeviceClass> getDeviceClasses() const {
-        return mEventHub->getDeviceClasses(mId);
-    }
+    inline uint32_t getDeviceClasses() const { return mEventHub->getDeviceClasses(mId); }
     inline InputDeviceIdentifier getDeviceIdentifier() const {
         return mEventHub->getDeviceIdentifier(mId);
     }
@@ -263,12 +222,9 @@ public:
     inline bool hasRelativeAxis(int32_t code) const {
         return mEventHub->hasRelativeAxis(mId, code);
     }
-    inline bool hasInputProperty(int32_t property) const {
+    inline bool hasInputProperty(int property) const {
         return mEventHub->hasInputProperty(mId, property);
     }
-
-    inline bool hasMscEvent(int mscEvent) const { return mEventHub->hasMscEvent(mId, mscEvent); }
-
     inline status_t mapKey(int32_t scanCode, int32_t usageCode, int32_t metaState,
                            int32_t* outKeycode, int32_t* outMetaState, uint32_t* outFlags) const {
         return mEventHub->mapKey(mId, scanCode, usageCode, metaState, outKeycode, outMetaState,
@@ -277,34 +233,6 @@ public:
     inline status_t mapAxis(int32_t scanCode, AxisInfo* outAxisInfo) const {
         return mEventHub->mapAxis(mId, scanCode, outAxisInfo);
     }
-    inline base::Result<std::pair<InputDeviceSensorType, int32_t>> mapSensor(int32_t absCode) {
-        return mEventHub->mapSensor(mId, absCode);
-    }
-
-    inline const std::vector<int32_t> getRawLightIds() { return mEventHub->getRawLightIds(mId); }
-
-    inline std::optional<RawLightInfo> getRawLightInfo(int32_t lightId) {
-        return mEventHub->getRawLightInfo(mId, lightId);
-    }
-
-    inline std::optional<int32_t> getLightBrightness(int32_t lightId) {
-        return mEventHub->getLightBrightness(mId, lightId);
-    }
-
-    inline void setLightBrightness(int32_t lightId, int32_t brightness) {
-        return mEventHub->setLightBrightness(mId, lightId, brightness);
-    }
-
-    inline std::optional<std::unordered_map<LightColor, int32_t>> getLightIntensities(
-            int32_t lightId) {
-        return mEventHub->getLightIntensities(mId, lightId);
-    }
-
-    inline void setLightIntensities(int32_t lightId,
-                                    std::unordered_map<LightColor, int32_t> intensities) {
-        return mEventHub->setLightIntensities(mId, lightId, intensities);
-    }
-
     inline std::vector<TouchVideoFrame> getVideoFrames() { return mEventHub->getVideoFrames(mId); }
     inline int32_t getScanCodeState(int32_t scanCode) const {
         return mEventHub->getScanCodeState(mId, scanCode);
@@ -328,34 +256,14 @@ public:
     inline void getVirtualKeyDefinitions(std::vector<VirtualKeyDefinition>& outVirtualKeys) const {
         return mEventHub->getVirtualKeyDefinitions(mId, outVirtualKeys);
     }
-    inline const std::shared_ptr<KeyCharacterMap> getKeyCharacterMap() const {
+    inline sp<KeyCharacterMap> getKeyCharacterMap() const {
         return mEventHub->getKeyCharacterMap(mId);
     }
-    inline bool setKeyboardLayoutOverlay(std::shared_ptr<KeyCharacterMap> map) {
+    inline bool setKeyboardLayoutOverlay(const sp<KeyCharacterMap>& map) {
         return mEventHub->setKeyboardLayoutOverlay(mId, map);
     }
-    inline void vibrate(const VibrationElement& element) {
-        return mEventHub->vibrate(mId, element);
-    }
+    inline void vibrate(nsecs_t duration) { return mEventHub->vibrate(mId, duration); }
     inline void cancelVibrate() { return mEventHub->cancelVibrate(mId); }
-
-    inline std::vector<int32_t> getVibratorIds() { return mEventHub->getVibratorIds(mId); }
-
-    inline const std::vector<int32_t> getRawBatteryIds() {
-        return mEventHub->getRawBatteryIds(mId);
-    }
-
-    inline std::optional<RawBatteryInfo> getRawBatteryInfo(int32_t batteryId) {
-        return mEventHub->getRawBatteryInfo(mId, batteryId);
-    }
-
-    inline std::optional<int32_t> getBatteryCapacity(int32_t batteryId) {
-        return mEventHub->getBatteryCapacity(mId, batteryId);
-    }
-
-    inline std::optional<int32_t> getBatteryStatus(int32_t batteryId) {
-        return mEventHub->getBatteryStatus(mId, batteryId);
-    }
 
     inline bool hasAbsoluteAxis(int32_t code) const {
         RawAbsoluteAxisInfo info;
@@ -383,7 +291,7 @@ public:
     inline std::optional<DisplayViewport> getAssociatedViewport() const {
         return mDevice.getAssociatedViewport();
     }
-    inline void cancelTouch(nsecs_t when, nsecs_t readTime) { mDevice.cancelTouch(when, readTime); }
+    inline void cancelTouch(nsecs_t when) { mDevice.cancelTouch(when); }
     inline void bumpGeneration() { mDevice.bumpGeneration(); }
     inline const PropertyMap& getConfiguration() { return mDevice.getConfiguration(); }
 

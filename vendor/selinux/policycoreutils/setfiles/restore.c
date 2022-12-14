@@ -29,7 +29,7 @@ void restore_init(struct restore_opts *opts)
 
 	opts->hnd = selabel_open(SELABEL_CTX_FILE, selinux_opts, 3);
 	if (!opts->hnd) {
-		perror(opts->selabel_opt_path ? opts->selabel_opt_path : selinux_file_context_path());
+		perror(opts->selabel_opt_path);
 		exit(1);
 	}
 
@@ -41,7 +41,7 @@ void restore_init(struct restore_opts *opts)
 			   opts->xdev | opts->abort_on_error |
 			   opts->syslog_changes | opts->log_matches |
 			   opts->ignore_noent | opts->ignore_mounts |
-			   opts->mass_relabel | opts->conflict_error;
+			   opts->mass_relabel;
 
 	/* Use setfiles, restorecon and restorecond own handles */
 	selinux_restorecon_set_sehandle(opts->hnd);
@@ -72,7 +72,7 @@ void restore_finish(void)
 	}
 }
 
-int process_glob(char *name, struct restore_opts *opts, size_t nthreads)
+int process_glob(char *name, struct restore_opts *opts)
 {
 	glob_t globbuf;
 	size_t i = 0;
@@ -91,9 +91,8 @@ int process_glob(char *name, struct restore_opts *opts, size_t nthreads)
 			continue;
 		if (len > 0 && strcmp(&globbuf.gl_pathv[i][len], "/..") == 0)
 			continue;
-		rc = selinux_restorecon_parallel(globbuf.gl_pathv[i],
-						 opts->restorecon_flags,
-						 nthreads);
+		rc = selinux_restorecon(globbuf.gl_pathv[i],
+					opts->restorecon_flags);
 		if (rc < 0)
 			errors = rc;
 	}

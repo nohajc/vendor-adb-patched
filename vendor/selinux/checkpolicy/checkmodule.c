@@ -25,6 +25,7 @@
 #include <sepol/policydb/policydb.h>
 #include <sepol/policydb/services.h>
 #include <sepol/policydb/conditional.h>
+#include <sepol/policydb/flask.h>
 #include <sepol/policydb/hierarchy.h>
 #include <sepol/policydb/expand.h>
 #include <sepol/policydb/link.h>
@@ -34,10 +35,12 @@
 #include "checkpolicy.h"
 #include "parse_util.h"
 
+extern char *optarg;
+extern int optind;
+
 static sidtab_t sidtab;
 
 extern int mlspol;
-extern int werror;
 
 static int handle_unknown = SEPOL_DENY_UNKNOWN;
 static const char *txtfile = "policy.conf";
@@ -123,7 +126,7 @@ static int write_binary_policy(policydb_t * p, FILE *outfp)
 
 static __attribute__((__noreturn__)) void usage(const char *progname)
 {
-	printf("usage:  %s [-h] [-V] [-b] [-C] [-E] [-U handle_unknown] [-m] [-M] [-o FILE] [-c VERSION] [INPUT]\n", progname);
+	printf("usage:  %s [-h] [-V] [-b] [-C] [-U handle_unknown] [-m] [-M] [-o FILE] [INPUT]\n", progname);
 	printf("Build base and policy modules.\n");
 	printf("Options:\n");
 	printf("  INPUT      build module from INPUT (else read from \"%s\")\n",
@@ -131,7 +134,6 @@ static __attribute__((__noreturn__)) void usage(const char *progname)
 	printf("  -V         show policy versions created by this program\n");
 	printf("  -b         treat input as a binary policy file\n");
 	printf("  -C         output CIL policy instead of binary policy\n");
-	printf("  -E         treat warnings as errors\n");
 	printf("  -h         print usage\n");
 	printf("  -U OPTION  How to handle unknown classes and permissions\n");
 	printf("               deny: Deny unknown kernel checks\n");
@@ -152,7 +154,7 @@ int main(int argc, char **argv)
 	int ch;
 	int show_version = 0;
 	policydb_t modpolicydb;
-	const struct option long_options[] = {
+	struct option long_options[] = {
 		{"help", no_argument, NULL, 'h'},
 		{"output", required_argument, NULL, 'o'},
 		{"binary", no_argument, NULL, 'b'},
@@ -160,11 +162,10 @@ int main(int argc, char **argv)
 		{"handle-unknown", required_argument, NULL, 'U'},
 		{"mls", no_argument, NULL, 'M'},
 		{"cil", no_argument, NULL, 'C'},
-		{"werror", no_argument, NULL, 'E'},
 		{NULL, 0, NULL, 0}
 	};
 
-	while ((ch = getopt_long(argc, argv, "ho:bVEU:mMCc:", long_options, NULL)) != -1) {
+	while ((ch = getopt_long(argc, argv, "ho:bVU:mMCc:", long_options, NULL)) != -1) {
 		switch (ch) {
 		case 'h':
 			usage(argv[0]);
@@ -178,9 +179,6 @@ int main(int argc, char **argv)
 			break;
 		case 'V':
 			show_version = 1;
-			break;
-		case 'E':
-			werror = 1;
 			break;
 		case 'U':
 			if (!strcasecmp(optarg, "deny")) {
@@ -268,7 +266,7 @@ int main(int argc, char **argv)
 	} else {
 		if (policydb_init(&modpolicydb)) {
 			fprintf(stderr, "%s: out of memory!\n", argv[0]);
-			exit(1);
+			return -1;
 		}
 
 		modpolicydb.policy_type = policy_type;
@@ -280,21 +278,19 @@ int main(int argc, char **argv)
 		}
 
 		if (hierarchy_check_constraints(NULL, &modpolicydb)) {
-			exit(1);
+			return -1;
 		}
 	}
 
 	if (policy_type != POLICY_BASE && outfile) {
-		char *out_name;
-		char *separator;
 		char *mod_name = modpolicydb.name;
 		char *out_path = strdup(outfile);
 		if (out_path == NULL) {
 			fprintf(stderr, "%s:  out of memory\n", argv[0]);
 			exit(1);
 		}
-		out_name = basename(out_path);
-		separator = strrchr(out_name, '.');
+		char *out_name = basename(out_path);
+		char *separator = strrchr(out_name, '.');
 		if (separator) {
 			*separator = '\0';
 		}
@@ -333,7 +329,7 @@ int main(int argc, char **argv)
 		FILE *outfp = fopen(outfile, "w");
 
 		if (!outfp) {
-			fprintf(stderr, "%s:  error opening %s:  %s\n", argv[0], outfile, strerror(errno));
+			perror(outfile);
 			exit(1);
 		}
 
@@ -349,10 +345,7 @@ int main(int argc, char **argv)
 			}
 		}
 
-		if (fclose(outfp)) {
-			fprintf(stderr, "%s:  error closing %s:  %s\n", argv[0], outfile, strerror(errno));
-			exit(1);
-		}
+		fclose(outfp);
 	} else if (cil) {
 		fprintf(stderr, "%s:  No file to write CIL was specified\n", argv[0]);
 		exit(1);

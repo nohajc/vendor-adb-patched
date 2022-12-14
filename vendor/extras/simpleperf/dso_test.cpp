@@ -301,24 +301,3 @@ TEST(dso, symbol_map_file) {
   ASSERT_EQ(0x12345678, dso->IpToVaddrInFile(0x12345678, 0x0, 0x0));
   ASSERT_EQ(0x12345678, dso->IpToVaddrInFile(0x12345678, 0xe9201000, 0xa5000));
 }
-
-TEST(dso, FunctionName) {
-  Symbol symbol = Symbol("void ctep.v(cteo, ctgc, ctbn)", 0x0, 0x1);
-  ASSERT_EQ(symbol.FunctionName(), "ctep.v");
-  symbol = Symbol("ctep.v(cteo, ctgc, ctbn)", 0x0, 0x1);
-  ASSERT_EQ(symbol.FunctionName(), "ctep.v");
-  symbol = Symbol("ctep.v", 0x0, 0x1);
-  ASSERT_EQ(symbol.FunctionName(), "ctep.v");
-}
-
-TEST(dso, search_debug_file_only_when_needed) {
-  Dso::SetBuildIds({std::make_pair("/elf", BuildId("1b12a384a9f4a3f3659b7171ca615dbec3a81f71"))});
-  Dso::SetSymFsDir(GetTestDataDir());
-  CapturedStderr capture;
-  capture.Start();
-  auto dso = Dso::CreateDso(DSO_ELF_FILE, "/elf");
-  ASSERT_EQ(capture.str().find("build id mismatch"), std::string::npos);
-  ASSERT_EQ(dso->GetDebugFilePath(), "/elf");
-  ASSERT_NE(capture.str().find("build id mismatch"), std::string::npos);
-  capture.Stop();
-}

@@ -96,6 +96,8 @@ ssize_t SendLogdControlMessage(char* buf, size_t buf_size) {
   len = buf_size;
   cp = buf;
   while ((ret = TEMP_FAILURE_RETRY(read(sock, cp, len))) > 0) {
+    struct pollfd p;
+
     if (((size_t)ret == len) || (buf_size < PAGE_SIZE)) {
       break;
     }
@@ -103,8 +105,11 @@ ssize_t SendLogdControlMessage(char* buf, size_t buf_size) {
     len -= ret;
     cp += ret;
 
-    // Give other side 20ms to refill pipe.
-    struct pollfd p = {.fd = sock, .events = POLLIN};
+    memset(&p, 0, sizeof(p));
+    p.fd = sock;
+    p.events = POLLIN;
+
+    /* Give other side 20ms to refill pipe */
     ret = TEMP_FAILURE_RETRY(poll(&p, 1, 20));
 
     if (ret <= 0) {

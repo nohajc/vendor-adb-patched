@@ -486,7 +486,7 @@ static void register_sighandler(void) {
 }
 
 static void show_help(void) {
-    fprintf(stderr, "usage: anrd [options] [categoris...]\n");
+    fprintf(stderr, "usage: ANRdaemon [options] [categoris...]\n");
     fprintf(stdout,
             "Options includes:\n"
             "   -a appname  enable app-level tracing for a comma "

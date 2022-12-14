@@ -147,8 +147,7 @@ python_binary_host {
     compile_multilib: "first",
 }
 
-// Build libavb - this is a static library that depends
-// on only libc and libcrypto, but no other dependencies.
+// on only libc and doesn't drag in any other dependencies.
 cc_library_static {
     name: "libavb",
     defaults: [
@@ -158,7 +157,6 @@ cc_library_static {
     ],
     host_supported: true,
     ramdisk_available: true,
-    vendor_ramdisk_available: true,
     recovery_available: true,
     header_libs: [
         "avb_headers",
@@ -168,7 +166,7 @@ cc_library_static {
         linux: {
             srcs: ["libavb/avb_sysdeps_posix.c"],
         },
-        host_linux: {
+        linux_glibc: {
             cflags: ["-fno-stack-protector"],
         },
     },
@@ -231,8 +229,19 @@ cc_library_host_static {
     srcs: ["libavb_ab/avb_ab_flow.c"],
 }
 
-cc_defaults {
-    name: "avb_atx_sources",
+cc_library_host_static {
+    name: "libavb_atx_host",
+    defaults: [
+        "avb_defaults",
+        "avb_crypto_ops_impl_boringssl",
+    ],
+    header_libs: [
+        "avb_headers",
+    ],
+    export_header_lib_headers: ["avb_headers"],
+    cflags: [
+        "-fno-stack-protector",
+    ],
     srcs: ["libavb_atx/avb_atx_validate.c"],
 }
 
@@ -246,19 +255,22 @@ cc_library_host_static {
     srcs: ["libavb/avb_sysdeps_posix.c"],
 }
 
-cc_defaults {
-    name: "avb_things_example_sources",
+cc_library_host_static {
+    name: "libavb_things_example",
+    defaults: [
+        "avb_defaults",
+        "avb_crypto_ops_impl_boringssl",
+    ],
+    header_libs: [
+        "avb_headers",
+    ],
+    export_header_lib_headers: ["avb_headers"],
     srcs: ["examples/things/avb_atx_slot_verify.c"],
 }
 
 cc_defaults {
     name: "libavb_host_unittest_core",
-    defaults: [
-        "avb_defaults",
-        "avb_sources",
-        "avb_atx_sources",
-        "avb_things_example_sources",
-    ],
+    defaults: ["avb_defaults"],
     required: [
         "simg2img",
         "img2simg",
@@ -277,7 +289,10 @@ cc_defaults {
     test_config: "test/libavb_host_unittest.xml",
     test_suites: ["general-tests"],
     static_libs: [
+        "libavb",
         "libavb_ab_host",
+        "libavb_atx_host",
+        "libavb_things_example",
         "libgmock_host",
         "libgtest_host",
     ],
@@ -363,7 +378,6 @@ cc_library_headers {
     name: "avb_headers",
     host_supported: true,
     ramdisk_available: true,
-    vendor_ramdisk_available: true,
     recovery_available: true,
     export_include_dirs: ["."],
     target: {

@@ -28,7 +28,6 @@
 #include "ContainerLayer.h"
 #include "DisplayDevice.h"
 #include "EffectLayer.h"
-#include "FrameTracer/FrameTracer.h"
 #include "Layer.h"
 #include "MonitoredProducer.h"
 #include "NativeWindowSurface.h"
@@ -38,14 +37,24 @@
 #include "SurfaceInterceptor.h"
 
 #include "DisplayHardware/ComposerHal.h"
+#include "Scheduler/DispSync.h"
+#include "Scheduler/EventControlThread.h"
 #include "Scheduler/MessageQueue.h"
+#include "Scheduler/PhaseOffsets.h"
 #include "Scheduler/Scheduler.h"
-#include "Scheduler/VsyncConfiguration.h"
-#include "Scheduler/VsyncController.h"
 
 namespace android::surfaceflinger {
 
 DefaultFactory::~DefaultFactory() = default;
+
+std::unique_ptr<DispSync> DefaultFactory::createDispSync(const char* name, bool hasSyncFramework) {
+    return std::make_unique<android::impl::DispSync>(name, hasSyncFramework);
+}
+
+std::unique_ptr<EventControlThread> DefaultFactory::createEventControlThread(
+        SetVSyncEnabled setVSyncEnabled) {
+    return std::make_unique<android::impl::EventControlThread>(std::move(setVSyncEnabled));
+}
 
 std::unique_ptr<HWComposer> DefaultFactory::createHWComposer(const std::string& serviceName) {
     return std::make_unique<android::impl::HWComposer>(serviceName);
@@ -55,23 +64,26 @@ std::unique_ptr<MessageQueue> DefaultFactory::createMessageQueue() {
     return std::make_unique<android::impl::MessageQueue>();
 }
 
-std::unique_ptr<scheduler::VsyncConfiguration> DefaultFactory::createVsyncConfiguration(
-        Fps currentRefreshRate) {
+std::unique_ptr<scheduler::PhaseConfiguration> DefaultFactory::createPhaseConfiguration(
+        const scheduler::RefreshRateConfigs& refreshRateConfigs) {
     if (property_get_bool("debug.sf.use_phase_offsets_as_durations", false)) {
-        return std::make_unique<scheduler::impl::WorkDuration>(currentRefreshRate);
+        return std::make_unique<scheduler::impl::PhaseDurations>(refreshRateConfigs);
     } else {
-        return std::make_unique<scheduler::impl::PhaseOffsets>(currentRefreshRate);
+        return std::make_unique<scheduler::impl::PhaseOffsets>(refreshRateConfigs);
     }
 }
 
 std::unique_ptr<Scheduler> DefaultFactory::createScheduler(
-        const std::shared_ptr<scheduler::RefreshRateConfigs>& refreshRateConfigs,
-        ISchedulerCallback& callback) {
-    return std::make_unique<Scheduler>(std::move(refreshRateConfigs), callback);
+        SetVSyncEnabled setVSyncEnabled, const scheduler::RefreshRateConfigs& configs,
+        ISchedulerCallback& schedulerCallback) {
+    return std::make_unique<Scheduler>(std::move(setVSyncEnabled), configs, schedulerCallback,
+                                       property_get_bool("debug.sf.use_content_detection_v2", true),
+                                       sysprop::use_content_detection_for_refresh_rate(false));
 }
 
-sp<SurfaceInterceptor> DefaultFactory::createSurfaceInterceptor() {
-    return new android::impl::SurfaceInterceptor();
+std::unique_ptr<SurfaceInterceptor> DefaultFactory::createSurfaceInterceptor(
+        SurfaceFlinger* flinger) {
+    return std::make_unique<android::impl::SurfaceInterceptor>(flinger);
 }
 
 sp<StartPropertySetThread> DefaultFactory::createStartPropertySetThread(
@@ -130,15 +142,6 @@ sp<BufferStateLayer> DefaultFactory::createBufferStateLayer(const LayerCreationA
 
 sp<EffectLayer> DefaultFactory::createEffectLayer(const LayerCreationArgs& args) {
     return new EffectLayer(args);
-}
-
-std::unique_ptr<FrameTracer> DefaultFactory::createFrameTracer() {
-    return std::make_unique<FrameTracer>();
-}
-
-std::unique_ptr<frametimeline::FrameTimeline> DefaultFactory::createFrameTimeline(
-        std::shared_ptr<TimeStats> timeStats, pid_t surfaceFlingerPid) {
-    return std::make_unique<frametimeline::impl::FrameTimeline>(timeStats, surfaceFlingerPid);
 }
 
 } // namespace android::surfaceflinger

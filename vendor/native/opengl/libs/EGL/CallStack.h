@@ -17,8 +17,7 @@
 #pragma once
 
 #include <log/log.h>
-#include <unwindstack/AndroidUnwinder.h>
-
+#include <backtrace/Backtrace.h>
 #include <memory>
 
 class CallStack {
@@ -26,16 +25,14 @@ public:
     // Create a callstack with the current thread's stack trace.
     // Immediately dump it to logcat using the given logtag.
     static void log(const char* logtag) noexcept {
-        unwindstack::AndroidLocalUnwinder unwinder;
-        unwindstack::AndroidUnwinderData data;
-        if (unwinder.Unwind(data)) {
-            for (size_t i = 2, c = data.frames.size(); i < c; i++) {
-                auto& frame = data.frames[i];
-                // Trim the first two frames.
-                frame.num -= 2;
+        std::unique_ptr<Backtrace> backtrace(
+                Backtrace::Create(BACKTRACE_CURRENT_PROCESS, BACKTRACE_CURRENT_THREAD));
+        if (backtrace->Unwind(2)) {
+            for (size_t i = 0, c = backtrace->NumFrames(); i < c; i++) {
                 __android_log_print(ANDROID_LOG_DEBUG, logtag, "%s",
-                                    unwinder.FormatFrame(frame).c_str());
+                        backtrace->FormatFrameData(i).c_str());
             }
         }
     }
 };
+

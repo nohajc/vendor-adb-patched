@@ -37,7 +37,8 @@ class Tombstone;
 
 namespace unwindstack {
 struct FrameData;
-class AndroidUnwinder;
+class Maps;
+class Unwinder;
 }
 
 // The maximum number of frames to save when unwinding.
@@ -51,7 +52,7 @@ int open_tombstone(std::string* path);
 
 /* Creates a tombstone file and writes the crash dump to it. */
 void engrave_tombstone(android::base::unique_fd output_fd, android::base::unique_fd proto_fd,
-                       unwindstack::AndroidUnwinder* unwinder,
+                       unwindstack::Unwinder* unwinder,
                        const std::map<pid_t, ThreadInfo>& thread_info, pid_t target_thread,
                        const ProcessInfo& process_info, OpenFilesList* open_files,
                        std::string* amfd_data);
@@ -59,7 +60,7 @@ void engrave_tombstone(android::base::unique_fd output_fd, android::base::unique
 void engrave_tombstone_ucontext(int tombstone_fd, int proto_fd, uint64_t abort_msg_address,
                                 siginfo_t* siginfo, ucontext_t* ucontext);
 
-void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::AndroidUnwinder* unwinder,
+void engrave_tombstone_proto(Tombstone* tombstone, unwindstack::Unwinder* unwinder,
                              const std::map<pid_t, ThreadInfo>& threads, pid_t target_thread,
                              const ProcessInfo& process_info, const OpenFilesList* open_files);
 
@@ -67,7 +68,8 @@ bool tombstone_proto_to_text(
     const Tombstone& tombstone,
     std::function<void(const std::string& line, bool should_log)> callback);
 
-void fill_in_backtrace_frame(BacktraceFrame* f, const unwindstack::FrameData& frame);
+void fill_in_backtrace_frame(BacktraceFrame* f, const unwindstack::FrameData& frame,
+                             unwindstack::Maps* maps);
 void set_human_readable_cause(Cause* cause, uint64_t fault_addr);
 
 #endif  // _DEBUGGERD_TOMBSTONE_H

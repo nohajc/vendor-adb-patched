@@ -42,11 +42,12 @@ std::string dispatchModeToString(int32_t dispatchMode) {
     return StringPrintf("%" PRId32, dispatchMode);
 }
 
-void InputTarget::addPointers(BitSet32 newPointerIds, const ui::Transform& transform) {
+void InputTarget::addPointers(BitSet32 newPointerIds, float xOffset, float yOffset,
+                              float windowXScale, float windowYScale) {
     // The pointerIds can be empty, but still a valid InputTarget. This can happen for Monitors
     // and non splittable windows since we will just use all the pointers from the input event.
     if (newPointerIds.isEmpty()) {
-        setDefaultPointerTransform(transform);
+        setDefaultPointerInfo(xOffset, yOffset, windowXScale, windowYScale);
         return;
     }
 
@@ -56,38 +57,47 @@ void InputTarget::addPointers(BitSet32 newPointerIds, const ui::Transform& trans
     pointerIds |= newPointerIds;
     while (!newPointerIds.isEmpty()) {
         int32_t pointerId = newPointerIds.clearFirstMarkedBit();
-        pointerTransforms[pointerId] = transform;
+        pointerInfos[pointerId].xOffset = xOffset;
+        pointerInfos[pointerId].yOffset = yOffset;
+        pointerInfos[pointerId].windowXScale = windowXScale;
+        pointerInfos[pointerId].windowYScale = windowYScale;
     }
 }
 
-void InputTarget::setDefaultPointerTransform(const ui::Transform& transform) {
+void InputTarget::setDefaultPointerInfo(float xOffset, float yOffset, float windowXScale,
+                                        float windowYScale) {
     pointerIds.clear();
-    pointerTransforms[0] = transform;
+    pointerInfos[0].xOffset = xOffset;
+    pointerInfos[0].yOffset = yOffset;
+    pointerInfos[0].windowXScale = windowXScale;
+    pointerInfos[0].windowYScale = windowYScale;
 }
 
-bool InputTarget::useDefaultPointerTransform() const {
+bool InputTarget::useDefaultPointerInfo() const {
     return pointerIds.isEmpty();
 }
 
-const ui::Transform& InputTarget::getDefaultPointerTransform() const {
-    return pointerTransforms[0];
+const PointerInfo& InputTarget::getDefaultPointerInfo() const {
+    return pointerInfos[0];
 }
 
 std::string InputTarget::getPointerInfoString() const {
-    std::string out = "\n";
-    if (useDefaultPointerTransform()) {
-        const ui::Transform& transform = getDefaultPointerTransform();
-        transform.dump(out, "default", "        ");
-        return out;
+    if (useDefaultPointerInfo()) {
+        const PointerInfo& pointerInfo = getDefaultPointerInfo();
+        return StringPrintf("xOffset=%.1f, yOffset=%.1f windowScaleFactor=(%.1f, %.1f)",
+                            pointerInfo.xOffset, pointerInfo.yOffset, pointerInfo.windowXScale,
+                            pointerInfo.windowYScale);
     }
 
+    std::string out;
     for (uint32_t i = pointerIds.firstMarkedBit(); i <= pointerIds.lastMarkedBit(); i++) {
         if (!pointerIds.hasBit(i)) {
             continue;
         }
-
-        const std::string name = "pointerId " + std::to_string(i) + ":";
-        pointerTransforms[i].dump(out, name.c_str(), "        ");
+        out += StringPrintf("\n  pointerId %d: xOffset=%.1f, yOffset=%.1f "
+                            "windowScaleFactor=(%.1f, %.1f)",
+                            i, pointerInfos[i].xOffset, pointerInfos[i].yOffset,
+                            pointerInfos[i].windowXScale, pointerInfos[i].windowYScale);
     }
     return out;
 }

@@ -61,7 +61,7 @@ static int statsdAvailable();
 static int statsdOpen();
 static void statsdClose();
 static int statsdWrite(struct timespec* ts, struct iovec* vec, size_t nr);
-static void statsdNoteDrop(int error, int tag);
+static void statsdNoteDrop();
 
 struct android_log_transport_write statsdLoggerWrite = {
         .name = "statsd",

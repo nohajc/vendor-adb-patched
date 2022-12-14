@@ -35,17 +35,11 @@ type kasTestGroup struct {
 }
 
 type kasTest struct {
-	ID uint64 `json:"tcId"`
-
-	EphemeralXHex          string `json:"ephemeralPublicServerX"`
-	EphemeralYHex          string `json:"ephemeralPublicServerY"`
-	EphemeralPrivateKeyHex string `json:"ephemeralPrivateIut"`
-
-	StaticXHex          string `json:"staticPublicServerX"`
-	StaticYHex          string `json:"staticPublicServerY"`
-	StaticPrivateKeyHex string `json:"staticPrivateIut"`
-
-	ResultHex string `json:"z"`
+	ID            uint64 `json:"tcId"`
+	XHex          string `json:"ephemeralPublicServerX"`
+	YHex          string `json:"ephemeralPublicServerY"`
+	PrivateKeyHex string `json:"ephemeralPrivateIut"`
+	ResultHex     string `json:"z"`
 }
 
 type kasTestGroupResponse struct {
@@ -54,14 +48,9 @@ type kasTestGroupResponse struct {
 }
 
 type kasTestResponse struct {
-	ID uint64 `json:"tcId"`
-
-	EphemeralXHex string `json:"ephemeralPublicIutX,omitempty"`
-	EphemeralYHex string `json:"ephemeralPublicIutY,omitempty"`
-
-	StaticXHex string `json:"staticPublicIutX,omitempty"`
-	StaticYHex string `json:"staticPublicIutY,omitempty"`
-
+	ID        uint64 `json:"tcId"`
+	XHex      string `json:"ephemeralPublicIutX,omitempty"`
+	YHex      string `json:"ephemeralPublicIutY,omitempty"`
 	ResultHex string `json:"z,omitempty"`
 	Passed    *bool  `json:"testPassed,omitempty"`
 }
@@ -74,7 +63,7 @@ func (k *kas) Process(vectorSet []byte, m Transactable) (interface{}, error) {
 		return nil, err
 	}
 
-	// See https://pages.nist.gov/ACVP/draft-fussell-acvp-kas-ecc.html#name-test-vectors
+	// See https://usnistgov.github.io/ACVP/draft-hammett-acvp-kas-ssc-ecc.html
 	var ret []kasTestGroupResponse
 	for _, group := range parsed.Groups {
 		response := kasTestGroupResponse{
@@ -105,47 +94,33 @@ func (k *kas) Process(vectorSet []byte, m Transactable) (interface{}, error) {
 			return nil, fmt.Errorf("unknown role %q", group.Role)
 		}
 
-		var useStaticNamedFields bool
-		switch group.Scheme {
-		case "ephemeralUnified":
-			break
-		case "staticUnified":
-			useStaticNamedFields = true
-			break
-		default:
+		if group.Scheme != "ephemeralUnified" {
 			return nil, fmt.Errorf("unknown scheme %q", group.Scheme)
 		}
 
 		method := "ECDH/" + group.Curve
 
 		for _, test := range group.Tests {
-			var xHex, yHex, privateKeyHex string
-			if useStaticNamedFields {
-				xHex, yHex, privateKeyHex = test.StaticXHex, test.StaticYHex, test.StaticPrivateKeyHex
-			} else {
-				xHex, yHex, privateKeyHex = test.EphemeralXHex, test.EphemeralYHex, test.EphemeralPrivateKeyHex
-			}
-
-			if len(xHex) == 0 || len(yHex) == 0 {
+			if len(test.XHex) == 0 || len(test.YHex) == 0 {
 				return nil, fmt.Errorf("%d/%d is missing peer's point", group.ID, test.ID)
 			}
 
-			peerX, err := hex.DecodeString(xHex)
+			peerX, err := hex.DecodeString(test.XHex)
 			if err != nil {
 				return nil, err
 			}
 
-			peerY, err := hex.DecodeString(yHex)
+			peerY, err := hex.DecodeString(test.YHex)
 			if err != nil {
 				return nil, err
 			}
 
-			if (len(privateKeyHex) != 0) != privateKeyGiven {
+			if (len(test.PrivateKeyHex) != 0) != privateKeyGiven {
 				return nil, fmt.Errorf("%d/%d incorrect private key presence", group.ID, test.ID)
 			}
 
 			if privateKeyGiven {
-				privateKey, err := hex.DecodeString(privateKeyHex)
+				privateKey, err := hex.DecodeString(test.PrivateKeyHex)
 				if err != nil {
 					return nil, err
 				}
@@ -171,20 +146,12 @@ func (k *kas) Process(vectorSet []byte, m Transactable) (interface{}, error) {
 					return nil, err
 				}
 
-				testResponse := kasTestResponse{
+				response.Tests = append(response.Tests, kasTestResponse{
 					ID:        test.ID,
+					XHex:      hex.EncodeToString(result[0]),
+					YHex:      hex.EncodeToString(result[1]),
 					ResultHex: hex.EncodeToString(result[2]),
-				}
-
-				if useStaticNamedFields {
-					testResponse.StaticXHex = hex.EncodeToString(result[0])
-					testResponse.StaticYHex = hex.EncodeToString(result[1])
-				} else {
-					testResponse.EphemeralXHex = hex.EncodeToString(result[0])
-					testResponse.EphemeralYHex = hex.EncodeToString(result[1])
-				}
-
-				response.Tests = append(response.Tests, testResponse)
+				})
 			}
 		}
 

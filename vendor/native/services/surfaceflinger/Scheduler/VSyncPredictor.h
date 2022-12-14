@@ -38,10 +38,10 @@ public:
                    uint32_t outlierTolerancePercent);
     ~VSyncPredictor();
 
-    bool addVsyncTimestamp(nsecs_t timestamp) final EXCLUDES(mMutex);
-    nsecs_t nextAnticipatedVSyncTimeFrom(nsecs_t timePoint) const final EXCLUDES(mMutex);
-    nsecs_t currentPeriod() const final EXCLUDES(mMutex);
-    void resetModel() final EXCLUDES(mMutex);
+    bool addVsyncTimestamp(nsecs_t timestamp) final;
+    nsecs_t nextAnticipatedVSyncTimeFrom(nsecs_t timePoint) const final;
+    nsecs_t currentPeriod() const final;
+    void resetModel() final;
 
     /*
      * Inform the model that the period is anticipated to change to a new value.
@@ -50,23 +50,16 @@ public:
      *
      * \param [in] period   The new period that should be used.
      */
-    void setPeriod(nsecs_t period) final EXCLUDES(mMutex);
+    void setPeriod(nsecs_t period) final;
 
     /* Query if the model is in need of more samples to make a prediction.
      * \return  True, if model would benefit from more samples, False if not.
      */
-    bool needsMoreSamples() const final EXCLUDES(mMutex);
+    bool needsMoreSamples() const final;
 
-    struct Model {
-        nsecs_t slope;
-        nsecs_t intercept;
-    };
+    std::tuple<nsecs_t /* slope */, nsecs_t /* intercept */> getVSyncPredictionModel() const;
 
-    VSyncPredictor::Model getVSyncPredictionModel() const EXCLUDES(mMutex);
-
-    bool isVSyncInPhase(nsecs_t timePoint, Fps frameRate) const final EXCLUDES(mMutex);
-
-    void dump(std::string& result) const final EXCLUDES(mMutex);
+    void dump(std::string& result) const final;
 
 private:
     VSyncPredictor(VSyncPredictor const&) = delete;
@@ -81,23 +74,17 @@ private:
     size_t const kOutlierTolerancePercent;
 
     std::mutex mutable mMutex;
-    size_t next(size_t i) const REQUIRES(mMutex);
+    size_t next(int i) const REQUIRES(mMutex);
     bool validate(nsecs_t timestamp) const REQUIRES(mMutex);
-
-    Model getVSyncPredictionModelLocked() const REQUIRES(mMutex);
-
-    nsecs_t nextAnticipatedVSyncTimeFromLocked(nsecs_t timePoint) const REQUIRES(mMutex);
+    std::tuple<nsecs_t, nsecs_t> getVSyncPredictionModel(std::lock_guard<std::mutex> const&) const
+            REQUIRES(mMutex);
 
     nsecs_t mIdealPeriod GUARDED_BY(mMutex);
     std::optional<nsecs_t> mKnownTimestamp GUARDED_BY(mMutex);
 
-    // Map between ideal vsync period and the calculated model
-    std::unordered_map<nsecs_t, Model> mutable mRateMap GUARDED_BY(mMutex);
+    std::unordered_map<nsecs_t, std::tuple<nsecs_t, nsecs_t>> mutable mRateMap GUARDED_BY(mMutex);
 
-    // Map between the divided vsync period and the last known vsync timestamp
-    std::unordered_map<nsecs_t, nsecs_t> mutable mRateDividerKnownTimestampMap GUARDED_BY(mMutex);
-
-    size_t mLastTimestampIndex GUARDED_BY(mMutex) = 0;
+    int mLastTimestampIndex GUARDED_BY(mMutex) = 0;
     std::vector<nsecs_t> mTimestamps GUARDED_BY(mMutex);
 };
 

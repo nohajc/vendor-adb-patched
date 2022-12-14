@@ -32,7 +32,6 @@
 #include "../SurfaceFlingerProperties.h"
 
 #include "PowerAdvisor.h"
-#include "SurfaceFlinger.h"
 
 namespace android {
 namespace Hwc2 {
@@ -62,22 +61,14 @@ int32_t getUpdateTimeout() {
 
 } // namespace
 
-PowerAdvisor::PowerAdvisor(SurfaceFlinger& flinger)
-      : mFlinger(flinger),
-        mUseScreenUpdateTimer(getUpdateTimeout() > 0),
-        mScreenUpdateTimer(
-                "UpdateImminentTimer", OneShotTimer::Interval(getUpdateTimeout()),
+PowerAdvisor::PowerAdvisor()
+      : mUseUpdateImminentTimer(getUpdateTimeout() > 0),
+        mUpdateImminentTimer(
+                OneShotTimer::Interval(getUpdateTimeout()),
                 /* resetCallback */ [this] { mSendUpdateImminent.store(false); },
-                /* timeoutCallback */
-                [this] {
-                    mSendUpdateImminent.store(true);
-                    mFlinger.disableExpensiveRendering();
-                }) {}
-
-void PowerAdvisor::init() {
-    // Defer starting the screen update timer until SurfaceFlinger finishes construction.
-    if (mUseScreenUpdateTimer) {
-        mScreenUpdateTimer.start();
+                /* timeoutCallback */ [this] { mSendUpdateImminent.store(true); }) {
+    if (mUseUpdateImminentTimer) {
+        mUpdateImminentTimer.start();
     }
 }
 
@@ -131,8 +122,8 @@ void PowerAdvisor::notifyDisplayUpdateImminent() {
         }
     }
 
-    if (mUseScreenUpdateTimer) {
-        mScreenUpdateTimer.reset();
+    if (mUseUpdateImminentTimer) {
+        mUpdateImminentTimer.reset();
     }
 }
 

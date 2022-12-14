@@ -20,8 +20,6 @@
 #include <android-base/stringprintf.h>
 #include <string.h>
 #include <algorithm>
-#include <string>
-#include <string_view>
 
 namespace simpleperf {
 
@@ -91,17 +89,5 @@ inline std::ostream& operator<<(std::ostream& os, const BuildId& build_id) {
 }
 
 }  // namespace simpleperf
-
-namespace std {
-
-template <>
-struct hash<simpleperf::BuildId> {
-  size_t operator()(const simpleperf::BuildId& build_id) const noexcept {
-    return std::hash<std::string_view>()(
-        std::string_view(reinterpret_cast<const char*>(build_id.Data()), build_id.Size()));
-  }
-};
-
-}  // namespace std
 
 #endif  // SIMPLE_PERF_BUILD_ID_H_

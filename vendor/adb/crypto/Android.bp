@@ -69,7 +69,6 @@ cc_library {
     name: "libadb_crypto",
     defaults: ["libadb_crypto_defaults"],
 
-    min_sdk_version: "30",
     apex_available: [
         "com.android.adbd",
         "test_com.android.adbd",

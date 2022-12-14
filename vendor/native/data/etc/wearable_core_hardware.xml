@@ -32,8 +32,6 @@
     <feature name="android.hardware.bluetooth" />
     <feature name="android.hardware.touchscreen" />
     <feature name="android.hardware.microphone" />
-    <!-- Indicate support for the Android security model per the CDD. -->
-    <feature name="android.hardware.security.model.compatible" />
 
     <!-- basic system services -->
     <feature name="android.software.home_screen" />

@@ -18,7 +18,6 @@
 #define SIMPLE_PERF_IOEVENT_LOOP_H_
 
 #include <stdint.h>
-#include <sys/time.h>
 #include <time.h>
 
 #include <functional>
@@ -31,12 +30,6 @@ namespace simpleperf {
 
 struct IOEvent;
 typedef IOEvent* IOEventRef;
-
-enum IOEventPriority {
-  // Lower value means higher priority.
-  IOEventHighPriority = 0,
-  IOEventLowPriority = 1,
-};
 
 // IOEventLoop is a class wrapper of libevent, it monitors events happened,
 // and calls the corresponding callbacks. Possible events are: file ready to
@@ -52,27 +45,22 @@ class IOEventLoop {
   // Register a read Event, so [callback] is called when [fd] can be read
   // without blocking. If registered successfully, return the reference
   // to control the Event, otherwise return nullptr.
-  IOEventRef AddReadEvent(int fd, const std::function<bool()>& callback,
-                          IOEventPriority priority = IOEventLowPriority);
+  IOEventRef AddReadEvent(int fd, const std::function<bool()>& callback);
 
   // Register a write Event, so [callback] is called when [fd] can be written
   // without blocking.
-  IOEventRef AddWriteEvent(int fd, const std::function<bool()>& callback,
-                           IOEventPriority priority = IOEventLowPriority);
+  IOEventRef AddWriteEvent(int fd, const std::function<bool()>& callback);
 
   // Register a signal Event, so [callback] is called each time signal [sig]
   // happens.
-  bool AddSignalEvent(int sig, const std::function<bool()>& callback,
-                      IOEventPriority priority = IOEventLowPriority);
+  bool AddSignalEvent(int sig, const std::function<bool()>& callback);
 
   // Register a vector of signal Events.
-  bool AddSignalEvents(std::vector<int> sigs, const std::function<bool()>& callback,
-                       IOEventPriority priority = IOEventLowPriority);
+  bool AddSignalEvents(std::vector<int> sigs, const std::function<bool()>& callback);
 
   // Register a periodic Event, so [callback] is called periodically every
   // [duration].
-  IOEventRef AddPeriodicEvent(timeval duration, const std::function<bool()>& callback,
-                              IOEventPriority priority = IOEventLowPriority);
+  IOEventRef AddPeriodicEvent(timeval duration, const std::function<bool()>& callback);
 
   // Run a loop polling for Events. It only exits when ExitLoop() is called
   // in a callback function of registered Events.
@@ -92,8 +80,7 @@ class IOEventLoop {
  private:
   bool EnsureInit();
   IOEventRef AddEvent(int fd_or_sig, int16_t events, timeval* timeout,
-                      const std::function<bool()>& callback,
-                      IOEventPriority priority = IOEventLowPriority);
+                      const std::function<bool()>& callback);
   static void EventCallbackFn(int, int16_t, void*);
 
   event_base* ebase_;

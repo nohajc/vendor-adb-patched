@@ -33,7 +33,7 @@ license {
 
 cc_library_headers {
     name: "libnativedisplay_headers",
-    export_include_dirs: ["include"],
+    export_include_dirs: ["include",],
 }
 
 cc_library_shared {
@@ -42,6 +42,8 @@ cc_library_shared {
         "include",
         "include-private",
     ],
+
+    clang: true,
 
     cflags: [
         "-Wall",
@@ -72,11 +74,10 @@ cc_library_shared {
         "libGLESv2",
     ],
 
-    export_header_lib_headers: ["jni_headers"],
-
     header_libs: [
-        "jni_headers",
         "libnativedisplay_headers",
         "libnativehelper_header_only",
     ],
+
+    export_header_lib_headers: ["libnativehelper_header_only"],
 }

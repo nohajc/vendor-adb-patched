@@ -15,49 +15,20 @@ rust_library {
         "libutils",
     ],
     rustlibs: [
-        "libbinder_ndk_sys",
-        "libdowncast_rs",
-        "liblazy_static",
         "liblibc",
+        "libbinder_ndk_sys",
     ],
     host_supported: true,
-    vendor_available: true,
     target: {
         darwin: {
             enabled: false,
-        },
+        }
     },
     apex_available: [
         "//apex_available:platform",
         "com.android.compos",
-        "com.android.uwb",
         "com.android.virt",
     ],
-    min_sdk_version: "Tiramisu",
-}
-
-rust_library {
-    name: "libbinder_tokio_rs",
-    crate_name: "binder_tokio",
-    srcs: ["binder_tokio/lib.rs"],
-    rustlibs: [
-        "libbinder_rs",
-        "libtokio",
-    ],
-    host_supported: true,
-    vendor_available: true,
-    target: {
-        darwin: {
-            enabled: false,
-        },
-    },
-    apex_available: [
-        "//apex_available:platform",
-        "com.android.compos",
-        "com.android.uwb",
-        "com.android.virt",
-    ],
-    min_sdk_version: "Tiramisu",
 }
 
 rust_library {
@@ -71,19 +42,16 @@ rust_library {
         "libbinder_ndk",
     ],
     host_supported: true,
-    vendor_available: true,
     target: {
         darwin: {
             enabled: false,
-        },
+        }
     },
     apex_available: [
         "//apex_available:platform",
         "com.android.compos",
-        "com.android.uwb",
         "com.android.virt",
     ],
-    min_sdk_version: "Tiramisu",
     lints: "none",
     clippy_lints: "none",
 }
@@ -96,41 +64,37 @@ rust_bindgen {
     bindgen_flags: [
         // Unfortunately the only way to specify the rust_non_exhaustive enum
         // style for a type is to make it the default
-        "--default-enum-style",
-        "rust_non_exhaustive",
+        "--default-enum-style", "rust_non_exhaustive",
         // and then specify constified enums for the enums we don't want
         // rustified
-        "--constified-enum",
-        "android::c_interface::consts::.*",
+        "--constified-enum", "android::c_interface::consts::.*",
 
-        "--allowlist-type",
-        "android::c_interface::.*",
-        "--allowlist-type",
-        "AStatus",
-        "--allowlist-type",
-        "AIBinder_Class",
-        "--allowlist-type",
-        "AIBinder",
-        "--allowlist-type",
-        "AIBinder_Weak",
-        "--allowlist-type",
-        "AIBinder_DeathRecipient",
-        "--allowlist-type",
-        "AParcel",
-        "--allowlist-type",
-        "binder_status_t",
-        "--allowlist-function",
-        ".*",
+        "--allowlist-type", "android::c_interface::.*",
+        "--allowlist-type", "AStatus",
+        "--allowlist-type", "AIBinder_Class",
+        "--allowlist-type", "AIBinder",
+        "--allowlist-type", "AIBinder_Weak",
+        "--allowlist-type", "AIBinder_DeathRecipient",
+        "--allowlist-type", "AParcel",
+        "--allowlist-type", "binder_status_t",
+        "--allowlist-function", ".*",
     ],
     shared_libs: [
         "libbinder_ndk",
     ],
     host_supported: true,
-    vendor_available: true,
 
     // Currently necessary for host builds
     // TODO(b/31559095): bionic on host should define this
     target: {
+        host: {
+            cflags: [
+                "-D__INTRODUCED_IN(n)=",
+                "-D__assert(a,b,c)=",
+                // We want all the APIs to be available on the host.
+                "-D__ANDROID_API__=10000",
+            ],
+        },
         darwin: {
             enabled: false,
         },
@@ -138,28 +102,23 @@ rust_bindgen {
     apex_available: [
         "//apex_available:platform",
         "com.android.compos",
-        "com.android.uwb",
         "com.android.virt",
     ],
-    min_sdk_version: "Tiramisu",
 }
 
 // TODO(b/184872979): remove once the Rust API is created.
 rust_bindgen {
     name: "libbinder_rpc_unstable_bindgen",
-    wrapper_src: ":libbinder_rpc_unstable_header",
+    wrapper_src: "src/binder_rpc_unstable.hpp",
     crate_name: "binder_rpc_unstable_bindgen",
-    visibility: ["//packages/modules/Virtualization:__subpackages__"],
     source_stem: "bindings",
     shared_libs: [
         "libutils",
     ],
     apex_available: [
         "com.android.compos",
-        "com.android.uwb",
         "com.android.virt",
     ],
-    min_sdk_version: "Tiramisu",
 }
 
 rust_test {
@@ -172,29 +131,7 @@ rust_test {
         "libbinder_ndk",
     ],
     rustlibs: [
-        "libbinder_ndk_sys",
-        "libdowncast_rs",
-        "liblazy_static",
         "liblibc",
+        "libbinder_ndk_sys",
     ],
-}
-
-rust_test {
-    name: "libbinder_ndk_bindgen_test",
-    srcs: [":libbinder_ndk_bindgen"],
-    crate_name: "binder_ndk_bindgen",
-    test_suites: ["general-tests"],
-    auto_gen_config: true,
-    clippy_lints: "none",
-    lints: "none",
-}
-
-rust_test {
-    name: "libbinder_rpc_unstable_bindgen_test",
-    srcs: [":libbinder_rpc_unstable_bindgen"],
-    crate_name: "binder_rpc_unstable_bindgen",
-    test_suites: ["general-tests"],
-    auto_gen_config: true,
-    clippy_lints: "none",
-    lints: "none",
 }

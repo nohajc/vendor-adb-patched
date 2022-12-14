@@ -42,8 +42,10 @@ int LayerVector::do_compare(const void* lhs, const void* rhs) const
     const auto& l = *reinterpret_cast<const sp<Layer>*>(lhs);
     const auto& r = *reinterpret_cast<const sp<Layer>*>(rhs);
 
-    const auto& lState = l->getDrawingState();
-    const auto& rState = r->getDrawingState();
+    const auto& lState =
+            (mStateSet == StateSet::Current) ? l->getCurrentState() : l->getDrawingState();
+    const auto& rState =
+            (mStateSet == StateSet::Current) ? r->getCurrentState() : r->getDrawingState();
 
     uint32_t ls = lState.layerStack;
     uint32_t rs = rState.layerStack;
@@ -64,7 +66,8 @@ int LayerVector::do_compare(const void* lhs, const void* rhs) const
 void LayerVector::traverseInZOrder(StateSet stateSet, const Visitor& visitor) const {
     for (size_t i = 0; i < size(); i++) {
         const auto& layer = (*this)[i];
-        auto& state = layer->getDrawingState();
+        auto& state = (stateSet == StateSet::Current) ? layer->getCurrentState()
+                                                      : layer->getDrawingState();
         if (state.isRelativeOf) {
             continue;
         }
@@ -75,7 +78,8 @@ void LayerVector::traverseInZOrder(StateSet stateSet, const Visitor& visitor) co
 void LayerVector::traverseInReverseZOrder(StateSet stateSet, const Visitor& visitor) const {
     for (auto i = static_cast<int64_t>(size()) - 1; i >= 0; i--) {
         const auto& layer = (*this)[i];
-        auto& state = layer->getDrawingState();
+        auto& state = (stateSet == StateSet::Current) ? layer->getCurrentState()
+                                                      : layer->getDrawingState();
         if (state.isRelativeOf) {
             continue;
         }

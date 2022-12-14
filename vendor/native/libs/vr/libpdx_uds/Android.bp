@@ -4,11 +4,14 @@ package {
     // all of the 'license_kinds' from "frameworks_native_license"
     // to get the below license kinds:
     //   SPDX-license-identifier-Apache-2.0
+    //   SPDX-license-identifier-MIT
+    //   SPDX-license-identifier-Unicode-DFS
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
 cc_library_static {
     name: "libpdx_uds",
+    clang: true,
     cflags: [
         "-Wall",
         "-Wextra",
@@ -40,6 +43,7 @@ cc_library_static {
 
 cc_test {
     name: "libpdx_uds_tests",
+    clang: true,
     cflags: [
         "-Wall",
         "-Wextra",

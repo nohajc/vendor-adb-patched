@@ -50,13 +50,13 @@ class RunDex2Oat {
                     int target_sdk_version,
                     bool enable_hidden_api_checks,
                     bool generate_compact_dex,
-                    bool use_jitzygote,
+                    bool use_jitzygote_image,
                     const char* compilation_reason);
 
     void Exec(int exit_code);
 
   protected:
-    void PrepareBootImageFlags(bool use_jitzygote);
+    void PrepareBootImageFlags(bool use_jitzygote_image);
     void PrepareInputFileFlags(const UniqueFile& output_oat,
                                const UniqueFile& output_vdex,
                                const UniqueFile& output_image,

@@ -84,10 +84,6 @@ bool IOEventLoop::EnsureInit() {
         return false;
       }
       event_config_free(cfg);
-      if (event_base_priority_init(ebase_, 2) != 0) {
-        LOG(ERROR) << "event_base_priority_init failed";
-        return false;
-      }
     }
     if (ebase_ == nullptr) {
       LOG(ERROR) << "failed to create event_base";
@@ -114,44 +110,39 @@ static bool MakeFdNonBlocking(int fd) {
   return true;
 }
 
-IOEventRef IOEventLoop::AddReadEvent(int fd, const std::function<bool()>& callback,
-                                     IOEventPriority priority) {
+IOEventRef IOEventLoop::AddReadEvent(int fd, const std::function<bool()>& callback) {
   if (!MakeFdNonBlocking(fd)) {
     return nullptr;
   }
-  return AddEvent(fd, EV_READ | EV_PERSIST, nullptr, callback, priority);
+  return AddEvent(fd, EV_READ | EV_PERSIST, nullptr, callback);
 }
 
-IOEventRef IOEventLoop::AddWriteEvent(int fd, const std::function<bool()>& callback,
-                                      IOEventPriority priority) {
+IOEventRef IOEventLoop::AddWriteEvent(int fd, const std::function<bool()>& callback) {
   if (!MakeFdNonBlocking(fd)) {
     return nullptr;
   }
-  return AddEvent(fd, EV_WRITE | EV_PERSIST, nullptr, callback, priority);
+  return AddEvent(fd, EV_WRITE | EV_PERSIST, nullptr, callback);
 }
 
-bool IOEventLoop::AddSignalEvent(int sig, const std::function<bool()>& callback,
-                                 IOEventPriority priority) {
-  return AddEvent(sig, EV_SIGNAL | EV_PERSIST, nullptr, callback, priority) != nullptr;
+bool IOEventLoop::AddSignalEvent(int sig, const std::function<bool()>& callback) {
+  return AddEvent(sig, EV_SIGNAL | EV_PERSIST, nullptr, callback) != nullptr;
 }
 
-bool IOEventLoop::AddSignalEvents(std::vector<int> sigs, const std::function<bool()>& callback,
-                                  IOEventPriority priority) {
+bool IOEventLoop::AddSignalEvents(std::vector<int> sigs, const std::function<bool()>& callback) {
   for (auto sig : sigs) {
-    if (!AddSignalEvent(sig, callback, priority)) {
+    if (!AddSignalEvent(sig, callback)) {
       return false;
     }
   }
   return true;
 }
 
-IOEventRef IOEventLoop::AddPeriodicEvent(timeval duration, const std::function<bool()>& callback,
-                                         IOEventPriority priority) {
-  return AddEvent(-1, EV_PERSIST, &duration, callback, priority);
+IOEventRef IOEventLoop::AddPeriodicEvent(timeval duration, const std::function<bool()>& callback) {
+  return AddEvent(-1, EV_PERSIST, &duration, callback);
 }
 
 IOEventRef IOEventLoop::AddEvent(int fd_or_sig, int16_t events, timeval* timeout,
-                                 const std::function<bool()>& callback, IOEventPriority priority) {
+                                 const std::function<bool()>& callback) {
   if (!EnsureInit()) {
     return nullptr;
   }
@@ -161,7 +152,6 @@ IOEventRef IOEventLoop::AddEvent(int fd_or_sig, int16_t events, timeval* timeout
     LOG(ERROR) << "event_new() failed";
     return nullptr;
   }
-  event_priority_set(e->e, priority);
   if (event_add(e->e, timeout) != 0) {
     LOG(ERROR) << "event_add() failed";
     return nullptr;

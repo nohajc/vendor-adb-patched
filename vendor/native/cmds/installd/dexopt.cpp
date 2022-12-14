@@ -15,8 +15,8 @@
  */
 #define LOG_TAG "installd"
 
+#include <array>
 #include <fcntl.h>
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/capability.h>
@@ -28,14 +28,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <array>
 #include <iomanip>
-#include <mutex>
-#include <unordered_set>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
-#include <android-base/no_destructor.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
@@ -47,21 +43,18 @@
 #include <log/log.h>               // TODO: Move everything to base/logging.
 #include <openssl/sha.h>
 #include <private/android_filesystem_config.h>
-#include <processgroup/processgroup.h>
+#include <processgroup/sched_policy.h>
 #include <selinux/android.h>
 #include <server_configurable_flags/get_flags.h>
 #include <system/thread_defs.h>
-#include <utils/Mutex.h>
-#include <ziparchive/zip_archive.h>
 
 #include "dexopt.h"
 #include "dexopt_return_codes.h"
 #include "execv_helper.h"
 #include "globals.h"
-#include "installd_constants.h"
 #include "installd_deps.h"
+#include "installd_constants.h"
 #include "otapreopt_utils.h"
-#include "restorable_file.h"
 #include "run_dex2oat.h"
 #include "unique_file.h"
 #include "utils.h"
@@ -74,86 +67,7 @@ using android::base::ReadFdToString;
 using android::base::ReadFully;
 using android::base::StringPrintf;
 using android::base::WriteFully;
-using android::base::borrowed_fd;
 using android::base::unique_fd;
-
-namespace {
-
-// Timeout for short operations, such as merging profiles.
-constexpr int kShortTimeoutMs = 60000; // 1 minute.
-
-// Timeout for long operations, such as compilation. This should be smaller than the Package Manager
-// watchdog (PackageManagerService.WATCHDOG_TIMEOUT, 10 minutes), so that the operation will be
-// aborted before that watchdog would take down the system server.
-constexpr int kLongTimeoutMs = 570000; // 9.5 minutes.
-
-class DexOptStatus {
- public:
-    // Check if dexopt is cancelled and fork if it is not cancelled.
-    // cancelled is set to true if cancelled. Otherwise it will be set to false.
-    // If it is not cancelled, it will return the return value of fork() call.
-    // If cancelled, fork will not happen and it will return -1.
-    pid_t check_cancellation_and_fork(/* out */ bool *cancelled) {
-        std::lock_guard<std::mutex> lock(dexopt_lock_);
-        if (dexopt_blocked_) {
-            *cancelled = true;
-            return -1;
-        }
-        pid_t pid = fork();
-        *cancelled = false;
-        if (pid > 0) { // parent
-            dexopt_pids_.insert(pid);
-        }
-        return pid;
-    }
-
-    // Returns true if pid was killed (is in killed list). It could have finished if killing
-    // happened after the process is finished.
-    bool check_if_killed_and_remove_dexopt_pid(pid_t pid) {
-        std::lock_guard<std::mutex> lock(dexopt_lock_);
-        dexopt_pids_.erase(pid);
-        if (dexopt_killed_pids_.erase(pid) == 1) {
-            return true;
-        }
-        return false;
-    }
-
-    // Tells whether dexopt is blocked or not.
-    bool is_dexopt_blocked() {
-        std::lock_guard<std::mutex> lock(dexopt_lock_);
-        return dexopt_blocked_;
-    }
-
-    // Enable or disable dexopt blocking.
-    void control_dexopt_blocking(bool block) {
-        std::lock_guard<std::mutex> lock(dexopt_lock_);
-        dexopt_blocked_ = block;
-        if (!block) {
-            return;
-        }
-        // Blocked, also kill currently running tasks
-        for (auto pid : dexopt_pids_) {
-            LOG(INFO) << "control_dexopt_blocking kill pid:" << pid;
-            kill(pid, SIGKILL);
-            dexopt_killed_pids_.insert(pid);
-        }
-        dexopt_pids_.clear();
-    }
-
- private:
-    std::mutex dexopt_lock_;
-    // when true, dexopt is blocked and will not run.
-    bool dexopt_blocked_ GUARDED_BY(dexopt_lock_) = false;
-    // PIDs of child process while runinng dexopt.
-    // If the child process is finished, it should be removed.
-    std::unordered_set<pid_t> dexopt_pids_ GUARDED_BY(dexopt_lock_);
-    // PIDs of child processes killed by cancellation.
-    std::unordered_set<pid_t> dexopt_killed_pids_ GUARDED_BY(dexopt_lock_);
-};
-
-android::base::NoDestructor<DexOptStatus> dexopt_status_;
-
-} // namespace
 
 namespace android {
 namespace installd {
@@ -253,7 +167,7 @@ bool clear_primary_reference_profile(const std::string& package_name,
 // The location is the profile name for primary apks or the dex path for secondary dex files.
 bool clear_primary_current_profiles(const std::string& package_name, const std::string& location) {
     bool success = true;
-    // For secondary dex files, we don't really need the user but we use it for validity checks.
+    // For secondary dex files, we don't really need the user but we use it for sanity checks.
     std::vector<userid_t> users = get_known_users(/*volume_uuid*/ nullptr);
     for (auto user : users) {
         success &= clear_current_profile(package_name, location, user, /*is_secondary_dex*/false);
@@ -319,6 +233,12 @@ static bool IsBootClassPathProfilingEnable() {
     return profile_boot_class_path == "true";
 }
 
+static void UnlinkIgnoreResult(const std::string& path) {
+    if (unlink(path.c_str()) < 0) {
+        PLOG(ERROR) << "Failed to unlink " << path;
+    }
+}
+
 /*
  * Whether dexopt should use a swap file when compiling an APK.
  *
@@ -362,8 +282,8 @@ static bool ShouldUseSwapFileForDexopt() {
 
 static void SetDex2OatScheduling(bool set_to_bg) {
     if (set_to_bg) {
-        if (!SetTaskProfiles(0, {"Dex2OatBootComplete"})) {
-            LOG(ERROR) << "Failed to set dex2oat task profile";
+        if (set_sched_policy(0, SP_BACKGROUND) < 0) {
+            PLOG(ERROR) << "set_sched_policy failed";
             exit(DexoptReturnCodes::kSetSchedPolicy);
         }
         if (setpriority(PRIO_PROCESS, 0, ANDROID_PRIORITY_BACKGROUND) < 0) {
@@ -464,8 +384,8 @@ static UniqueFile open_reference_profile_as_unique_file(uid_t uid, const std::st
     });
 }
 
-static unique_fd open_snapshot_profile(uid_t uid, const std::string& package_name,
-                                       const std::string& location) {
+static unique_fd open_spnashot_profile(uid_t uid, const std::string& package_name,
+        const std::string& location) {
     std::string profile = create_snapshot_profile_path(package_name, location);
     return open_profile(uid, profile, O_CREAT | O_RDWR | O_TRUNC,  S_IRUSR | S_IWUSR);
 }
@@ -477,7 +397,7 @@ static void open_profile_files(uid_t uid, const std::string& package_name,
     *reference_profile_fd = open_reference_profile(uid, package_name, location,
             /*read_write*/ true, is_secondary_dex);
 
-    // For secondary dex files, we don't really need the user but we use it for validity checks.
+    // For secondary dex files, we don't really need the user but we use it for sanity checks.
     // Note: the user owning the dex file should be the current user.
     std::vector<userid_t> users;
     if (is_secondary_dex){
@@ -495,25 +415,6 @@ static void open_profile_files(uid_t uid, const std::string& package_name,
     }
 }
 
-// Cleans up an output file specified by a file descriptor. This function should be called whenever
-// a subprocess that modifies a system-managed file crashes.
-// If the subprocess crashes while it's writing to the file, the file is likely corrupted, so we
-// should remove it.
-// If the subprocess times out and is killed while it's acquiring a flock on the file, there is
-// probably a deadlock, so it's also good to remove the file so that later operations won't
-// encounter the same problem. It's safe to do so because the process that is holding the flock will
-// still have access to the file until the file descriptor is closed.
-// Note that we can't do `clear_reference_profile` here even if the fd points to a reference profile
-// because that also requires a flock and is therefore likely to be stuck in the second case.
-static bool cleanup_output_fd(int fd) {
-    std::string path;
-    bool ret = remove_file_at_fd(fd, &path);
-    if (ret) {
-        LOG(INFO) << "Removed file at path " << path;
-    }
-    return ret;
-}
-
 static constexpr int PROFMAN_BIN_RETURN_CODE_SUCCESS = 0;
 static constexpr int PROFMAN_BIN_RETURN_CODE_COMPILE = 1;
 static constexpr int PROFMAN_BIN_RETURN_CODE_SKIP_COMPILATION_NOT_ENOUGH_DELTA = 2;
@@ -525,14 +426,13 @@ static constexpr int PROFMAN_BIN_RETURN_CODE_SKIP_COMPILATION_EMPTY_PROFILES = 7
 
 class RunProfman : public ExecVHelper {
   public:
-    template <typename T, typename U>
-    void SetupArgs(const std::vector<T>& profile_fds,
-                   const unique_fd& reference_profile_fd,
-                   const std::vector<U>& apk_fds,
-                   const std::vector<std::string>& dex_locations,
-                   bool copy_and_update,
-                   bool for_snapshot,
-                   bool for_boot_image) {
+   void SetupArgs(const std::vector<unique_fd>& profile_fds,
+                  const unique_fd& reference_profile_fd,
+                  const std::vector<unique_fd>& apk_fds,
+                  const std::vector<std::string>& dex_locations,
+                  bool copy_and_update,
+                  bool for_snapshot,
+                  bool for_boot_image) {
 
         // TODO(calin): Assume for now we run in the bg compile job (which is in
         // most of the invocation). With the current data flow, is not very easy or
@@ -548,11 +448,11 @@ class RunProfman : public ExecVHelper {
             AddArg("--reference-profile-file-fd=" + std::to_string(reference_profile_fd.get()));
         }
 
-        for (const T& fd : profile_fds) {
+        for (const unique_fd& fd : profile_fds) {
             AddArg("--profile-file-fd=" + std::to_string(fd.get()));
         }
 
-        for (const U& fd : apk_fds) {
+        for (const unique_fd& fd : apk_fds) {
             AddArg("--apk-fd=" + std::to_string(fd.get()));
         }
 
@@ -611,14 +511,20 @@ class RunProfman : public ExecVHelper {
                   for_boot_image);
     }
 
-    void SetupCopyAndUpdate(const unique_fd& profile_fd,
-                            const unique_fd& reference_profile_fd,
-                            const unique_fd& apk_fd,
+    void SetupCopyAndUpdate(unique_fd&& profile_fd,
+                            unique_fd&& reference_profile_fd,
+                            unique_fd&& apk_fd,
                             const std::string& dex_location) {
-        SetupArgs(std::vector<borrowed_fd>{profile_fd},
-                  reference_profile_fd,
-                  std::vector<borrowed_fd>{apk_fd},
-                  {dex_location},
+        // The fds need to stay open longer than the scope of the function, so put them into a local
+        // variable vector.
+        profiles_fd_.push_back(std::move(profile_fd));
+        apk_fds_.push_back(std::move(apk_fd));
+        reference_profile_fd_ = std::move(reference_profile_fd);
+        std::vector<std::string> dex_locations = {dex_location};
+        SetupArgs(profiles_fd_,
+                  reference_profile_fd_,
+                  apk_fds_,
+                  dex_locations,
                   /*copy_and_update=*/true,
                   /*for_snapshot*/false,
                   /*for_boot_image*/false);
@@ -644,6 +550,11 @@ class RunProfman : public ExecVHelper {
     void Exec() {
         ExecVHelper::Exec(DexoptReturnCodes::kProfmanExec);
     }
+
+  private:
+    unique_fd reference_profile_fd_;
+    std::vector<unique_fd> profiles_fd_;
+    std::vector<unique_fd> apk_fds_;
 };
 
 static int analyze_profiles(uid_t uid, const std::string& package_name,
@@ -675,14 +586,13 @@ static int analyze_profiles(uid_t uid, const std::string& package_name,
         profman_merge.Exec();
     }
     /* parent */
-    int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
+    int return_code = wait_child(pid);
     bool need_to_compile = false;
     bool empty_profiles = false;
     bool should_clear_current_profiles = false;
     bool should_clear_reference_profile = false;
     if (!WIFEXITED(return_code)) {
         LOG(WARNING) << "profman failed for location " << location << ": " << return_code;
-        cleanup_output_fd(reference_profile_fd.get());
     } else {
         return_code = WEXITSTATUS(return_code);
         switch (return_code) {
@@ -816,10 +726,10 @@ bool dump_profiles(int32_t uid, const std::string& pkgname, const std::string& p
         profman_dump.Exec();
     }
     /* parent */
-    int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
+    int return_code = wait_child(pid);
     if (!WIFEXITED(return_code)) {
-        LOG(WARNING) << "profman failed for package " << pkgname << ": " << return_code;
-        cleanup_output_fd(output_fd.get());
+        LOG(WARNING) << "profman failed for package " << pkgname << ": "
+                << return_code;
         return false;
     }
     return true;
@@ -890,11 +800,7 @@ bool copy_system_profile(const std::string& system_profile,
         _exit(0);
     }
     /* parent */
-    int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
-    if (!WIFEXITED(return_code)) {
-        cleanup_output_fd(out_fd.get());
-        return false;
-    }
+    int return_code = wait_child(pid);
     return return_code == 0;
 }
 
@@ -1006,34 +912,42 @@ static bool create_oat_out_path(const char* apk_path, const char* instruction_se
 }
 
 // (re)Creates the app image if needed.
-RestorableFile maybe_open_app_image(const std::string& out_oat_path, bool generate_app_image,
-                                    bool is_public, int uid, bool is_secondary_dex) {
+UniqueFile maybe_open_app_image(const std::string& out_oat_path,
+        bool generate_app_image, bool is_public, int uid, bool is_secondary_dex) {
+
     const std::string image_path = create_image_filename(out_oat_path);
     if (image_path.empty()) {
         // Happens when the out_oat_path has an unknown extension.
-        return RestorableFile();
+        return UniqueFile();
     }
+
+    // In case there is a stale image, remove it now. Ignore any error.
+    unlink(image_path.c_str());
 
     // Not enabled, exit.
     if (!generate_app_image) {
-        RestorableFile::RemoveAllFiles(image_path);
-        return RestorableFile();
+        return UniqueFile();
     }
     std::string app_image_format = GetProperty("dalvik.vm.appimageformat", "");
     if (app_image_format.empty()) {
-        RestorableFile::RemoveAllFiles(image_path);
-        return RestorableFile();
+        return UniqueFile();
     }
-    // If the app is already running and we modify the image file, it can cause crashes
-    // (b/27493510).
-    RestorableFile image_file = RestorableFile::CreateWritableFile(image_path,
-                                                                   /*permissions*/ 0600);
+    // Recreate is true since we do not want to modify a mapped image. If the app is
+    // already running and we modify the image file, it can cause crashes (b/27493510).
+    UniqueFile image_file(
+            open_output_file(image_path.c_str(), true /*recreate*/, 0600 /*permissions*/),
+            image_path,
+            UnlinkIgnoreResult);
     if (image_file.fd() < 0) {
         // Could not create application image file. Go on since we can compile without it.
         LOG(ERROR) << "installd could not create '" << image_path
                 << "' for image file during dexopt";
-        // If we have a valid image file path but cannot create tmp file, reset it.
-        image_file.reset();
+         // If we have a valid image file path but no image fd, explicitly erase the image file.
+        if (unlink(image_path.c_str()) < 0) {
+            if (errno != ENOENT) {
+                PLOG(ERROR) << "Couldn't unlink image file " << image_path;
+            }
+        }
     } else if (!set_permissions_and_ownership(
                 image_file.fd(), is_public, uid, image_path.c_str(), is_secondary_dex)) {
         ALOGE("installd cannot set owner '%s' for image during dexopt\n", image_path.c_str());
@@ -1107,9 +1021,9 @@ UniqueFile maybe_open_reference_profile(const std::string& pkgname,
 // Opens the vdex files and assigns the input fd to in_vdex_wrapper and the output fd to
 // out_vdex_wrapper. Returns true for success or false in case of errors.
 bool open_vdex_files_for_dex2oat(const char* apk_path, const char* out_oat_path, int dexopt_needed,
-                                 const char* instruction_set, bool is_public, int uid,
-                                 bool is_secondary_dex, bool profile_guided,
-                                 UniqueFile* in_vdex_wrapper, RestorableFile* out_vdex_wrapper) {
+        const char* instruction_set, bool is_public, int uid, bool is_secondary_dex,
+        bool profile_guided, UniqueFile* in_vdex_wrapper,
+        UniqueFile* out_vdex_wrapper) {
     CHECK(in_vdex_wrapper != nullptr);
     CHECK(out_vdex_wrapper != nullptr);
     // Open the existing VDEX. We do this before creating the new output VDEX, which will
@@ -1121,14 +1035,6 @@ bool open_vdex_files_for_dex2oat(const char* apk_path, const char* out_oat_path,
     // Infer the name of the output VDEX.
     const std::string out_vdex_path_str = create_vdex_filename(out_oat_path);
     if (out_vdex_path_str.empty()) {
-        return false;
-    }
-
-    // Create work file first. All files will be deleted when it fails.
-    *out_vdex_wrapper = RestorableFile::CreateWritableFile(out_vdex_path_str,
-                                                           /*permissions*/ 0644);
-    if (out_vdex_wrapper->fd() < 0) {
-        ALOGE("installd cannot open vdex '%s' during dexopt\n", out_vdex_path_str.c_str());
         return false;
     }
 
@@ -1163,19 +1069,41 @@ bool open_vdex_files_for_dex2oat(const char* apk_path, const char* out_oat_path,
             (dexopt_action == DEX2OAT_FOR_BOOT_IMAGE) &&
             !profile_guided;
         if (update_vdex_in_place) {
-            // dex2oat marks it invalid anyway. So delete it and set work file fd.
-            unlink(in_vdex_path_str.c_str());
             // Open the file read-write to be able to update it.
-            in_vdex_wrapper->reset(out_vdex_wrapper->fd(), in_vdex_path_str);
-            // Disable auto close for the in wrapper fd (it will be done when destructing the out
-            // wrapper).
-            in_vdex_wrapper->DisableAutoClose();
+            in_vdex_wrapper->reset(open(in_vdex_path_str.c_str(), O_RDWR, 0),
+                                   in_vdex_path_str);
+            if (in_vdex_wrapper->fd() == -1) {
+                // If we failed to open the file, we cannot update it in place.
+                update_vdex_in_place = false;
+            }
         } else {
             in_vdex_wrapper->reset(open(in_vdex_path_str.c_str(), O_RDONLY, 0),
                                    in_vdex_path_str);
         }
     }
 
+    // If we are updating the vdex in place, we do not need to recreate a vdex,
+    // and can use the same existing one.
+    if (update_vdex_in_place) {
+        // We unlink the file in case the invocation of dex2oat fails, to ensure we don't
+        // have bogus stale vdex files.
+        out_vdex_wrapper->reset(
+              in_vdex_wrapper->fd(),
+              out_vdex_path_str,
+              UnlinkIgnoreResult);
+        // Disable auto close for the in wrapper fd (it will be done when destructing the out
+        // wrapper).
+        in_vdex_wrapper->DisableAutoClose();
+    } else {
+        out_vdex_wrapper->reset(
+              open_output_file(out_vdex_path_str.c_str(), /*recreate*/true, /*permissions*/0644),
+              out_vdex_path_str,
+              UnlinkIgnoreResult);
+        if (out_vdex_wrapper->fd() < 0) {
+            ALOGE("installd cannot open vdex'%s' during dexopt\n", out_vdex_path_str.c_str());
+            return false;
+        }
+    }
     if (!set_permissions_and_ownership(out_vdex_wrapper->fd(), is_public, uid,
             out_vdex_path_str.c_str(), is_secondary_dex)) {
         ALOGE("installd cannot set owner '%s' for vdex during dexopt\n", out_vdex_path_str.c_str());
@@ -1187,13 +1115,16 @@ bool open_vdex_files_for_dex2oat(const char* apk_path, const char* out_oat_path,
 }
 
 // Opens the output oat file for the given apk.
-RestorableFile open_oat_out_file(const char* apk_path, const char* oat_dir, bool is_public, int uid,
-                                 const char* instruction_set, bool is_secondary_dex) {
+UniqueFile open_oat_out_file(const char* apk_path, const char* oat_dir,
+        bool is_public, int uid, const char* instruction_set, bool is_secondary_dex) {
     char out_oat_path[PKG_PATH_MAX];
     if (!create_oat_out_path(apk_path, instruction_set, oat_dir, is_secondary_dex, out_oat_path)) {
-        return RestorableFile();
+        return UniqueFile();
     }
-    RestorableFile oat = RestorableFile::CreateWritableFile(out_oat_path, /*permissions*/ 0644);
+    UniqueFile oat(
+            open_output_file(out_oat_path, /*recreate*/true, /*permissions*/0644),
+            out_oat_path,
+            UnlinkIgnoreResult);
     if (oat.fd() < 0) {
         PLOG(ERROR) << "installd cannot open output during dexopt" <<  out_oat_path;
     } else if (!set_permissions_and_ownership(
@@ -1544,7 +1475,7 @@ static bool get_class_loader_context_dex_paths(const char* class_loader_context,
     }
     pipe_read.reset();
 
-    int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
+    int return_code = wait_child(pid);
     if (!WIFEXITED(return_code)) {
         PLOG(ERROR) << "Error waiting for child dexoptanalyzer process";
         return false;
@@ -1594,46 +1525,23 @@ static std::string join_fds(const std::vector<unique_fd>& fds) {
     return ss.str();
 }
 
-void control_dexopt_blocking(bool block) {
-    dexopt_status_->control_dexopt_blocking(block);
-}
-
-bool is_dexopt_blocked() {
-    return dexopt_status_->is_dexopt_blocked();
-}
-
-enum SecondaryDexOptProcessResult {
-    kSecondaryDexOptProcessOk = 0,
-    kSecondaryDexOptProcessCancelled = 1,
-    kSecondaryDexOptProcessError = 2
-};
-
 // Processes the dex_path as a secondary dex files and return true if the path dex file should
-// be compiled.
-// Returns: kSecondaryDexOptProcessError for errors (logged).
-//          kSecondaryDexOptProcessOk if the secondary dex path was process successfully.
-//          kSecondaryDexOptProcessCancelled if the processing was cancelled.
-//
-// When returning kSecondaryDexOptProcessOk, the output parameters will be:
+// be compiled. Returns false for errors (logged) or true if the secondary dex path was process
+// successfully.
+// When returning true, the output parameters will be:
 //   - is_public_out: whether or not the oat file should not be made public
 //   - dexopt_needed_out: valid OatFileAsssitant::DexOptNeeded
 //   - oat_dir_out: the oat dir path where the oat file should be stored
-static SecondaryDexOptProcessResult process_secondary_dex_dexopt(const std::string& dex_path,
-        const char* pkgname, int dexopt_flags, const char* volume_uuid, int uid,
-        const char* instruction_set, const char* compiler_filter, bool* is_public_out,
-        int* dexopt_needed_out, std::string* oat_dir_out, bool downgrade,
-        const char* class_loader_context, const std::vector<std::string>& context_dex_paths,
-        /* out */ std::string* error_msg) {
+static bool process_secondary_dex_dexopt(const std::string& dex_path, const char* pkgname,
+        int dexopt_flags, const char* volume_uuid, int uid, const char* instruction_set,
+        const char* compiler_filter, bool* is_public_out, int* dexopt_needed_out,
+        std::string* oat_dir_out, bool downgrade, const char* class_loader_context,
+        const std::vector<std::string>& context_dex_paths, /* out */ std::string* error_msg) {
     LOG(DEBUG) << "Processing secondary dex path " << dex_path;
-
-    if (dexopt_status_->is_dexopt_blocked()) {
-        return kSecondaryDexOptProcessCancelled;
-    }
-
     int storage_flag;
     if (!validate_dexopt_storage_flags(dexopt_flags, &storage_flag, error_msg)) {
         LOG(ERROR) << *error_msg;
-        return kSecondaryDexOptProcessError;
+        return false;
     }
     // Compute the oat dir as it's not easy to extract it from the child computation.
     char oat_path[PKG_PATH_MAX];
@@ -1642,15 +1550,11 @@ static SecondaryDexOptProcessResult process_secondary_dex_dexopt(const std::stri
     if (!create_secondary_dex_oat_layout(
             dex_path, instruction_set, oat_dir, oat_isa_dir, oat_path, error_msg)) {
         LOG(ERROR) << "Could not create secondary odex layout: " << *error_msg;
-        return kSecondaryDexOptProcessError;
+        return false;
     }
     oat_dir_out->assign(oat_dir);
 
-    bool cancelled = false;
-    pid_t pid = dexopt_status_->check_cancellation_and_fork(&cancelled);
-    if (cancelled) {
-        return kSecondaryDexOptProcessCancelled;
-    }
+    pid_t pid = fork();
     if (pid == 0) {
         // child -- drop privileges before continuing.
         drop_capabilities(uid);
@@ -1718,18 +1622,13 @@ static SecondaryDexOptProcessResult process_secondary_dex_dexopt(const std::stri
     }
 
     /* parent */
-    int result = wait_child_with_timeout(pid, kShortTimeoutMs);
-    cancelled = dexopt_status_->check_if_killed_and_remove_dexopt_pid(pid);
+    int result = wait_child(pid);
     if (!WIFEXITED(result)) {
-        if ((WTERMSIG(result) == SIGKILL) && cancelled) {
-            LOG(INFO) << "dexoptanalyzer cancelled for path:" << dex_path;
-            return kSecondaryDexOptProcessCancelled;
-        }
         *error_msg = StringPrintf("dexoptanalyzer failed for path %s: 0x%04x",
                                   dex_path.c_str(),
                                   result);
         LOG(ERROR) << *error_msg;
-        return kSecondaryDexOptProcessError;
+        return false;
     }
     result = WEXITSTATUS(result);
     // Check that we successfully executed dexoptanalyzer.
@@ -1757,7 +1656,7 @@ static SecondaryDexOptProcessResult process_secondary_dex_dexopt(const std::stri
     // It is ok to check this flag outside in the parent process.
     *is_public_out = ((dexopt_flags & DEXOPT_PUBLIC) != 0) && is_file_public(dex_path);
 
-    return success ? kSecondaryDexOptProcessOk : kSecondaryDexOptProcessError;
+    return success;
 }
 
 static std::string format_dexopt_error(int status, const char* dex_path) {
@@ -1771,28 +1670,16 @@ static std::string format_dexopt_error(int status, const char* dex_path) {
   return StringPrintf("Dex2oat invocation for %s failed with 0x%04x", dex_path, status);
 }
 
-
 int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* instruction_set,
         int dexopt_needed, const char* oat_dir, int dexopt_flags, const char* compiler_filter,
         const char* volume_uuid, const char* class_loader_context, const char* se_info,
         bool downgrade, int target_sdk_version, const char* profile_name,
-        const char* dex_metadata_path, const char* compilation_reason, std::string* error_msg,
-        /* out */ bool* completed) {
+        const char* dex_metadata_path, const char* compilation_reason, std::string* error_msg) {
     CHECK(pkgname != nullptr);
     CHECK(pkgname[0] != 0);
     CHECK(error_msg != nullptr);
     CHECK_EQ(dexopt_flags & ~DEXOPT_MASK, 0)
         << "dexopt flags contains unknown fields: " << dexopt_flags;
-
-    bool local_completed; // local placeholder for nullptr case
-    if (completed == nullptr) {
-        completed = &local_completed;
-    }
-    *completed = true;
-    if (dexopt_status_->is_dexopt_blocked()) {
-        *completed = false;
-        return 0;
-    }
 
     if (!validate_dex_path_size(dex_path)) {
         *error_msg = StringPrintf("Failed to validate %s", dex_path);
@@ -1825,20 +1712,14 @@ int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* ins
             *error_msg = "Failed acquiring context dex paths";
             return -1;  // We had an error, logged in the process method.
         }
-        SecondaryDexOptProcessResult sec_dex_result = process_secondary_dex_dexopt(dex_path,
-                pkgname, dexopt_flags, volume_uuid, uid,instruction_set, compiler_filter,
-                &is_public, &dexopt_needed, &oat_dir_str, downgrade, class_loader_context,
-                context_dex_paths, error_msg);
-        if (sec_dex_result == kSecondaryDexOptProcessOk) {
+
+        if (process_secondary_dex_dexopt(dex_path, pkgname, dexopt_flags, volume_uuid, uid,
+                instruction_set, compiler_filter, &is_public, &dexopt_needed, &oat_dir_str,
+                downgrade, class_loader_context, context_dex_paths, error_msg)) {
             oat_dir = oat_dir_str.c_str();
             if (dexopt_needed == NO_DEXOPT_NEEDED) {
-                *completed = true;
                 return 0;  // Nothing to do, report success.
             }
-        } else if (sec_dex_result == kSecondaryDexOptProcessCancelled) {
-            // cancelled, not an error.
-            *completed = false;
-            return 0;
         } else {
             if (error_msg->empty()) {  // TODO: Make this a CHECK.
                 *error_msg = "Failed processing secondary.";
@@ -1868,8 +1749,8 @@ int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* ins
     }
 
     // Create the output OAT file.
-    RestorableFile out_oat =
-            open_oat_out_file(dex_path, oat_dir, is_public, uid, instruction_set, is_secondary_dex);
+    UniqueFile out_oat = open_oat_out_file(dex_path, oat_dir, is_public, uid,
+            instruction_set, is_secondary_dex);
     if (out_oat.fd() < 0) {
         *error_msg = "Could not open out oat file.";
         return -1;
@@ -1877,7 +1758,7 @@ int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* ins
 
     // Open vdex files.
     UniqueFile in_vdex;
-    RestorableFile out_vdex;
+    UniqueFile out_vdex;
     if (!open_vdex_files_for_dex2oat(dex_path, out_oat.path().c_str(), dexopt_needed,
             instruction_set, is_public, uid, is_secondary_dex, profile_guided, &in_vdex,
             &out_vdex)) {
@@ -1913,8 +1794,8 @@ int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* ins
     }
 
     // Create the app image file if needed.
-    RestorableFile out_image = maybe_open_app_image(out_oat.path(), generate_app_image, is_public,
-                                                    uid, is_secondary_dex);
+    UniqueFile out_image = maybe_open_app_image(
+            out_oat.path(), generate_app_image, is_public, uid, is_secondary_dex);
 
     UniqueFile dex_metadata;
     if (dex_metadata_path != nullptr) {
@@ -1947,20 +1828,28 @@ int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* ins
     LOG(VERBOSE) << "DexInv: --- BEGIN '" << dex_path << "' ---";
 
     RunDex2Oat runner(dex2oat_bin, execv_helper.get());
-    runner.Initialize(out_oat.GetUniqueFile(), out_vdex.GetUniqueFile(), out_image.GetUniqueFile(),
-                      in_dex, in_vdex, dex_metadata, reference_profile, class_loader_context,
-                      join_fds(context_input_fds), swap_fd.get(), instruction_set, compiler_filter,
-                      debuggable, boot_complete, for_restore, target_sdk_version,
-                      enable_hidden_api_checks, generate_compact_dex, use_jitzygote_image,
+    runner.Initialize(out_oat,
+                      out_vdex,
+                      out_image,
+                      in_dex,
+                      in_vdex,
+                      dex_metadata,
+                      reference_profile,
+                      class_loader_context,
+                      join_fds(context_input_fds),
+                      swap_fd.get(),
+                      instruction_set,
+                      compiler_filter,
+                      debuggable,
+                      boot_complete,
+                      for_restore,
+                      target_sdk_version,
+                      enable_hidden_api_checks,
+                      generate_compact_dex,
+                      use_jitzygote_image,
                       compilation_reason);
 
-    bool cancelled = false;
-    pid_t pid = dexopt_status_->check_cancellation_and_fork(&cancelled);
-    if (cancelled) {
-        *completed = false;
-        reference_profile.DisableCleanup();
-        return 0;
-    }
+    pid_t pid = fork();
     if (pid == 0) {
         // Need to set schedpolicy before dropping privileges
         // for cgroup migration. See details at b/175178520.
@@ -1977,18 +1866,10 @@ int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* ins
 
         runner.Exec(DexoptReturnCodes::kDex2oatExec);
     } else {
-        int res = wait_child_with_timeout(pid, kLongTimeoutMs);
-        bool cancelled = dexopt_status_->check_if_killed_and_remove_dexopt_pid(pid);
+        int res = wait_child(pid);
         if (res == 0) {
             LOG(VERBOSE) << "DexInv: --- END '" << dex_path << "' (success) ---";
         } else {
-            if ((WTERMSIG(res) == SIGKILL) && cancelled) {
-                LOG(VERBOSE) << "DexInv: --- END '" << dex_path << "' --- cancelled";
-                // cancelled, not an error
-                *completed = false;
-                reference_profile.DisableCleanup();
-                return 0;
-            }
             LOG(VERBOSE) << "DexInv: --- END '" << dex_path << "' --- status=0x"
                          << std::hex << std::setw(4) << res << ", process failed";
             *error_msg = format_dexopt_error(res, dex_path);
@@ -1996,43 +1877,12 @@ int dexopt(const char* dex_path, uid_t uid, const char* pkgname, const char* ins
         }
     }
 
-    // dex2oat ran successfully, so profile is safe to keep.
+    // We've been successful, don't delete output.
+    out_oat.DisableCleanup();
+    out_vdex.DisableCleanup();
+    out_image.DisableCleanup();
     reference_profile.DisableCleanup();
 
-    // We've been successful, commit work files.
-    // If committing (=renaming tmp to regular) fails, try to restore backup files.
-    // If restoring fails as well, as a last resort, remove all files.
-    if (!out_oat.CreateBackupFile() || !out_vdex.CreateBackupFile() ||
-        !out_image.CreateBackupFile()) {
-        // Renaming failure can mean that the original file may not be accessible from installd.
-        LOG(ERROR) << "Cannot create backup file from existing file, file in wrong state?"
-                   << ", out_oat:" << out_oat.path() << " ,out_vdex:" << out_vdex.path()
-                   << " ,out_image:" << out_image.path();
-        out_oat.ResetAndRemoveAllFiles();
-        out_vdex.ResetAndRemoveAllFiles();
-        out_image.ResetAndRemoveAllFiles();
-        return -1;
-    }
-    if (!out_oat.CommitWorkFile() || !out_vdex.CommitWorkFile() || !out_image.CommitWorkFile()) {
-        LOG(ERROR) << "Cannot commit, out_oat:" << out_oat.path()
-                   << " ,out_vdex:" << out_vdex.path() << " ,out_image:" << out_image.path();
-        if (!out_oat.RestoreBackupFile() || !out_vdex.RestoreBackupFile() ||
-            !out_image.RestoreBackupFile()) {
-            LOG(ERROR) << "Cannot cancel commit, out_oat:" << out_oat.path()
-                       << " ,out_vdex:" << out_vdex.path() << " ,out_image:" << out_image.path();
-            // Restoring failed.
-            out_oat.ResetAndRemoveAllFiles();
-            out_vdex.ResetAndRemoveAllFiles();
-            out_image.ResetAndRemoveAllFiles();
-        }
-        return -1;
-    }
-    // Now remove remaining backup files.
-    out_oat.RemoveBackupFile();
-    out_vdex.RemoveBackupFile();
-    out_image.RemoveBackupFile();
-
-    *completed = true;
     return 0;
 }
 
@@ -2166,7 +2016,7 @@ bool reconcile_secondary_dex_file(const std::string& dex_path,
         _exit(result ? kReconcileSecondaryDexCleanedUp : kReconcileSecondaryDexAccessIOError);
     }
 
-    int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
+    int return_code = wait_child(pid);
     if (!WIFEXITED(return_code)) {
         LOG(WARNING) << "reconcile dex failed for location " << dex_path << ": " << return_code;
     } else {
@@ -2284,7 +2134,7 @@ bool hash_secondary_dex_file(const std::string& dex_path, const std::string& pkg
     if (!ReadFully(pipe_read, out_secondary_dex_hash->data(), out_secondary_dex_hash->size())) {
         out_secondary_dex_hash->clear();
     }
-    return wait_child_with_timeout(pid, kShortTimeoutMs) == 0;
+    return wait_child(pid) == 0;
 }
 
 // Helper for move_ab, so that we can have common failure-case cleanup.
@@ -2575,7 +2425,7 @@ static bool create_app_profile_snapshot(int32_t app_id,
                                         const std::string& classpath) {
     int app_shared_gid = multiuser_get_shared_gid(/*user_id*/ 0, app_id);
 
-    unique_fd snapshot_fd = open_snapshot_profile(AID_SYSTEM, package_name, profile_name);
+    unique_fd snapshot_fd = open_spnashot_profile(AID_SYSTEM, package_name, profile_name);
     if (snapshot_fd < 0) {
         return false;
     }
@@ -2614,10 +2464,9 @@ static bool create_app_profile_snapshot(int32_t app_id,
     }
 
     /* parent */
-    int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
+    int return_code = wait_child(pid);
     if (!WIFEXITED(return_code)) {
         LOG(WARNING) << "profman failed for " << package_name << ":" << profile_name;
-        cleanup_output_fd(snapshot_fd.get());
         return false;
     }
 
@@ -2650,7 +2499,7 @@ static bool create_boot_image_profile_snapshot(const std::string& package_name,
     }
 
     // Open and create the snapshot profile.
-    unique_fd snapshot_fd = open_snapshot_profile(AID_SYSTEM, package_name, profile_name);
+    unique_fd snapshot_fd = open_spnashot_profile(AID_SYSTEM, package_name, profile_name);
 
     // Collect all non empty profiles.
     // The collection will traverse all applications profiles and find the non empty files.
@@ -2724,11 +2573,10 @@ static bool create_boot_image_profile_snapshot(const std::string& package_name,
         }
 
         /* parent */
-        int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
+        int return_code = wait_child(pid);
 
         if (!WIFEXITED(return_code)) {
             PLOG(WARNING) << "profman failed for " << package_name << ":" << profile_name;
-            cleanup_output_fd(snapshot_fd.get());
             return false;
         }
 
@@ -2753,20 +2601,6 @@ bool create_profile_snapshot(int32_t app_id, const std::string& package_name,
     }
 }
 
-static bool check_profile_exists_in_dexmetadata(const std::string& dex_metadata) {
-    ZipArchiveHandle zip = nullptr;
-    if (OpenArchive(dex_metadata.c_str(), &zip) != 0) {
-        PLOG(ERROR) << "Failed to open dm '" << dex_metadata << "'";
-        return false;
-    }
-
-    ZipEntry64 entry;
-    int result = FindEntry(zip, "primary.prof", &entry);
-    CloseArchive(zip);
-
-    return result != 0 ? false : true;
-}
-
 bool prepare_app_profile(const std::string& package_name,
                          userid_t user_id,
                          appid_t app_id,
@@ -2783,7 +2617,7 @@ bool prepare_app_profile(const std::string& package_name,
     }
 
     // Check if we need to install the profile from the dex metadata.
-    if (!dex_metadata || !check_profile_exists_in_dexmetadata(dex_metadata->c_str())) {
+    if (!dex_metadata) {
         return true;
     }
 
@@ -2799,9 +2633,9 @@ bool prepare_app_profile(const std::string& package_name,
     }
 
     RunProfman args;
-    args.SetupCopyAndUpdate(dex_metadata_fd,
-                            ref_profile_fd,
-                            apk_fd,
+    args.SetupCopyAndUpdate(std::move(dex_metadata_fd),
+                            std::move(ref_profile_fd),
+                            std::move(apk_fd),
                             code_path);
     pid_t pid = fork();
     if (pid == 0) {
@@ -2814,10 +2648,9 @@ bool prepare_app_profile(const std::string& package_name,
     }
 
     /* parent */
-    int return_code = wait_child_with_timeout(pid, kShortTimeoutMs);
+    int return_code = wait_child(pid);
     if (!WIFEXITED(return_code)) {
         PLOG(WARNING) << "profman failed for " << package_name << ":" << profile_name;
-        cleanup_output_fd(ref_profile_fd.get());
         return false;
     }
     return true;

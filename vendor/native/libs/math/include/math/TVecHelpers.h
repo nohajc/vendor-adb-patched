@@ -19,11 +19,9 @@
 
 #include <math.h>
 #include <stdint.h>
-#include <math/HashCombine.h>
 #include <sys/types.h>
 
 #include <cmath>
-#include <functional>
 #include <limits>
 #include <iostream>
 
@@ -251,17 +249,6 @@ public:
             r[i] = -rv[i];
         }
         return r;
-    }
-
-    // This isn't strictly a unary operator, but it is a common place shared between both
-    // matrix and vector classes
-    size_t hash() const {
-        VECTOR<T> const& rv(static_cast<VECTOR<T> const&>(*this));
-        size_t hashed = 0;
-        for (size_t i = 0; i < rv.size(); i++) {
-            android::hashCombineSingle(hashed, rv[i]);
-        }
-        return hashed;
     }
 };
 
@@ -619,16 +606,3 @@ public:
 // -------------------------------------------------------------------------------------
 }  // namespace details
 }  // namespace android
-
-namespace std {
-    template<template<typename T> class VECTOR, typename T>
-    struct hash<VECTOR<T>> {
-        static constexpr bool IS_VECTOR =
-            std::is_base_of<android::details::TVecUnaryOperators<VECTOR, T>, VECTOR<T>>::value;
-
-        typename std::enable_if<IS_VECTOR, size_t>::type
-        operator()(const VECTOR<T>& v) const {
-            return v.hash();
-        }
-    };
-}

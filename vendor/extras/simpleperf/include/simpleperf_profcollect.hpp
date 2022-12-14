@@ -16,8 +16,7 @@
 
 extern "C" {
 
-bool HasDriverSupport();
-bool HasDeviceSupport();
+bool HasSupport();
 bool Record(const char* event_name, const char* output, float duration);
-bool Inject(const char* traceInput, const char* profileOutput, const char* binary_filter);
+bool Inject(const char* traceInput, const char* profileOutput);
 }

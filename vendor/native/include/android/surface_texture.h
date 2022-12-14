@@ -87,8 +87,8 @@ ANativeWindow* ASurfaceTexture_acquireANativeWindow(ASurfaceTexture* st) __INTRO
 /**
  * Attach the SurfaceTexture to the OpenGL ES context that is current on the calling thread.  A
  * new OpenGL ES texture object is created and populated with the SurfaceTexture image frame
- * that was current at the time of the last call to {@link ASurfaceTexture_detachFromGLContext}.
- * This new texture is bound to the GL_TEXTURE_EXTERNAL_OES texture target.
+ * that was current at the time of the last call to {@link #detachFromGLContext}.  This new
+ * texture is bound to the GL_TEXTURE_EXTERNAL_OES texture target.
  *
  * This can be used to access the SurfaceTexture image contents from multiple OpenGL ES
  * contexts.  Note, however, that the image contents are only accessible from one OpenGL ES
@@ -107,8 +107,8 @@ int ASurfaceTexture_attachToGLContext(ASurfaceTexture* st, uint32_t texName) __I
  * Detach the SurfaceTexture from the OpenGL ES context that owns the OpenGL ES texture object.
  * This call must be made with the OpenGL ES context current on the calling thread.  The OpenGL
  * ES texture object will be deleted as a result of this call.  After calling this method all
- * calls to {@link ASurfaceTexture_updateTexImage} will fail until a successful call to
- * {@link ASurfaceTexture_attachToGLContext} is made.
+ * calls to {@link #updateTexImage} will fail until a successful call to {@link #attachToGLContext}
+ * is made.
  *
  * This can be used to access the SurfaceTexture image contents from multiple OpenGL ES
  * contexts.  Note, however, that the image contents are only accessible from one OpenGL ES
@@ -179,5 +179,3 @@ int64_t ASurfaceTexture_getTimestamp(ASurfaceTexture* st) __INTRODUCED_IN(28);
 #endif
 
 #endif /* ANDROID_NATIVE_SURFACE_TEXTURE_H */
-
-/** @} */

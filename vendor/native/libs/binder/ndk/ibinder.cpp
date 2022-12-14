@@ -36,7 +36,6 @@ using ::android::IResultReceiver;
 using ::android::Parcel;
 using ::android::sp;
 using ::android::status_t;
-using ::android::statusToString;
 using ::android::String16;
 using ::android::String8;
 using ::android::wp;
@@ -64,9 +63,6 @@ struct Value {
     wp<ABpBinder> binder;
 };
 void clean(const void* id, void* obj, void* cookie) {
-    // be weary of leaks!
-    // LOG(INFO) << "Deleting an ABpBinder";
-
     CHECK(id == kId) << id << " " << obj << " " << cookie;
 
     delete static_cast<Value*>(obj);
@@ -86,8 +82,8 @@ std::optional<bool> AIBinder::associateClassInternal(const AIBinder_Class* clazz
         const String16& currentDescriptor = mClazz->getInterfaceDescriptor();
         if (newDescriptor == currentDescriptor) {
             LOG(ERROR) << __func__ << ": Class descriptors '" << currentDescriptor
-                       << "' match during associateClass, but they are different class objects ("
-                       << clazz << " vs " << mClazz << "). Class descriptor collision?";
+                       << "' match during associateClass, but they are different class objects. "
+                          "Class descriptor collision?";
         } else {
             LOG(ERROR) << __func__
                        << ": Class cannot be associated on object which already has a class. "
@@ -108,17 +104,6 @@ std::optional<bool> AIBinder::associateClassInternal(const AIBinder_Class* clazz
     return {};
 }
 
-// b/175635923 libcxx causes "implicit-conversion" with a string with invalid char
-static std::string SanitizeString(const String16& str) {
-    std::string sanitized{String8(str)};
-    for (auto& c : sanitized) {
-        if (!isprint(c)) {
-            c = '?';
-        }
-    }
-    return sanitized;
-}
-
 bool AIBinder::associateClass(const AIBinder_Class* clazz) {
     if (clazz == nullptr) return false;
 
@@ -133,12 +118,11 @@ bool AIBinder::associateClass(const AIBinder_Class* clazz) {
     if (descriptor != newDescriptor) {
         if (getBinder()->isBinderAlive()) {
             LOG(ERROR) << __func__ << ": Expecting binder to have class '" << newDescriptor
-                       << "' but descriptor is actually '" << SanitizeString(descriptor) << "'.";
+                       << "' but descriptor is actually '" << descriptor << "'.";
         } else {
             // b/155793159
             LOG(ERROR) << __func__ << ": Cannot associate class '" << newDescriptor
-                       << "' to dead binder with cached descriptor '" << SanitizeString(descriptor)
-                       << "'.";
+                       << "' to dead binder.";
         }
         return false;
     }
@@ -188,7 +172,7 @@ status_t ABBinder::dump(int fd, const ::android::Vector<String16>& args) {
 status_t ABBinder::onTransact(transaction_code_t code, const Parcel& data, Parcel* reply,
                               binder_flags_t flags) {
     if (isUserCommand(code)) {
-        if (getClass()->writeHeader && !data.checkInterface(this)) {
+        if (!data.checkInterface(this)) {
             return STATUS_BAD_TYPE;
         }
 
@@ -197,7 +181,7 @@ status_t ABBinder::onTransact(transaction_code_t code, const Parcel& data, Parce
 
         binder_status_t status = getClass()->onTransact(this, code, &in, &out);
         return PruneStatusT(status);
-    } else if (code == SHELL_COMMAND_TRANSACTION && getClass()->handleShellCommand != nullptr) {
+    } else if (code == SHELL_COMMAND_TRANSACTION) {
         int in = data.readFileDescriptor();
         int out = data.readFileDescriptor();
         int err = data.readFileDescriptor();
@@ -242,10 +226,25 @@ status_t ABBinder::onTransact(transaction_code_t code, const Parcel& data, Parce
 }
 
 ABpBinder::ABpBinder(const ::android::sp<::android::IBinder>& binder)
-    : AIBinder(nullptr /*clazz*/), mRemote(binder) {
+    : AIBinder(nullptr /*clazz*/), BpRefBase(binder) {
     CHECK(binder != nullptr);
 }
 ABpBinder::~ABpBinder() {}
+
+void ABpBinder::onLastStrongRef(const void* id) {
+    // Since ABpBinder is OBJECT_LIFETIME_WEAK, we must remove this weak reference in order for
+    // the ABpBinder to be deleted. Even though we have no more references on the ABpBinder
+    // (BpRefBase), the remote object may still exist (for instance, if we
+    // receive it from another process, before the ABpBinder is attached).
+
+    ABpBinderTag::Value* value =
+            static_cast<ABpBinderTag::Value*>(remote()->findObject(ABpBinderTag::kId));
+    CHECK_NE(nullptr, value) << "ABpBinder must always be attached";
+
+    remote()->withLock([&]() { value->binder = nullptr; });
+
+    BpRefBase::onLastStrongRef(id);
+}
 
 sp<AIBinder> ABpBinder::lookupOrCreateFromBinder(const ::android::sp<::android::IBinder>& binder) {
     if (binder == nullptr) {
@@ -355,12 +354,6 @@ void AIBinder_Class_setOnDump(AIBinder_Class* clazz, AIBinder_onDump onDump) {
     clazz->onDump = onDump;
 }
 
-void AIBinder_Class_disableInterfaceTokenHeader(AIBinder_Class* clazz) {
-    CHECK(clazz != nullptr) << "disableInterfaceTokenHeader requires non-null clazz";
-
-    clazz->writeHeader = false;
-}
-
 void AIBinder_Class_setHandleShellCommand(AIBinder_Class* clazz,
                                           AIBinder_handleShellCommand handleShellCommand) {
     CHECK(clazz != nullptr) << "setHandleShellCommand requires non-null clazz";
@@ -372,12 +365,6 @@ const char* AIBinder_Class_getDescriptor(const AIBinder_Class* clazz) {
     CHECK(clazz != nullptr) << "getDescriptor requires non-null clazz";
 
     return clazz->getInterfaceDescriptorUtf8();
-}
-
-AIBinder_DeathRecipient::TransferDeathRecipient::~TransferDeathRecipient() {
-    if (mOnUnlinked != nullptr) {
-        mOnUnlinked(mCookie);
-    }
 }
 
 void AIBinder_DeathRecipient::TransferDeathRecipient::binderDied(const wp<IBinder>& who) {
@@ -401,7 +388,7 @@ void AIBinder_DeathRecipient::TransferDeathRecipient::binderDied(const wp<IBinde
 }
 
 AIBinder_DeathRecipient::AIBinder_DeathRecipient(AIBinder_DeathRecipient_onBinderDied onDied)
-    : mOnDied(onDied), mOnUnlinked(nullptr) {
+    : mOnDied(onDied) {
     CHECK(onDied != nullptr);
 }
 
@@ -419,12 +406,10 @@ binder_status_t AIBinder_DeathRecipient::linkToDeath(const sp<IBinder>& binder, 
     std::lock_guard<std::mutex> l(mDeathRecipientsMutex);
 
     sp<TransferDeathRecipient> recipient =
-            new TransferDeathRecipient(binder, cookie, this, mOnDied, mOnUnlinked);
+            new TransferDeathRecipient(binder, cookie, this, mOnDied);
 
     status_t status = binder->linkToDeath(recipient, cookie, 0 /*flags*/);
     if (status != STATUS_OK) {
-        // When we failed to link, the destructor of TransferDeathRecipient runs here, which
-        // ensures that mOnUnlinked is called before we return with an error from this method.
         return PruneStatusT(status);
     }
 
@@ -448,18 +433,13 @@ binder_status_t AIBinder_DeathRecipient::unlinkToDeath(const sp<IBinder>& binder
             status_t status = binder->unlinkToDeath(recipient, cookie, 0 /*flags*/);
             if (status != ::android::OK) {
                 LOG(ERROR) << __func__
-                           << ": removed reference to death recipient but unlink failed: "
-                           << statusToString(status);
+                           << ": removed reference to death recipient but unlink failed.";
             }
             return PruneStatusT(status);
         }
     }
 
     return STATUS_NAME_NOT_FOUND;
-}
-
-void AIBinder_DeathRecipient::setOnUnlinked(AIBinder_DeathRecipient_onBinderUnlinked onUnlinked) {
-    mOnUnlinked = onUnlinked;
 }
 
 // start of C-API methods
@@ -530,8 +510,7 @@ binder_status_t AIBinder_dump(AIBinder* binder, int fd, const char** args, uint3
 binder_status_t AIBinder_linkToDeath(AIBinder* binder, AIBinder_DeathRecipient* recipient,
                                      void* cookie) {
     if (binder == nullptr || recipient == nullptr) {
-        LOG(ERROR) << __func__ << ": Must provide binder (" << binder << ") and recipient ("
-                   << recipient << ")";
+        LOG(ERROR) << __func__ << ": Must provide binder and recipient.";
         return STATUS_UNEXPECTED_NULL;
     }
 
@@ -542,8 +521,7 @@ binder_status_t AIBinder_linkToDeath(AIBinder* binder, AIBinder_DeathRecipient* 
 binder_status_t AIBinder_unlinkToDeath(AIBinder* binder, AIBinder_DeathRecipient* recipient,
                                        void* cookie) {
     if (binder == nullptr || recipient == nullptr) {
-        LOG(ERROR) << __func__ << ": Must provide binder (" << binder << ") and recipient ("
-                   << recipient << ")";
+        LOG(ERROR) << __func__ << ": Must provide binder and recipient.";
         return STATUS_UNEXPECTED_NULL;
     }
 
@@ -557,10 +535,6 @@ uid_t AIBinder_getCallingUid() {
 
 pid_t AIBinder_getCallingPid() {
     return ::android::IPCThreadState::self()->getCallingPid();
-}
-
-bool AIBinder_isHandlingTransaction() {
-    return ::android::IPCThreadState::self()->getServingStackPointer() != nullptr;
 }
 
 void AIBinder_incStrong(AIBinder* binder) {
@@ -618,8 +592,7 @@ void* AIBinder_getUserData(AIBinder* binder) {
 
 binder_status_t AIBinder_prepareTransaction(AIBinder* binder, AParcel** in) {
     if (binder == nullptr || in == nullptr) {
-        LOG(ERROR) << __func__ << ": requires non-null parameters binder (" << binder
-                   << ") and in (" << in << ").";
+        LOG(ERROR) << __func__ << ": requires non-null parameters.";
         return STATUS_UNEXPECTED_NULL;
     }
     const AIBinder_Class* clazz = binder->getClass();
@@ -633,10 +606,7 @@ binder_status_t AIBinder_prepareTransaction(AIBinder* binder, AParcel** in) {
     *in = new AParcel(binder);
     (*in)->get()->markForBinder(binder->getBinder());
 
-    status_t status = android::OK;
-    if (clazz->writeHeader) {
-        status = (*in)->get()->writeInterfaceToken(clazz->getInterfaceDescriptor());
-    }
+    status_t status = (*in)->get()->writeInterfaceToken(clazz->getInterfaceDescriptor());
     binder_status_t ret = PruneStatusT(status);
 
     if (ret != STATUS_OK) {
@@ -665,9 +635,7 @@ binder_status_t AIBinder_transact(AIBinder* binder, transaction_code_t code, APa
     AutoParcelDestroyer forIn(in, DestroyParcel);
 
     if (!isUserCommand(code)) {
-        LOG(ERROR) << __func__
-                   << ": Only user-defined transactions can be made from the NDK, but requested: "
-                   << code;
+        LOG(ERROR) << __func__ << ": Only user-defined transactions can be made from the NDK.";
         return STATUS_UNKNOWN_TRANSACTION;
     }
 
@@ -678,8 +646,7 @@ binder_status_t AIBinder_transact(AIBinder* binder, transaction_code_t code, APa
     }
 
     if (binder == nullptr || *in == nullptr || out == nullptr) {
-        LOG(ERROR) << __func__ << ": requires non-null parameters binder (" << binder << "), in ("
-                   << in << "), and out (" << out << ").";
+        LOG(ERROR) << __func__ << ": requires non-null parameters.";
         return STATUS_UNEXPECTED_NULL;
     }
 
@@ -711,15 +678,6 @@ AIBinder_DeathRecipient* AIBinder_DeathRecipient_new(
     auto ret = new AIBinder_DeathRecipient(onBinderDied);
     ret->incStrong(nullptr);
     return ret;
-}
-
-void AIBinder_DeathRecipient_setOnUnlinked(AIBinder_DeathRecipient* recipient,
-                                           AIBinder_DeathRecipient_onBinderUnlinked onUnlinked) {
-    if (recipient == nullptr) {
-        return;
-    }
-
-    recipient->setOnUnlinked(onUnlinked);
 }
 
 void AIBinder_DeathRecipient_delete(AIBinder_DeathRecipient* recipient) {
@@ -791,17 +749,4 @@ AIBinder* AIBinder_fromPlatformBinder(const android::sp<android::IBinder>& binde
     sp<AIBinder> ndkBinder = ABpBinder::lookupOrCreateFromBinder(binder);
     AIBinder_incStrong(ndkBinder.get());
     return ndkBinder.get();
-}
-
-void AIBinder_setMinSchedulerPolicy(AIBinder* binder, int policy, int priority) {
-    binder->asABBinder()->setMinSchedulerPolicy(policy, priority);
-}
-
-void AIBinder_setInheritRt(AIBinder* binder, bool inheritRt) {
-    ABBinder* localBinder = binder->asABBinder();
-    if (localBinder == nullptr) {
-        LOG(FATAL) << "AIBinder_setInheritRt must be called on a local binder";
-    }
-
-    localBinder->setInheritRt(inheritRt);
 }

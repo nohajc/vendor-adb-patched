@@ -116,7 +116,6 @@ int CacheItem::purge() {
                 break;
             }
         }
-	fts_close(fts);
     } else {
         if (tombstone) {
             if (truncate(path.c_str(), 0) != 0) {

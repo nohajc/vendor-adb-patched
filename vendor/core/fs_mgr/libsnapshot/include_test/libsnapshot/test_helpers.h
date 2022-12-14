@@ -17,10 +17,10 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 
 #include <android-base/file.h>
+#include <android/hardware/boot/1.1/IBootControl.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <libfiemap/image_manager.h>
@@ -33,10 +33,10 @@
 namespace android {
 namespace snapshot {
 
-using aidl::android::hardware::boot::MergeStatus;
 using android::fs_mgr::IPropertyFetcher;
 using android::fs_mgr::MetadataBuilder;
 using android::fs_mgr::testing::MockPropertyFetcher;
+using android::hardware::boot::V1_1::MergeStatus;
 using chromeos_update_engine::DeltaArchiveManifest;
 using chromeos_update_engine::PartitionUpdate;
 using testing::_;
@@ -99,12 +99,6 @@ class TestDeviceInfo : public SnapshotManager::IDeviceInfo {
     std::unique_ptr<IImageManager> OpenImageManager() const override {
         return IDeviceInfo::OpenImageManager("ota/test");
     }
-    android::dm::IDeviceMapper& GetDeviceMapper() override {
-        if (dm_) {
-            return *dm_;
-        }
-        return android::dm::DeviceMapper::Instance();
-    }
 
     bool IsSlotUnbootable(uint32_t slot) { return unbootable_slots_.count(slot) != 0; }
 
@@ -114,8 +108,6 @@ class TestDeviceInfo : public SnapshotManager::IDeviceInfo {
     }
     void set_recovery(bool value) { recovery_ = value; }
     void set_first_stage_init(bool value) { first_stage_init_ = value; }
-    void set_dm(android::dm::IDeviceMapper* dm) { dm_ = dm; }
-
     MergeStatus merge_status() const { return merge_status_; }
 
   private:
@@ -125,66 +117,29 @@ class TestDeviceInfo : public SnapshotManager::IDeviceInfo {
     bool recovery_ = false;
     bool first_stage_init_ = false;
     std::unordered_set<uint32_t> unbootable_slots_;
-    android::dm::IDeviceMapper* dm_ = nullptr;
 };
 
-class DeviceMapperWrapper : public android::dm::IDeviceMapper {
-    using DmDeviceState = android::dm::DmDeviceState;
-    using DmTable = android::dm::DmTable;
-
+class SnapshotTestPropertyFetcher : public android::fs_mgr::testing::MockPropertyFetcher {
   public:
-    DeviceMapperWrapper() : impl_(android::dm::DeviceMapper::Instance()) {}
-    explicit DeviceMapperWrapper(android::dm::IDeviceMapper& impl) : impl_(impl) {}
-
-    virtual bool CreateDevice(const std::string& name, const DmTable& table, std::string* path,
-                              const std::chrono::milliseconds& timeout_ms) override {
-        return impl_.CreateDevice(name, table, path, timeout_ms);
+    SnapshotTestPropertyFetcher(const std::string& slot_suffix) {
+        using testing::Return;
+        ON_CALL(*this, GetProperty("ro.boot.slot_suffix", _)).WillByDefault(Return(slot_suffix));
+        ON_CALL(*this, GetBoolProperty("ro.boot.dynamic_partitions", _))
+                .WillByDefault(Return(true));
+        ON_CALL(*this, GetBoolProperty("ro.boot.dynamic_partitions_retrofit", _))
+                .WillByDefault(Return(false));
+        ON_CALL(*this, GetBoolProperty("ro.virtual_ab.enabled", _)).WillByDefault(Return(true));
     }
-    virtual DmDeviceState GetState(const std::string& name) const override {
-        return impl_.GetState(name);
-    }
-    virtual bool LoadTableAndActivate(const std::string& name, const DmTable& table) {
-        return impl_.LoadTableAndActivate(name, table);
-    }
-    virtual bool GetTableInfo(const std::string& name, std::vector<TargetInfo>* table) {
-        return impl_.GetTableInfo(name, table);
-    }
-    virtual bool GetTableStatus(const std::string& name, std::vector<TargetInfo>* table) {
-        return impl_.GetTableStatus(name, table);
-    }
-    virtual bool GetDmDevicePathByName(const std::string& name, std::string* path) {
-        return impl_.GetDmDevicePathByName(name, path);
-    }
-    virtual bool GetDeviceString(const std::string& name, std::string* dev) {
-        return impl_.GetDeviceString(name, dev);
-    }
-    virtual bool DeleteDeviceIfExists(const std::string& name) {
-        return impl_.DeleteDeviceIfExists(name);
-    }
-
-  private:
-    android::dm::IDeviceMapper& impl_;
-};
-
-class SnapshotTestPropertyFetcher : public android::fs_mgr::IPropertyFetcher {
-  public:
-    explicit SnapshotTestPropertyFetcher(const std::string& slot_suffix,
-                                         std::unordered_map<std::string, std::string>&& props = {});
-
-    std::string GetProperty(const std::string& key, const std::string& defaultValue) override;
-    bool GetBoolProperty(const std::string& key, bool defaultValue) override;
 
     static void SetUp(const std::string& slot_suffix = "_a") { Reset(slot_suffix); }
+
     static void TearDown() { Reset("_a"); }
 
   private:
     static void Reset(const std::string& slot_suffix) {
         IPropertyFetcher::OverrideForTesting(
-                std::make_unique<SnapshotTestPropertyFetcher>(slot_suffix));
+                std::make_unique<NiceMock<SnapshotTestPropertyFetcher>>(slot_suffix));
     }
-
-  private:
-    std::unordered_map<std::string, std::string> properties_;
 };
 
 // Helper for error-spam-free cleanup.
@@ -195,9 +150,8 @@ void DeleteBackingImage(android::fiemap::IImageManager* manager, const std::stri
 // Expect space of |path| is multiple of 4K.
 bool WriteRandomData(const std::string& path, std::optional<size_t> expect_size = std::nullopt,
                      std::string* hash = nullptr);
+bool WriteRandomData(ICowWriter* writer, std::string* hash = nullptr);
 std::string HashSnapshot(ISnapshotWriter* writer);
-
-std::string ToHexString(const uint8_t* buf, size_t len);
 
 std::optional<std::string> GetHash(const std::string& path);
 

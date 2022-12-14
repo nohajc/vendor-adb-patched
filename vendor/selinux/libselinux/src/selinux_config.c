@@ -92,7 +92,6 @@ int selinux_getenforcemode(int *enforce)
 	FILE *cfg = fopen(SELINUXCONFIG, "re");
 	if (cfg) {
 		char *buf;
-		char *tag;
 		int len = sizeof(SELINUXTAG) - 1;
 		buf = malloc(selinux_page_size);
 		if (!buf) {
@@ -102,24 +101,21 @@ int selinux_getenforcemode(int *enforce)
 		while (fgets_unlocked(buf, selinux_page_size, cfg)) {
 			if (strncmp(buf, SELINUXTAG, len))
 				continue;
-			tag = buf+len;
-			while (isspace(*tag))
-				tag++;
 			if (!strncasecmp
-			    (tag, "enforcing", sizeof("enforcing") - 1)) {
+			    (buf + len, "enforcing", sizeof("enforcing") - 1)) {
 				*enforce = 1;
 				ret = 0;
 				break;
 			} else
 			    if (!strncasecmp
-				(tag, "permissive",
+				(buf + len, "permissive",
 				 sizeof("permissive") - 1)) {
 				*enforce = 0;
 				ret = 0;
 				break;
 			} else
 			    if (!strncasecmp
-				(tag, "disabled",
+				(buf + len, "disabled",
 				 sizeof("disabled") - 1)) {
 				*enforce = -1;
 				ret = 0;
@@ -132,6 +128,7 @@ int selinux_getenforcemode(int *enforce)
 	return ret;
 }
 
+hidden_def(selinux_getenforcemode)
 
 static char *selinux_policytype;
 
@@ -144,6 +141,7 @@ int selinux_getpolicytype(char **type)
 	return *type ? 0 : -1;
 }
 
+hidden_def(selinux_getpolicytype)
 
 static int setpolicytype(const char *type)
 {
@@ -180,15 +178,9 @@ static void init_selinux_config(void)
 
 			if (!strncasecmp(buf_p, SELINUXTYPETAG,
 					 sizeof(SELINUXTYPETAG) - 1)) {
-				buf_p += sizeof(SELINUXTYPETAG) - 1;
-				while (isspace(*buf_p))
-					buf_p++;
-				type = strdup(buf_p);
-				if (!type) {
-					free(line_buf);
-					fclose(fp);
+				type = strdup(buf_p + sizeof(SELINUXTYPETAG) - 1);
+				if (!type)
 					return;
-				}
 				end = type + strlen(type) - 1;
 				while ((end > type) &&
 				       (isspace(*end) || iscntrl(*end))) {
@@ -197,8 +189,6 @@ static void init_selinux_config(void)
 				}
 				if (setpolicytype(type) != 0) {
 					free(type);
-					free(line_buf);
-					fclose(fp);
 					return;
 				}
 				free(type);
@@ -206,8 +196,6 @@ static void init_selinux_config(void)
 			} else if (!strncmp(buf_p, REQUIRESEUSERS,
 					    sizeof(REQUIRESEUSERS) - 1)) {
 				value = buf_p + sizeof(REQUIRESEUSERS) - 1;
-				while (isspace(*value))
-					value++;
 				intptr = &require_seusers;
 			} else {
 				continue;
@@ -261,6 +249,7 @@ void selinux_reset_config(void)
 	init_selinux_config();
 }
 
+hidden_def(selinux_reset_config)
 
 static const char *get_path(int idx)
 {
@@ -273,6 +262,7 @@ const char *selinux_default_type_path(void)
 	return get_path(DEFAULT_TYPE);
 }
 
+hidden_def(selinux_default_type_path)
 
 const char *selinux_policy_root(void)
 {
@@ -315,36 +305,42 @@ const char *selinux_path(void)
 	return selinux_rootpath;
 }
 
+hidden_def(selinux_path)
 
 const char *selinux_default_context_path(void)
 {
 	return get_path(DEFAULT_CONTEXTS);
 }
 
+hidden_def(selinux_default_context_path)
 
 const char *selinux_securetty_types_path(void)
 {
 	return get_path(SECURETTY_TYPES);
 }
 
+hidden_def(selinux_securetty_types_path)
 
 const char *selinux_failsafe_context_path(void)
 {
 	return get_path(FAILSAFE_CONTEXT);
 }
 
+hidden_def(selinux_failsafe_context_path)
 
 const char *selinux_removable_context_path(void)
 {
 	return get_path(REMOVABLE_CONTEXT);
 }
 
+hidden_def(selinux_removable_context_path)
 
 const char *selinux_binary_policy_path(void)
 {
 	return get_path(BINPOLICY);
 }
 
+hidden_def(selinux_binary_policy_path)
 
 const char *selinux_current_policy_path(void)
 {
@@ -369,30 +365,35 @@ const char *selinux_current_policy_path(void)
 	return policy_path;
 }
 
+hidden_def(selinux_current_policy_path)
 
 const char *selinux_file_context_path(void)
 {
 	return get_path(FILE_CONTEXTS);
 }
 
+hidden_def(selinux_file_context_path)
 
 const char *selinux_homedir_context_path(void)
 {
 	return get_path(HOMEDIR_CONTEXTS);
 }
 
+hidden_def(selinux_homedir_context_path)
 
 const char *selinux_media_context_path(void)
 {
 	return get_path(MEDIA_CONTEXTS);
 }
 
+hidden_def(selinux_media_context_path)
 
 const char *selinux_customizable_types_path(void)
 {
 	return get_path(CUSTOMIZABLE_TYPES);
 }
 
+hidden_def(selinux_customizable_types_path)
 
 const char *selinux_contexts_path(void)
 {
@@ -404,6 +405,7 @@ const char *selinux_user_contexts_path(void)
 	return get_path(USER_CONTEXTS);
 }
 
+hidden_def(selinux_user_contexts_path)
 
 /* Deprecated as local policy booleans no longer supported. */
 const char *selinux_booleans_path(void)
@@ -411,6 +413,7 @@ const char *selinux_booleans_path(void)
 	return get_path(BOOLEANS);
 }
 
+hidden_def(selinux_booleans_path)
 
 /* Deprecated as no longer supported. */
 const char *selinux_users_path(void)
@@ -418,108 +421,127 @@ const char *selinux_users_path(void)
 	return get_path(USERS_DIR);
 }
 
+hidden_def(selinux_users_path)
 
 const char *selinux_usersconf_path(void)
 {
 	return get_path(SEUSERS);
 }
 
+hidden_def(selinux_usersconf_path)
 
 const char *selinux_translations_path(void)
 {
 	return get_path(TRANSLATIONS);
 }
 
+hidden_def(selinux_translations_path)
 
 const char *selinux_colors_path(void)
 {
 	return get_path(COLORS);
 }
 
+hidden_def(selinux_colors_path)
 
 const char *selinux_netfilter_context_path(void)
 {
 	return get_path(NETFILTER_CONTEXTS);
 }
 
+hidden_def(selinux_netfilter_context_path)
 
 const char *selinux_file_context_homedir_path(void)
 {
 	return get_path(FILE_CONTEXTS_HOMEDIR);
 }
 
+hidden_def(selinux_file_context_homedir_path)
 
 const char *selinux_file_context_local_path(void)
 {
 	return get_path(FILE_CONTEXTS_LOCAL);
 }
 
+hidden_def(selinux_file_context_local_path)
 
 const char *selinux_x_context_path(void)
 {
 	return get_path(X_CONTEXTS);
 }
 
+hidden_def(selinux_x_context_path)
 
 const char *selinux_virtual_domain_context_path(void)
 {
 	return get_path(VIRTUAL_DOMAIN);
 }
 
+hidden_def(selinux_virtual_domain_context_path)
 
 const char *selinux_virtual_image_context_path(void)
 {
 	return get_path(VIRTUAL_IMAGE);
 }
 
+hidden_def(selinux_virtual_image_context_path)
 
 const char *selinux_lxc_contexts_path(void)
 {
 	return get_path(LXC_CONTEXTS);
 }
 
+hidden_def(selinux_lxc_contexts_path)
 
 const char *selinux_openrc_contexts_path(void)
 {
     return get_path(OPENRC_CONTEXTS);
 }
 
+hidden_def(selinux_openrc_contexts_path)
 
 const char *selinux_openssh_contexts_path(void)
 {
     return get_path(OPENSSH_CONTEXTS);
 }
 
+hidden_def(selinux_openssh_contexts_path)
 
 const char *selinux_snapperd_contexts_path(void)
 {
     return get_path(SNAPPERD_CONTEXTS);
 }
 
+hidden_def(selinux_snapperd_contexts_path)
 
 const char *selinux_systemd_contexts_path(void)
 {
 	return get_path(SYSTEMD_CONTEXTS);
 }
 
+hidden_def(selinux_systemd_contexts_path)
 
 const char * selinux_booleans_subs_path(void) {
 	return get_path(BOOLEAN_SUBS);
 }
 
+hidden_def(selinux_booleans_subs_path)
 
 const char * selinux_file_context_subs_path(void) {
 	return get_path(FILE_CONTEXT_SUBS);
 }
 
+hidden_def(selinux_file_context_subs_path)
 
 const char * selinux_file_context_subs_dist_path(void) {
 	return get_path(FILE_CONTEXT_SUBS_DIST);
 }
 
+hidden_def(selinux_file_context_subs_dist_path)
 
 const char *selinux_sepgsql_context_path(void)
 {
 	return get_path(SEPGSQL_CONTEXTS);
 }
 
+hidden_def(selinux_sepgsql_context_path)

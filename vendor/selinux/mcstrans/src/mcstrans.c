@@ -7,8 +7,8 @@
 
  int init_translations(void);
  void finish_context_translations(void);
- int trans_context(const char *, char **);
- int untrans_context(const char *, char **);
+ int trans_context(const security_context_t, security_context_t *);
+ int untrans_context(const security_context_t, security_context_t *);
 
 */
 
@@ -26,7 +26,7 @@
 #include <selinux/context.h>
 #include <syslog.h>
 #include <errno.h>
-#include <pcre2.h>
+#include <pcre.h>
 #include <ctype.h>
 #include <time.h>
 #include <sys/time.h>
@@ -36,13 +36,14 @@
 #include "mcstrans.h"
 
 #define N_BUCKETS 1453
+#define OVECCOUNT (512*3)
 
 #define log_error(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
 
 #ifdef DEBUG
 #define log_debug(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
 #else
-#define log_debug(fmt, ...) do {} while (0)
+#define log_debug(fmt, ...) ;
 #endif
 
 static unsigned int maxbit=0;
@@ -81,9 +82,9 @@ typedef struct word_group {
 	affix_t *suffixes;
 	word_t *words;
 
-	pcre2_code *prefix_regexp;
-	pcre2_code *word_regexp;
-	pcre2_code *suffix_regexp;
+	pcre *prefix_regexp;
+	pcre *word_regexp;
+	pcre *suffix_regexp;
 
 	ebitmap_t def;
 
@@ -108,7 +109,7 @@ typedef struct domain {
 	base_classification_t *base_classifications;
 	word_group_t *groups;
 
-	pcre2_code *base_classification_regexp;
+	pcre *base_classification_regexp;
 	struct domain *next;
 } domain_t;
 
@@ -135,7 +136,7 @@ typedef struct cat_constraint {
 
 static cat_constraint_t *cat_constraints;
 
-static unsigned int
+unsigned int
 hash(const char *str) {
 	unsigned int hash = 5381;
 	int c;
@@ -212,7 +213,7 @@ parse_category(ebitmap_t *e, const char *raw, int allowinverse)
 	return 0;
 }
 
-static int
+int
 parse_ebitmap(ebitmap_t *e, ebitmap_t *def, const char *raw) {
 	int rc = ebitmap_cpy(e, def);
 	if (rc < 0)
@@ -223,7 +224,7 @@ parse_ebitmap(ebitmap_t *e, ebitmap_t *def, const char *raw) {
 	return 0;
 }
 
-static mls_level_t *
+mls_level_t *
 parse_raw(const char *raw) {
 	mls_level_t *mls = calloc(1, sizeof(mls_level_t));
 	if (!mls)
@@ -247,7 +248,7 @@ err:
 	return NULL;
 }
 
-static void
+void
 destroy_word(word_t **list, word_t *word) {
 	if (!word) {
 		return;
@@ -266,7 +267,7 @@ destroy_word(word_t **list, word_t *word) {
 	free(word);
 }
 
-static word_t *
+word_t *
 create_word(word_t **list, const char *text) {
 	word_t *w = calloc(1, sizeof(word_t));
 	if (!w) {
@@ -290,7 +291,7 @@ err:
 	return NULL;
 }
 
-static void
+void
 destroy_group(word_group_t **list, word_group_t *group) {
 	for (; list && *list; list = &(*list)->next) {
 		if (*list == group) {
@@ -316,14 +317,14 @@ destroy_group(word_group_t **list, word_group_t *group) {
 	free(group->name);
 	free(group->sword);
 	free(group->join);
-	pcre2_code_free(group->prefix_regexp);
-	pcre2_code_free(group->word_regexp);
-	pcre2_code_free(group->suffix_regexp);
+	pcre_free(group->prefix_regexp);
+	pcre_free(group->word_regexp);
+	pcre_free(group->suffix_regexp);
 	ebitmap_destroy(&group->def);
 	free(group);
 }
 
-static word_group_t *
+word_group_t *
 create_group(word_group_t **list, const char *name) {
 	word_group_t *group = calloc(1, sizeof(word_group_t));
 	if (!group)
@@ -356,7 +357,7 @@ err:
 	return NULL;
 }
 
-static void
+void
 destroy_domain(domain_t *domain) {
 	int i;
         unsigned int rt = 0, tr = 0;
@@ -391,7 +392,7 @@ destroy_domain(domain_t *domain) {
 		free(domain->base_classifications);
 		domain->base_classifications = next;
 	}
-	pcre2_code_free(domain->base_classification_regexp);
+	pcre_free(domain->base_classification_regexp);
 	while (domain->groups)
 		destroy_group(&domain->groups, domain->groups);
 	free(domain->name);
@@ -400,7 +401,7 @@ destroy_domain(domain_t *domain) {
 	syslog(LOG_INFO, "cache sizes: tr = %u, rt = %u", tr, rt);
 }
 
-static domain_t *
+domain_t *
 create_domain(const char *name) {
 	domain_t *domain = calloc(1, sizeof(domain_t));
 	if (!domain) {
@@ -424,7 +425,7 @@ err:
 	return NULL;
 }
 
-static int
+int
 add_word(word_group_t *group, char *raw, char *trans) {
 	if (strchr(trans,'-')) {
 		log_error("'%s'is invalid because '-' is illegal in modifiers.\n", trans);
@@ -450,7 +451,7 @@ add_word(word_group_t *group, char *raw, char *trans) {
 	return 0;
 }
 
-static int
+int
 add_constraint(char op, char *raw, char *tok) {
 	log_debug("%s\n", "add_constraint");
 	ebitmap_t empty;
@@ -520,7 +521,7 @@ add_constraint(char op, char *raw, char *tok) {
 	return 0;
 }
 
-static int
+int
 violates_constraints(mls_level_t *l) {
 	int nbits;
 	sens_constraint_t *s;
@@ -562,7 +563,7 @@ violates_constraints(mls_level_t *l) {
 	return 0;
 }
 
-static void
+void
 destroy_sens_constraint(sens_constraint_t **list, sens_constraint_t *constraint) {
 	if (!constraint) {
 		return;
@@ -579,7 +580,7 @@ destroy_sens_constraint(sens_constraint_t **list, sens_constraint_t *constraint)
 	free(constraint);
 }
 
-static void
+void
 destroy_cat_constraint(cat_constraint_t **list, cat_constraint_t *constraint) {
 	if (!constraint) {
 		return;
@@ -662,7 +663,7 @@ find_in_table(context_map_node_t **table, const char *key) {
 	return NULL;
 }
 
-static char *
+char *
 trim(char *str, const char *whitespace) {
 	char *p = str + strlen(str);
 
@@ -671,7 +672,7 @@ trim(char *str, const char *whitespace) {
 	return str;
 }
 
-static char *
+char *
 triml(char *str, const char *whitespace) {
 	char *p = str;
 
@@ -680,7 +681,7 @@ triml(char *str, const char *whitespace) {
 	return p;
 }
 
-static int
+int
 update(char **p, char *const val) {
 	free (*p);
 	*p = strdup(val);
@@ -691,7 +692,7 @@ update(char **p, char *const val) {
 	return 0;
 }
 
-static int
+int
 append(affix_t **affixes, const char *val) {
 	affix_t *affix = calloc(1, sizeof(affix_t));
 	if (!affix) {
@@ -886,8 +887,8 @@ init_translations(void) {
 	return(read_translations(selinux_translations_path()));
 }
 
-static char *
-extract_range(const char *incon) {
+char *
+extract_range(const security_context_t incon) {
 	context_t con = context_new(incon);
 	if (!con) {
 		syslog(LOG_ERR, "extract_range context_new(%s) failed: %s", incon, strerror(errno));
@@ -909,8 +910,8 @@ extract_range(const char *incon) {
 	return r;
 }
 
-static char *
-new_context_str(const char *incon, const char *range) {
+char *
+new_context_str(const security_context_t incon, const char *range) {
 	char *rcon = NULL;
 	context_t con = context_new(incon);
 	if (!con) {
@@ -918,7 +919,6 @@ new_context_str(const char *incon, const char *range) {
 	}
 	context_range_set(con, range);
 	rcon = strdup(context_str(con));
-	context_free(con);
 	if (!rcon) {
 		goto exit;
 	}
@@ -930,7 +930,7 @@ exit:
 	return NULL;
 }
 
-static char *
+char *
 find_in_hashtable(const char *range, domain_t *domain, context_map_node_t **table) {
 	char *trans = NULL;
 	context_map_t *map = find_in_table(table, range);
@@ -943,6 +943,13 @@ find_in_hashtable(const char *range, domain_t *domain, context_map_node_t **tabl
 		log_debug(" found %s in hashtable returning %s\n", range, trans);
 	}
 	return trans;
+}
+
+void
+emit_whitespace(char*buffer, char *whitespace) {
+	strcat(buffer, "[");
+	strcat(buffer, whitespace);
+	strcat(buffer, "]");
 }
 
 static int
@@ -961,22 +968,20 @@ word_size(const void *p1, const void *p2) {
 	return (w2_len - w1_len);
 }
 
-static void
-build_regexp(pcre2_code **r, char *buffer) {
-	int error;
-	PCRE2_SIZE error_offset;
+void
+build_regexp(pcre **r, char *buffer) {
+	const char *error;
+	int error_offset;
 	if (*r)
-		pcre2_code_free(*r);
-	*r = pcre2_compile((PCRE2_SPTR8) buffer, PCRE2_ZERO_TERMINATED, PCRE2_CASELESS, &error, &error_offset, NULL);
-	if (!*r) {
-		PCRE2_UCHAR errbuf[256];
-		pcre2_get_error_message(error, errbuf, sizeof(errbuf));
-		log_error("pcre compilation of '%s' failed at offset %zu: %s\n", buffer, error_offset, errbuf);
+		pcre_free(*r);
+	*r = pcre_compile(buffer, PCRE_CASELESS, &error, &error_offset, NULL);
+	if (error) {
+		log_error("pcre=%s, error=%s\n", buffer, error ? error: "none");
 	}
 	buffer[0] = '\0';
 }
 
-static int
+int
 build_regexps(domain_t *domain) {
 	char buffer[1024 * 128];
 	buffer[0] = '\0';
@@ -1080,7 +1085,7 @@ build_regexps(domain_t *domain) {
 	return 0;
 }
 
-static char *
+char *
 compute_raw_from_trans(const char *level, domain_t *domain) {
 
 #ifdef DEBUG
@@ -1089,12 +1094,12 @@ compute_raw_from_trans(const char *level, domain_t *domain) {
 #endif
 
 	int rc = 0;
-	pcre2_match_data *match_data = NULL;
+	int ovector[OVECCOUNT];
 	word_group_t *g = NULL;
 	char *work = NULL;
 	char *r = NULL;
-	char *match = NULL;
-	size_t work_len;
+	const char * match = NULL;
+	int work_len;
 	mls_level_t *mraw = NULL;
 	ebitmap_t set, clear, tmp;
 
@@ -1115,20 +1120,11 @@ compute_raw_from_trans(const char *level, domain_t *domain) {
 	if (!domain->base_classification_regexp)
 		goto err;
 	log_debug(" compute_raw_from_trans work = %s\n", work);
-	match_data = pcre2_match_data_create_from_pattern(domain->base_classification_regexp, NULL);
-	if (!match_data) {
-		log_error("allocation error %s", strerror(errno));
-		goto err;
-	}
-	rc = pcre2_match(domain->base_classification_regexp, (PCRE2_SPTR8)work, work_len, 0, PCRE2_ANCHORED, match_data, NULL);
+	rc = pcre_exec(domain->base_classification_regexp, 0, work, work_len, 0, PCRE_ANCHORED, ovector, OVECCOUNT);
 	if (rc > 0) {
-		const PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(match_data);
-		match = strndup(work + ovector[0], ovector[1] - ovector[0]);
-		if (!match) {
-			log_error("allocation error %s", strerror(errno));
-			goto err;
-		}
-		log_debug(" compute_raw_from_trans match = %s len = %zu\n", match, strlen(match));
+		match = NULL;
+		pcre_get_substring(work, ovector, rc, 0, &match);
+		log_debug(" compute_raw_from_trans match = %s len = %u\n", match, strlen(match));
 		base_classification_t *bc;
 		for (bc = domain->base_classifications; bc; bc = bc->next) {
 			if (!strcmp(bc->trans, match)) {
@@ -1148,22 +1144,11 @@ compute_raw_from_trans(const char *level, domain_t *domain) {
 		char *p=work + ovector[0] + ovector[1];
 		while (*p && (strchr(" 	", *p) != NULL))
 			*p++ = '#';
-
-		free(match);
+		pcre_free((char *)match);
 		match = NULL;
 	} else {
-		switch (rc) {
-		case PCRE2_ERROR_NOMATCH:
-			log_debug(" compute_raw_from_trans no base classification matched %s\n", level);
-			break;
-		default:
-			log_error("compute_raw_from_trans: base matching error for input '%s': %d\n", level, rc);
-			break;
-		}
+		log_debug(" compute_raw_from_trans no base classification matched %s\n", level);
 	}
-
-	pcre2_match_data_free(match_data);
-	match_data = NULL;
 
 	if (mraw == NULL) {
 		goto err;
@@ -1175,43 +1160,23 @@ compute_raw_from_trans(const char *level, domain_t *domain) {
 		change = 0;
 		for (g = domain->groups; g && !change && !complete; g = g->next) {
 			int prefix = 0, suffix = 0;
-			PCRE2_SIZE prefix_offset = 0, prefix_len = 0;
-			PCRE2_SIZE suffix_offset = 0, suffix_len = 0;
+			int prefix_offset = 0, prefix_len = 0;
+			int suffix_offset = 0, suffix_len = 0;
 			if (g->prefix_regexp) {
-				match_data = pcre2_match_data_create_from_pattern(g->prefix_regexp, NULL);
-				if (!match_data) {
-					log_error("allocation error %s", strerror(errno));
-					goto err;
-				}
-				rc = pcre2_match(g->prefix_regexp, (PCRE2_SPTR8)work, work_len, 0, 0, match_data, NULL);
+				rc = pcre_exec(g->prefix_regexp, 0, work, work_len, 0, 0, ovector, OVECCOUNT);
 				if (rc > 0) {
-					const PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(match_data);
 					prefix = 1;
 					prefix_offset = ovector[0];
 					prefix_len = ovector[1] - ovector[0];
-				} else if (rc != PCRE2_ERROR_NOMATCH) {
-					log_error("compute_raw_from_trans: prefix matching error for input '%s': %d\n", level, rc);
 				}
-				pcre2_match_data_free(match_data);
-				match_data = NULL;
 			}
 			if (g->suffix_regexp) {
-				match_data = pcre2_match_data_create_from_pattern(g->suffix_regexp, NULL);
-				if (!match_data) {
-					log_error("allocation error %s", strerror(errno));
-					goto err;
-				}
-				rc = pcre2_match(g->suffix_regexp, (PCRE2_SPTR8)work, work_len, 0, 0, match_data, NULL);
+				rc = pcre_exec(g->suffix_regexp, 0, work, work_len, 0, 0, ovector, OVECCOUNT);
 				if (rc > 0) {
-					const PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(match_data);
 					suffix = 1;
 					suffix_offset = ovector[0];
 					suffix_len = ovector[1] - ovector[0];
-				} else if (rc != PCRE2_ERROR_NOMATCH) {
-					log_error("compute_raw_from_trans: suffix matching error for input '%s': %d\n", level, rc);
 				}
-				pcre2_match_data_free(match_data);
-				match_data = NULL;
 			}
 
 /* anchors prefix ^, suffix $ */
@@ -1220,23 +1185,14 @@ compute_raw_from_trans(const char *level, domain_t *domain) {
 			     (g->suffixes && suffix)) &&
 			     g->word_regexp) {
 				char *s = work + prefix_offset + prefix_len;
-				PCRE2_SIZE len = (suffix_len ? suffix_offset : work_len) - prefix_len - prefix_offset;
-				match_data = pcre2_match_data_create_from_pattern(g->word_regexp, NULL);
-				if (!match_data) {
-					log_error("allocation error %s", strerror(errno));
-					goto err;
-				}
-				rc = pcre2_match(g->word_regexp, (PCRE2_SPTR8)s, len, 0, 0, match_data, NULL);
+				int l = (suffix_len ? suffix_offset : work_len) - prefix_len - prefix_offset;
+				rc = pcre_exec(g->word_regexp, 0, s, l, 0, 0, ovector, OVECCOUNT);
 				if (rc > 0) {
-					const PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(match_data);
-					match = strndup(s + ovector[0], ovector[1] - ovector[0]);
-					if (!match) {
-						log_error("allocation error %s", strerror(errno));
-						goto err;
-					}
-					trim(match, g->whitespace);
+					match = NULL;
+					pcre_get_substring(s, ovector, rc, 0, &match);
+					trim((char *)match, g->whitespace);
 					if (*match) {
-						char *p = triml(match, g->whitespace);
+						char *p = triml((char *)match, g->whitespace);
 						while (p && *p) {
 							int plen = strlen(p);
 							unsigned int i;
@@ -1273,13 +1229,9 @@ compute_raw_from_trans(const char *level, domain_t *domain) {
 						memset(work + suffix_offset, '#', suffix_len);
 						memset(s + ovector[0], '#', ovector[1] - ovector[0]);
 					}
-					free(match);
+					pcre_free((void *)match);
 					match = NULL;
-				} else if (rc != PCRE2_ERROR_NOMATCH) {
-					log_error("compute_raw_from_trans: word matching error for input '%s' for substring '%s': %d\n", level, s, rc);
 				}
-				pcre2_match_data_free(match_data);
-				match_data = NULL;
 			}
 /* YYY */
 			complete=1;
@@ -1318,15 +1270,14 @@ err:
 	mls_level_destroy(mraw);
 	free(mraw);
 	free(work);
-	free(match);
+	pcre_free((void *)match);
 	ebitmap_destroy(&tmp);
 	ebitmap_destroy(&set);
 	ebitmap_destroy(&clear);
-	pcre2_match_data_free(match_data);
 	return NULL;
 }
 
-static char *
+char *
 compute_trans_from_raw(const char *level, domain_t *domain) {
 
 #ifdef DEBUG
@@ -1538,7 +1489,7 @@ err:
 }
 
 int
-trans_context(const char *incon, char **rcon) {
+trans_context(const security_context_t incon, security_context_t *rcon) {
 	char *trans = NULL;
 	*rcon = NULL;
 
@@ -1661,7 +1612,7 @@ trans_context(const char *incon, char **rcon) {
 }
 
 int
-untrans_context(const char *incon, char **rcon) {
+untrans_context(const security_context_t incon, security_context_t *rcon) {
 	char *raw = NULL;
 	*rcon = NULL;
 

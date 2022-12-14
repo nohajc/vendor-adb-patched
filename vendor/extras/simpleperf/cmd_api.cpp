@@ -17,7 +17,6 @@
 #include <stdio.h>
 
 #include <memory>
-#include <regex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,7 +24,6 @@
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
-#include <android-base/properties.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 #include <ziparchive/zip_writer.h>
@@ -45,103 +43,18 @@ const std::string SIMPLEPERF_DATA_DIR = "simpleperf_data";
 class PrepareCommand : public Command {
  public:
   PrepareCommand()
-      : Command("api-prepare", "Prepare recording via app api",
-                // clang-format off
-"Usage: simpleperf api-prepare [options]\n"
-"--app <package_name>    the android application to record via app api\n"
-"--days <days>           By default, the recording permission is reset after device reboot.\n"
-"                        But on Android >= 13, we can use this option to set how long we want\n"
-"                        the permission to last. It can last after device reboot.\n"
-                // clang-format on
-        ) {}
+      : Command("api-prepare", "Prepare recording via app api", "Usage: simpleperf api-prepare\n") {
+  }
   bool Run(const std::vector<std::string>& args);
-
- private:
-  bool ParseOptions(const std::vector<std::string>& args);
-  std::optional<uint32_t> GetAppUid();
-
-  std::string app_name_;
-  uint64_t days_ = 0;
 };
 
-bool PrepareCommand::Run(const std::vector<std::string>& args) {
-  if (!ParseOptions(args)) {
+bool PrepareCommand::Run(const std::vector<std::string>&) {
+  // Enable profiling.
+  if (!CheckPerfEventLimit()) {
     return false;
   }
-  // Enable profiling.
-  if (GetAndroidVersion() >= 13 && !app_name_.empty() && days_ != 0) {
-    // Enable app recording via persist properties.
-    uint64_t duration_in_sec;
-    uint64_t expiration_time;
-    if (__builtin_mul_overflow(days_, 24 * 3600, &duration_in_sec) ||
-        __builtin_add_overflow(time(nullptr), duration_in_sec, &expiration_time)) {
-      expiration_time = UINT64_MAX;
-    }
-    std::optional<uint32_t> uid = GetAppUid();
-    if (!uid) {
-      return false;
-    }
-    if (!android::base::SetProperty("persist.simpleperf.profile_app_uid",
-                                    std::to_string(uid.value())) ||
-        !android::base::SetProperty("persist.simpleperf.profile_app_expiration_time",
-                                    std::to_string(expiration_time))) {
-      LOG(ERROR) << "failed to set system properties";
-      return false;
-    }
-  } else {
-    // Enable app recording via security.perf_harden.
-    if (!CheckPerfEventLimit()) {
-      return false;
-    }
-  }
-
   // Create tracepoint_events file.
   return EventTypeManager::Instance().WriteTracepointsToFile("/data/local/tmp/tracepoint_events");
-}
-
-bool PrepareCommand::ParseOptions(const std::vector<std::string>& args) {
-  OptionValueMap options;
-  std::vector<std::pair<OptionName, OptionValue>> ordered_options;
-  static const OptionFormatMap option_formats = {
-      {"--app", {OptionValueType::STRING, OptionType::SINGLE, AppRunnerType::NOT_ALLOWED}},
-      {"--days", {OptionValueType::UINT, OptionType::SINGLE, AppRunnerType::NOT_ALLOWED}},
-  };
-  if (!PreprocessOptions(args, option_formats, &options, &ordered_options, nullptr)) {
-    return false;
-  }
-
-  if (auto value = options.PullValue("--app"); value) {
-    app_name_ = *value->str_value;
-  }
-  if (!options.PullUintValue("--days", &days_)) {
-    return false;
-  }
-  return true;
-}
-
-std::optional<uint32_t> PrepareCommand::GetAppUid() {
-  std::unique_ptr<FILE, decltype(&pclose)> fp(popen("pm list packages -U", "re"), pclose);
-  std::string content;
-  if (!fp || !android::base::ReadFdToString(fileno(fp.get()), &content)) {
-    PLOG(ERROR) << "failed to run `pm list packages -U`";
-    return std::nullopt;
-  }
-  std::regex re(R"(package:([\w\.]+)\s+uid:(\d+))");
-  std::sregex_iterator match_it(content.begin(), content.end(), re);
-  std::sregex_iterator match_end;
-  while (match_it != match_end) {
-    std::smatch match = *match_it++;
-    std::string name = match.str(1);
-    uint32_t uid;
-    if (!android::base::ParseUint(match.str(2), &uid)) {
-      continue;
-    }
-    if (name == app_name_) {
-      return uid;
-    }
-  }
-  LOG(ERROR) << "failed to find package " << app_name_;
-  return std::nullopt;
 }
 
 class CollectCommand : public Command {

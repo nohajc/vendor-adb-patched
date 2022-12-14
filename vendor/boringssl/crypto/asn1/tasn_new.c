@@ -63,7 +63,7 @@
 #include <openssl/mem.h>
 #include <openssl/obj.h>
 
-#include "internal.h"
+#include "asn1_locl.h"
 #include "../internal.h"
 
 
@@ -95,8 +95,14 @@ static int asn1_item_ex_combine_new(ASN1_VALUE **pval, const ASN1_ITEM *it,
 {
     const ASN1_TEMPLATE *tt = NULL;
     const ASN1_EXTERN_FUNCS *ef;
+    const ASN1_AUX *aux = it->funcs;
+    ASN1_aux_cb *asn1_cb;
     ASN1_VALUE **pseqval;
     int i;
+    if (aux && aux->asn1_cb)
+        asn1_cb = aux->asn1_cb;
+    else
+        asn1_cb = 0;
 
     switch (it->itype) {
 
@@ -121,9 +127,7 @@ static int asn1_item_ex_combine_new(ASN1_VALUE **pval, const ASN1_ITEM *it,
             goto memerr;
         break;
 
-    case ASN1_ITYPE_CHOICE: {
-        const ASN1_AUX *aux = it->funcs;
-        ASN1_aux_cb *asn1_cb = aux != NULL ? aux->asn1_cb : NULL;
+    case ASN1_ITYPE_CHOICE:
         if (asn1_cb) {
             i = asn1_cb(ASN1_OP_NEW_PRE, pval, it, NULL);
             if (!i)
@@ -142,11 +146,8 @@ static int asn1_item_ex_combine_new(ASN1_VALUE **pval, const ASN1_ITEM *it,
         if (asn1_cb && !asn1_cb(ASN1_OP_NEW_POST, pval, it, NULL))
             goto auxerr2;
         break;
-    }
 
-    case ASN1_ITYPE_SEQUENCE: {
-        const ASN1_AUX *aux = it->funcs;
-        ASN1_aux_cb *asn1_cb = aux != NULL ? aux->asn1_cb : NULL;
+    case ASN1_ITYPE_SEQUENCE:
         if (asn1_cb) {
             i = asn1_cb(ASN1_OP_NEW_PRE, pval, it, NULL);
             if (!i)
@@ -171,7 +172,6 @@ static int asn1_item_ex_combine_new(ASN1_VALUE **pval, const ASN1_ITEM *it,
         if (asn1_cb && !asn1_cb(ASN1_OP_NEW_POST, pval, it, NULL))
             goto auxerr2;
         break;
-    }
     }
     return 1;
 
@@ -271,6 +271,7 @@ static void asn1_template_clear(ASN1_VALUE **pval, const ASN1_TEMPLATE *tt)
 static int ASN1_primitive_new(ASN1_VALUE **pval, const ASN1_ITEM *it)
 {
     ASN1_TYPE *typ;
+    ASN1_STRING *str;
     int utype;
 
     if (!it)
@@ -307,7 +308,10 @@ static int ASN1_primitive_new(ASN1_VALUE **pval, const ASN1_ITEM *it)
         break;
 
     default:
-        *pval = (ASN1_VALUE *)ASN1_STRING_type_new(utype);
+        str = ASN1_STRING_type_new(utype);
+        if (it->itype == ASN1_ITYPE_MSTRING && str)
+            str->flags |= ASN1_STRING_FLAG_MSTRING;
+        *pval = (ASN1_VALUE *)str;
         break;
     }
     if (*pval)

@@ -28,10 +28,10 @@
       "name": "binderLibTest"
     },
     {
-      "name": "binderStabilityTest"
+      "name": "binderRpcTest"
     },
     {
-      "name": "binderRpcWireProtocolTest"
+      "name": "binderStabilityTest"
     },
     {
       "name": "binderUtilsHostTest"
@@ -79,25 +79,6 @@
     },
     {
       "name": "rustBinderSerializationTest"
-    }
-  ],
-  "presubmit-large": [
-    {
-      "name": "binderRpcTest"
-    },
-    {
-      "name": "binderRpcTestNoKernel"
-    },
-    {
-      "name": "binderRpcTestSingleThreaded"
-    },
-    {
-      "name": "binderRpcTestSingleThreadedNoKernel"
-    }
-  ],
-  "hwasan-presubmit": [
-    {
-      "name": "binderLibTest"
     }
   ]
 }

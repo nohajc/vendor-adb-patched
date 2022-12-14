@@ -18,8 +18,6 @@
 package android.content.pm;
 
 import android.content.pm.IPackageChangeObserver;
-import android.content.pm.IStagedApexObserver;
-import android.content.pm.StagedApexInfo;
 
 /**
  * Parallel implementation of certain {@link PackageManager} APIs that need to
@@ -103,46 +101,4 @@ interface IPackageManagerNative {
      * This does nothing if this observer was not already registered.
      */
     void unregisterPackageChangeObserver(in IPackageChangeObserver observer);
-
-    /**
-     * Returns true if the package has the SHA 256 version of the signing certificate.
-     * @see PackageManager#hasSigningCertificate(String, byte[], int), where type
-     * has been set to {@link PackageManager#CERT_INPUT_SHA256}.
-     */
-    boolean hasSha256SigningCertificate(in @utf8InCpp String packageName, in byte[] certificate);
-
-    /**
-     * Returns the debug flag for the given package.
-     * Unknown packages will cause the call to fail.
-     */
-    boolean isPackageDebuggable(in String packageName);
-
-    /**
-     * Check whether the given feature name and version is one of the available
-     * features as returned by {@link PackageManager#getSystemAvailableFeatures()}. Since
-     * features are defined to always be backwards compatible, this returns true
-     * if the available feature version is greater than or equal to the
-     * requested version.
-     */
-    boolean hasSystemFeature(in String featureName, in int version);
-
-    /** Register a observer for change in set of staged APEX ready for installation */
-    void registerStagedApexObserver(in IStagedApexObserver observer);
-
-    /**
-     * Unregister an existing staged apex observer.
-     * This does nothing if this observer was not already registered.
-     */
-    void unregisterStagedApexObserver(in IStagedApexObserver observer);
-
-    /**
-     * Get APEX module names of all APEX that are staged ready for installation
-     */
-    @utf8InCpp String[] getStagedApexModuleNames();
-
-    /**
-     * Get information of APEX which is staged ready for installation.
-     * Returns null if no such APEX is found.
-     */
-    @nullable StagedApexInfo getStagedApexInfo(in @utf8InCpp String moduleName);
 }

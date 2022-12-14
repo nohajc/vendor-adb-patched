@@ -228,8 +228,8 @@ enum {
      *
      * If a device supports the sensor additional information feature, it will
      * report additional information events via {@link ASensorEvent} and will
-     * have the type of {@link ASensorEvent} set to
-     * {@link ASENSOR_TYPE_ADDITIONAL_INFO} and the sensor of {@link ASensorEvent} set
+     * have {@link ASensorEvent#type} set to
+     * {@link ASENSOR_TYPE_ADDITIONAL_INFO} and {@link ASensorEvent#sensor} set
      * to the handle of the reporting sensor.
      *
      * Additional information reports consist of multiple frames ordered by
@@ -428,10 +428,6 @@ typedef struct ADynamicSensorEvent {
 } ADynamicSensorEvent;
 
 typedef struct AAdditionalInfoEvent {
-    /**
-     * Event type, such as ASENSOR_ADDITIONAL_INFO_BEGIN, ASENSOR_ADDITIONAL_INFO_END and others.
-     * Refer to {@link ASENSOR_TYPE_ADDITIONAL_INFO} for the expected reporting behavior.
-     */
     int32_t type;
     int32_t serial;
     union {
@@ -440,36 +436,24 @@ typedef struct AAdditionalInfoEvent {
     };
 } AAdditionalInfoEvent;
 
-/**
- * Information that describes a sensor event, refer to
- * <a href="/reference/android/hardware/SensorEvent">SensorEvent</a> for additional
- * documentation.
- */
 /* NOTE: changes to this struct has to be backward compatible */
 typedef struct ASensorEvent {
     int32_t version; /* sizeof(struct ASensorEvent) */
-    int32_t sensor;  /** The sensor that generates this event */
-    int32_t type;    /** Sensor type for the event, such as {@link ASENSOR_TYPE_ACCELEROMETER} */
-    int32_t reserved0; /** do not use */
-    /**
-     * The time in nanoseconds at which the event happened, and its behavior
-     * is identical to <a href="/reference/android/hardware/SensorEvent#timestamp">
-     * SensorEvent::timestamp</a> in Java API.
-     */
+    int32_t sensor;
+    int32_t type;
+    int32_t reserved0;
     int64_t timestamp;
     union {
         union {
             float           data[16];
             ASensorVector   vector;
             ASensorVector   acceleration;
-            ASensorVector   gyro;
             ASensorVector   magnetic;
             float           temperature;
             float           distance;
             float           light;
             float           pressure;
             float           relative_humidity;
-            AUncalibratedEvent uncalibrated_acceleration;
             AUncalibratedEvent uncalibrated_gyro;
             AUncalibratedEvent uncalibrated_magnetic;
             AMetaDataEvent meta_data;
@@ -667,10 +651,9 @@ int ASensorManager_createHardwareBufferDirectChannel(
 /**
  * Destroy a direct channel
  *
- * Destroy a direct channel previously created by using one of
- * ASensorManager_create*DirectChannel() derivative functions.
- * Note that the buffer used for creating the direct channel does not get destroyed with
- * ASensorManager_destroyDirectChannel and has to be closed or released separately.
+ * Destroy a direct channel previously created using {@link ASensorManager_createDirectChannel}.
+ * The buffer used for creating direct channel does not get destroyed with
+ * {@link ASensorManager_destroy} and has to be close or released separately.
  *
  * Available since API level 26.
  *
@@ -716,7 +699,7 @@ void ASensorManager_destroyDirectChannel(ASensorManager* manager, int channelId)
  * \param channelId channel id (a positive integer) returned from
  *                  {@link ASensorManager_createSharedMemoryDirectChannel} or
  *                  {@link ASensorManager_createHardwareBufferDirectChannel}.
- * \param rate      one of predefined ASENSOR_DIRECT_RATE_... that is supported by the sensor.
+ *
  * \return positive token for success or negative error code.
  */
 int ASensorManager_configureDirectReport(ASensorManager* manager,
@@ -733,7 +716,7 @@ int ASensorManager_configureDirectReport(ASensorManager* manager,
  * \param queue {@link ASensorEventQueue} for sensor event to be report to.
  * \param sensor {@link ASensor} to be enabled.
  * \param samplingPeriodUs sampling period of sensor in microseconds.
- * \param maxBatchReportLatencyUs maximum time interval between two batches of sensor events are
+ * \param maxBatchReportLatencyus maximum time interval between two batch of sensor events are
  *                                delievered in microseconds. For sensor streaming, set to 0.
  * \return 0 on success or a negative error code on failure.
  */
@@ -793,7 +776,7 @@ int ASensorEventQueue_hasEvents(ASensorEventQueue* queue);
  * Retrieve next available events from the queue to a specified event array.
  *
  * \param queue {@link ASensorEventQueue} to get events from
- * \param events pointer to an array of {@link ASensorEvent}.
+ * \param events pointer to an array of {@link ASensorEvents}.
  * \param count max number of event that can be filled into array event.
  * \return number of events returned on success; negative error code when
  *         no events are pending or an error has occurred.
@@ -813,7 +796,7 @@ ssize_t ASensorEventQueue_getEvents(ASensorEventQueue* queue, ASensorEvent* even
  * Request that {@link ASENSOR_TYPE_ADDITIONAL_INFO} events to be delivered on
  * the given {@link ASensorEventQueue}.
  *
- * Sensor data events are always delivered to the {@link ASensorEventQueue}.
+ * Sensor data events are always delivered to the {@ASensorEventQueue}.
  *
  * The {@link ASENSOR_TYPE_ADDITIONAL_INFO} events will be returned through
  * {@link ASensorEventQueue_getEvents}. The client is responsible for checking
@@ -905,7 +888,7 @@ bool ASensor_isWakeUpSensor(ASensor const* sensor) __INTRODUCED_IN(21);
  *
  * \param sensor  a {@link ASensor} to denote the sensor to be checked.
  * \param channelType  Channel type constant, either
- *                     {@link ASENSOR_DIRECT_CHANNEL_TYPE_SHARED_MEMORY}
+ *                     {@ASENSOR_DIRECT_CHANNEL_TYPE_SHARED_MEMORY}
  *                     or {@link ASENSOR_DIRECT_CHANNEL_TYPE_HARDWARE_BUFFER}.
  * \returns true if sensor supports the specified direct channel type.
  */
@@ -928,15 +911,15 @@ int ASensor_getHighestDirectReportRateLevel(ASensor const* sensor) __INTRODUCED_
  * Returns the sensor's handle.
  *
  * The handle identifies the sensor within the system and is included in the
- * sensor field of {@link ASensorEvent}, including those sent with type
+ * {@link ASensorEvent#sensor} field of sensor events, including those sent with type
  * {@link ASENSOR_TYPE_ADDITIONAL_INFO}.
  *
  * A sensor's handle is able to be used to map {@link ASENSOR_TYPE_ADDITIONAL_INFO} events to the
  * sensor that generated the event.
  *
  * It is important to note that the value returned by {@link ASensor_getHandle} is not the same as
- * the value returned by the Java API <a href="/reference/android/hardware/Sensor#getId()">
- * android.hardware.Sensor's getId()</a> and no mapping exists between the values.
+ * the value returned by the Java API {@link android.hardware.Sensor#getId} and no mapping exists
+ * between the values.
  *
  * Available since API level 29.
  */

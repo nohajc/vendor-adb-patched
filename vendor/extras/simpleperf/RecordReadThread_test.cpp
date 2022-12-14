@@ -113,25 +113,6 @@ TEST(RecordParser, smoke) {
   }));
 }
 
-TEST(RecordParser, GetStackSizePos_with_PerfSampleReadType) {
-  const EventType* type = FindEventTypeByName("cpu-clock");
-  ASSERT_TRUE(type != nullptr);
-  perf_event_attr event_attr = CreateDefaultPerfEventAttr(*type);
-  event_attr.sample_type = PERF_SAMPLE_READ | PERF_SAMPLE_STACK_USER;
-  event_attr.read_format =
-      PERF_FORMAT_ID | PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING;
-  uint64_t nr = 10;
-  RecordParser parser(event_attr);
-  size_t pos =
-      parser.GetStackSizePos([&](size_t, size_t size, void* dest) { memcpy(dest, &nr, size); });
-  ASSERT_EQ(pos, sizeof(perf_event_header) + 4 * sizeof(uint64_t));
-
-  event_attr.read_format |= PERF_FORMAT_GROUP;
-  RecordParser parser2(event_attr);
-  pos = parser2.GetStackSizePos([&](size_t, size_t size, void* dest) { memcpy(dest, &nr, size); });
-  ASSERT_EQ(pos, sizeof(perf_event_header) + (nr * 2 + 3) * sizeof(uint64_t));
-}
-
 struct MockEventFd : public EventFd {
   MockEventFd(const perf_event_attr& attr, int cpu, char* buffer, size_t buffer_size,
               bool mock_aux_buffer)
@@ -168,7 +149,7 @@ static std::vector<std::unique_ptr<Record>> CreateFakeRecords(const perf_event_a
                                                               size_t dyn_stack_size) {
   std::vector<std::unique_ptr<Record>> records;
   for (size_t i = 0; i < record_count; ++i) {
-    SampleRecord* r = new SampleRecord(attr, i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, {}, {},
+    SampleRecord* r = new SampleRecord(attr, i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, {},
                                        std::vector<char>(stack_size), dyn_stack_size);
     records.emplace_back(r);
   }
@@ -431,9 +412,9 @@ TEST_F(RecordReadThreadTest, exclude_perf) {
   attr.sample_type |= PERF_SAMPLE_STACK_USER;
   size_t stack_size = 1024;
   attr.sample_stack_user = stack_size;
-  records_.emplace_back(new SampleRecord(attr, 0, 1, getpid(), 3, 4, 5, 6, {}, {},
+  records_.emplace_back(new SampleRecord(attr, 0, 1, getpid(), 3, 4, 5, 6, {},
                                          std::vector<char>(stack_size), stack_size));
-  records_.emplace_back(new SampleRecord(attr, 0, 1, getpid() + 1, 3, 4, 5, 6, {}, {},
+  records_.emplace_back(new SampleRecord(attr, 0, 1, getpid() + 1, 3, 4, 5, 6, {},
                                          std::vector<char>(stack_size), stack_size));
 
   auto read_records = [&](RecordReadThread& thread, std::vector<std::unique_ptr<Record>>& records) {

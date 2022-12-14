@@ -39,7 +39,6 @@
 #include "commandline.h"
 #include "fastdeploy.h"
 #include "incremental.h"
-#include "sysdeps.h"
 
 using namespace std::literals;
 
@@ -57,22 +56,28 @@ enum InstallMode {
 enum class CmdlineOption { None, Enable, Disable };
 }
 
+static bool can_use_feature(const char* feature) {
+    // We ignore errors here, if the device is missing, we'll notice when we try to push install.
+    auto&& features = adb_get_feature_set(nullptr);
+    if (!features) {
+        return false;
+    }
+    return CanUseFeature(*features, feature);
+}
+
 static InstallMode best_install_mode() {
-    auto&& features = adb_get_feature_set_or_die();
-    if (CanUseFeature(*features, kFeatureCmd)) {
+    if (can_use_feature(kFeatureCmd)) {
         return INSTALL_STREAM;
     }
     return INSTALL_PUSH;
 }
 
 static bool is_apex_supported() {
-    auto&& features = adb_get_feature_set_or_die();
-    return CanUseFeature(*features, kFeatureApex);
+    return can_use_feature(kFeatureApex);
 }
 
 static bool is_abb_exec_supported() {
-    auto&& features = adb_get_feature_set_or_die();
-    return CanUseFeature(*features, kFeatureAbbExec);
+    return can_use_feature(kFeatureAbbExec);
 }
 
 static int pm_command(int argc, const char** argv) {
@@ -573,7 +578,7 @@ static int install_multiple_app_streamed(int argc, const char** argv) {
     std::vector<std::string> cmd_args = {install_cmd, "install-create", "-S",
                                          std::to_string(total_size)};
     cmd_args.reserve(first_apk + 4);
-    for (int i = 0; i < first_apk; i++) {
+    for (int i = 1; i < first_apk; i++) {
         if (use_abb_exec) {
             cmd_args.push_back(argv[i]);
         } else {
@@ -866,8 +871,7 @@ int install_multi_package(int argc, const char** argv) {
         session_ids.push_back(session_id);
 
         // Support splitAPKs by allowing the notation split1.apk:split2.apk:split3.apk as argument.
-        // The character used as separator is OS-dependent, see ENV_PATH_SEPARATOR_STR.
-        std::vector<std::string> splits = android::base::Split(file, ENV_PATH_SEPARATOR_STR);
+        std::vector<std::string> splits = android::base::Split(file, ":");
 
         for (const std::string& split : splits) {
             struct stat sb;

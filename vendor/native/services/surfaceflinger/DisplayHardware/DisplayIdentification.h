@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,18 +24,38 @@
 #include <vector>
 
 #include <ui/DeviceProductInfo.h>
-#include <ui/DisplayId.h>
+#include <ui/PhysicalDisplayId.h>
 
 #define LEGACY_DISPLAY_TYPE_PRIMARY 0
 #define LEGACY_DISPLAY_TYPE_EXTERNAL 1
 
 namespace android {
 
+struct DisplayId {
+    using Type = PhysicalDisplayId;
+    Type value;
+
+    uint16_t manufacturerId() const;
+
+    static DisplayId fromEdid(uint8_t port, uint16_t manufacturerId, uint32_t modelHash);
+};
+
+inline bool operator==(DisplayId lhs, DisplayId rhs) {
+    return lhs.value == rhs.value;
+}
+
+inline bool operator!=(DisplayId lhs, DisplayId rhs) {
+    return !(lhs == rhs);
+}
+
+inline std::string to_string(DisplayId displayId) {
+    return std::to_string(displayId.value);
+}
 
 using DisplayIdentificationData = std::vector<uint8_t>;
 
 struct DisplayIdentificationInfo {
-    PhysicalDisplayId id;
+    DisplayId id;
     std::string name;
     std::optional<DeviceProductInfo> deviceProductInfo;
 };
@@ -74,12 +94,23 @@ struct Edid {
 bool isEdid(const DisplayIdentificationData&);
 std::optional<Edid> parseEdid(const DisplayIdentificationData&);
 std::optional<PnpId> getPnpId(uint16_t manufacturerId);
-std::optional<PnpId> getPnpId(PhysicalDisplayId);
+std::optional<PnpId> getPnpId(DisplayId);
 
 std::optional<DisplayIdentificationInfo> parseDisplayIdentificationData(
         uint8_t port, const DisplayIdentificationData&);
 
-PhysicalDisplayId getVirtualDisplayId(uint32_t id);
+DisplayId getFallbackDisplayId(uint8_t port);
+DisplayId getVirtualDisplayId(uint32_t id);
 
 } // namespace android
 
+namespace std {
+
+template <>
+struct hash<android::DisplayId> {
+    size_t operator()(android::DisplayId displayId) const {
+        return hash<android::DisplayId::Type>()(displayId.value);
+    }
+};
+
+} // namespace std

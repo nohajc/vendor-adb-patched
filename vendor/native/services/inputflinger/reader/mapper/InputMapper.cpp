@@ -56,29 +56,12 @@ bool InputMapper::markSupportedKeyCodes(uint32_t sourceMask, size_t numCodes,
     return false;
 }
 
-void InputMapper::vibrate(const VibrationSequence& sequence, ssize_t repeat, int32_t token) {}
+void InputMapper::vibrate(const nsecs_t* pattern, size_t patternSize, ssize_t repeat,
+                          int32_t token) {}
 
 void InputMapper::cancelVibrate(int32_t token) {}
 
-bool InputMapper::isVibrating() {
-    return false;
-}
-
-std::vector<int32_t> InputMapper::getVibratorIds() {
-    return {};
-}
-
-void InputMapper::cancelTouch(nsecs_t when, nsecs_t readTime) {}
-
-bool InputMapper::enableSensor(InputDeviceSensorType sensorType,
-                               std::chrono::microseconds samplingPeriod,
-                               std::chrono::microseconds maxBatchReportLatency) {
-    return true;
-}
-
-void InputMapper::disableSensor(InputDeviceSensorType sensorType) {}
-
-void InputMapper::flushSensor(InputDeviceSensorType sensorType) {}
+void InputMapper::cancelTouch(nsecs_t when) {}
 
 int32_t InputMapper::getMetaState() {
     return 0;

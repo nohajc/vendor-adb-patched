@@ -24,6 +24,7 @@ package {
 cc_library_shared {
     name: "libsensor",
 
+    clang: true,
     cflags: [
         "-Wall",
         "-Werror",
@@ -52,9 +53,5 @@ cc_library_shared {
 
     export_include_dirs: ["include"],
 
-    export_shared_lib_headers: [
-        "libbinder",
-        "libpermission",
-        "libhardware",
-    ],
+    export_shared_lib_headers: ["libbinder", "libpermission", "libhardware"],
 }

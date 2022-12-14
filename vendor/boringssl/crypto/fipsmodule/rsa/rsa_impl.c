@@ -66,12 +66,11 @@
 #include <openssl/thread.h>
 #include <openssl/type_check.h>
 
-#include "../../internal.h"
+#include "internal.h"
 #include "../bn/internal.h"
+#include "../../internal.h"
 #include "../delocate.h"
 #include "../rand/fork_detect.h"
-#include "../service_indicator/internal.h"
-#include "internal.h"
 
 
 int rsa_check_public_key(const RSA *rsa) {
@@ -80,8 +79,9 @@ int rsa_check_public_key(const RSA *rsa) {
     return 0;
   }
 
-  unsigned n_bits = BN_num_bits(rsa->n);
-  if (n_bits > 16 * 1024) {
+  unsigned rsa_bits = BN_num_bits(rsa->n);
+
+  if (rsa_bits > 16 * 1024) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_MODULUS_TOO_LARGE);
     return 0;
   }
@@ -96,21 +96,17 @@ int rsa_check_public_key(const RSA *rsa) {
   // [2] https://www.imperialviolet.org/2012/03/17/rsados.html
   // [3] https://msdn.microsoft.com/en-us/library/aa387685(VS.85).aspx
   static const unsigned kMaxExponentBits = 33;
-  unsigned e_bits = BN_num_bits(rsa->e);
-  if (e_bits > kMaxExponentBits ||
-      // Additionally reject e = 1 or even e. e must be odd to be relatively
-      // prime with phi(n).
-      e_bits < 2 ||
-      !BN_is_odd(rsa->e)) {
+
+  if (BN_num_bits(rsa->e) > kMaxExponentBits) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_BAD_E_VALUE);
     return 0;
   }
 
-  // Verify |n > e|. Comparing |n_bits| to |kMaxExponentBits| is a small
+  // Verify |n > e|. Comparing |rsa_bits| to |kMaxExponentBits| is a small
   // shortcut to comparing |n| and |e| directly. In reality, |kMaxExponentBits|
   // is much smaller than the minimum RSA key size that any application should
   // accept.
-  if (n_bits <= kMaxExponentBits) {
+  if (rsa_bits <= kMaxExponentBits) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_KEY_SIZE_TOO_SMALL);
     return 0;
   }
@@ -262,8 +258,6 @@ size_t rsa_default_size(const RSA *rsa) {
 
 int RSA_encrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
                 const uint8_t *in, size_t in_len, int padding) {
-  boringssl_ensure_rsa_self_test();
-
   if (!rsa_check_public_key(rsa)) {
     return 0;
   }
@@ -531,8 +525,6 @@ err:
 
 int rsa_default_decrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
                         const uint8_t *in, size_t in_len, int padding) {
-  boringssl_ensure_rsa_self_test();
-
   const unsigned rsa_size = RSA_size(rsa);
   uint8_t *buf = NULL;
   int ret = 0;
@@ -598,9 +590,8 @@ err:
 
 static int mod_exp(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx);
 
-int rsa_verify_raw_no_self_test(RSA *rsa, size_t *out_len, uint8_t *out,
-                                size_t max_out, const uint8_t *in,
-                                size_t in_len, int padding) {
+int RSA_verify_raw(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
+                   const uint8_t *in, size_t in_len, int padding) {
   if (!rsa_check_public_key(rsa)) {
     return 0;
   }
@@ -690,14 +681,6 @@ err:
     OPENSSL_free(buf);
   }
   return ret;
-}
-
-int RSA_verify_raw(RSA *rsa, size_t *out_len, uint8_t *out,
-                                size_t max_out, const uint8_t *in,
-                                size_t in_len, int padding) {
-  boringssl_ensure_rsa_self_test();
-  return rsa_verify_raw_no_self_test(rsa, out_len, out, max_out, in, in_len,
-                                     padding);
 }
 
 int rsa_default_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in,
@@ -1276,14 +1259,12 @@ static int rsa_generate_key_impl(RSA *rsa, int bits, const BIGNUM *e_value,
     // values for d.
   } while (BN_cmp(rsa->d, pow2_prime_bits) <= 0);
 
-  assert(BN_num_bits(pm1) == (unsigned)prime_bits);
-  assert(BN_num_bits(qm1) == (unsigned)prime_bits);
   if (// Calculate n.
       !bn_mul_consttime(rsa->n, rsa->p, rsa->q, ctx) ||
       // Calculate d mod (p-1).
-      !bn_div_consttime(NULL, rsa->dmp1, rsa->d, pm1, prime_bits, ctx) ||
+      !bn_div_consttime(NULL, rsa->dmp1, rsa->d, pm1, ctx) ||
       // Calculate d mod (q-1)
-      !bn_div_consttime(NULL, rsa->dmq1, rsa->d, qm1, prime_bits, ctx)) {
+      !bn_div_consttime(NULL, rsa->dmq1, rsa->d, qm1, ctx)) {
     goto bn_err;
   }
   bn_set_minimal_width(rsa->n);
@@ -1338,8 +1319,6 @@ static void replace_bn_mont_ctx(BN_MONT_CTX **out, BN_MONT_CTX **in) {
 static int RSA_generate_key_ex_maybe_fips(RSA *rsa, int bits,
                                           const BIGNUM *e_value, BN_GENCB *cb,
                                           int check_fips) {
-  boringssl_ensure_rsa_self_test();
-
   RSA *tmp = NULL;
   uint32_t err;
   int ret = 0;
@@ -1420,10 +1399,6 @@ int RSA_generate_key_fips(RSA *rsa, int bits, BN_GENCB *cb) {
             BN_set_word(e, RSA_F4) &&
             RSA_generate_key_ex_maybe_fips(rsa, bits, e, cb, /*check_fips=*/1);
   BN_free(e);
-
-  if (ret) {
-    FIPS_service_indicator_update_state();
-  }
   return ret;
 }
 

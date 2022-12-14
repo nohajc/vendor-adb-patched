@@ -29,7 +29,6 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
-#include <unistd.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -47,9 +46,6 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <diagnose_usb.h>
-
-#include <build/version.h>
-#include <platform_tools_version.h>
 
 #include "adb_auth.h"
 #include "adb_io.h"
@@ -99,7 +95,7 @@ std::string adb_version() {
         "Version %s-%s\n"
         "Installed as %s\n",
         ADB_VERSION_MAJOR, ADB_VERSION_MINOR, ADB_SERVER_VERSION,
-        PLATFORM_TOOLS_VERSION, android::build::GetBuildNumber().c_str(),
+        PLATFORM_TOOLS_VERSION, PLATFORM_TOOLS_VENDOR,
         android::base::GetExecutablePath().c_str());
 }
 
@@ -234,18 +230,13 @@ void print_packet(const char *label, apacket *p)
 }
 #endif
 
-void send_ready(unsigned local, unsigned remote, atransport* t, uint32_t ack_bytes) {
+static void send_ready(unsigned local, unsigned remote, atransport *t)
+{
     D("Calling send_ready");
     apacket *p = get_apacket();
     p->msg.command = A_OKAY;
     p->msg.arg0 = local;
     p->msg.arg1 = remote;
-    if (t->SupportsDelayedAck()) {
-        p->msg.data_length = sizeof(ack_bytes);
-        p->payload.resize(sizeof(ack_bytes));
-        memcpy(p->payload.data(), &ack_bytes, sizeof(ack_bytes));
-    }
-
     send_packet(p, t);
 }
 
@@ -398,6 +389,8 @@ static void handle_new_connection(atransport* t, apacket* p) {
         send_auth_request(t);
     }
 #endif
+
+    update_transports();
 }
 
 void handle_packet(apacket *p, atransport *t)
@@ -465,88 +458,39 @@ void handle_packet(apacket *p, atransport *t)
         }
         break;
 
-    case A_OPEN: {
-        /* OPEN(local-id, [send-buffer], "destination") */
-        if (!t->online || p->msg.arg0 == 0) {
-            break;
+    case A_OPEN: /* OPEN(local-id, 0, "destination") */
+        if (t->online && p->msg.arg0 != 0 && p->msg.arg1 == 0) {
+            std::string_view address(p->payload.begin(), p->payload.size());
+
+            // Historically, we received service names as a char*, and stopped at the first NUL
+            // byte. The client sent strings with null termination, which post-string_view, start
+            // being interpreted as part of the string, unless we explicitly strip them.
+            address = StripTrailingNulls(address);
+
+            asocket* s = create_local_service_socket(address, t);
+            if (s == nullptr) {
+                send_close(0, p->msg.arg0, t);
+            } else {
+                s->peer = create_remote_socket(p->msg.arg0, t);
+                s->peer->peer = s;
+                send_ready(s->id, s->peer->id, t);
+                s->ready(s);
+            }
         }
-
-        uint32_t send_bytes = static_cast<uint32_t>(p->msg.arg1);
-        if (t->SupportsDelayedAck() != static_cast<bool>(send_bytes)) {
-            LOG(ERROR) << "unexpected value of A_OPEN arg1: " << send_bytes
-                       << " (delayed acks = " << t->SupportsDelayedAck() << ")";
-            send_close(0, p->msg.arg0, t);
-            break;
-        }
-
-        std::string_view address(p->payload.begin(), p->payload.size());
-
-        // Historically, we received service names as a char*, and stopped at the first NUL
-        // byte. The client sent strings with null termination, which post-string_view, start
-        // being interpreted as part of the string, unless we explicitly strip them.
-        address = StripTrailingNulls(address);
-#if ADB_HOST
-        // The incoming address (from the payload) might be some other
-        // target (e.g tcp:<ip>:8000), however we do not allow *any*
-        // such requests - namely, those from (a potentially compromised)
-        // adbd (reverse:forward: source) port transport.
-        if (!t->IsReverseConfigured(address.data())) {
-            LOG(FATAL) << __func__ << " disallowed connect to " << address << " from "
-                       << t->serial_name();
-        }
-#endif
-        asocket* s = create_local_service_socket(address, t);
-        if (s == nullptr) {
-            send_close(0, p->msg.arg0, t);
-            break;
-        }
-
-        s->peer = create_remote_socket(p->msg.arg0, t);
-        s->peer->peer = s;
-
-        if (t->SupportsDelayedAck()) {
-            LOG(DEBUG) << "delayed ack available: send buffer = " << send_bytes;
-            s->available_send_bytes = send_bytes;
-
-            // TODO: Make this adjustable at connection time?
-            send_ready(s->id, s->peer->id, t, INITIAL_DELAYED_ACK_BYTES);
-        } else {
-            LOG(DEBUG) << "delayed ack unavailable";
-            send_ready(s->id, s->peer->id, t, 0);
-        }
-
-        s->ready(s);
         break;
-    }
 
     case A_OKAY: /* READY(local-id, remote-id, "") */
         if (t->online && p->msg.arg0 != 0 && p->msg.arg1 != 0) {
             asocket* s = find_local_socket(p->msg.arg1, 0);
             if (s) {
-                std::optional<int32_t> acked_bytes;
-                if (p->payload.size() == sizeof(int32_t)) {
-                    int32_t value;
-                    memcpy(&value, p->payload.data(), sizeof(value));
-                    // acked_bytes can be negative!
-                    //
-                    // In the future, we can use this to preemptively supply backpressure, instead
-                    // of waiting for the writer to hit its limit.
-                    acked_bytes = value;
-                } else if (p->payload.size() != 0) {
-                    LOG(ERROR) << "invalid A_OKAY payload size: " << p->payload.size();
-                    return;
-                }
-
-                if (s->peer == nullptr) {
+                if(s->peer == nullptr) {
                     /* On first READY message, create the connection. */
                     s->peer = create_remote_socket(p->msg.arg0, t);
                     s->peer->peer = s;
-
-                    local_socket_ack(s, acked_bytes);
                     s->ready(s);
                 } else if (s->peer->id == p->msg.arg0) {
                     /* Other READY messages must use the same local-id */
-                    local_socket_ack(s, acked_bytes);
+                    s->ready(s);
                 } else {
                     D("Invalid A_OKAY(%d,%d), expected A_OKAY(%d,%d) on transport %s", p->msg.arg0,
                       p->msg.arg1, s->peer->id, p->msg.arg1, t->serial.c_str());
@@ -588,7 +532,11 @@ void handle_packet(apacket *p, atransport *t)
         if (t->online && p->msg.arg0 != 0 && p->msg.arg1 != 0) {
             asocket* s = find_local_socket(p->msg.arg1, p->msg.arg0);
             if (s) {
-                s->enqueue(s, std::move(p->payload));
+                unsigned rid = p->msg.arg0;
+                if (s->enqueue(s, std::move(p->payload)) == 0) {
+                    D("Enqueue the socket");
+                    send_ready(s->id, rid, t);
+                }
             }
         }
         break;
@@ -775,7 +723,7 @@ static void ReportServerStartupFailure(pid_t pid) {
     while (static_cast<size_t>(i) < lines.size()) fprintf(stderr, "%s\n", lines[i++].c_str());
 }
 
-int launch_server(const std::string& socket_spec, const char* one_device) {
+int launch_server(const std::string& socket_spec) {
 #if defined(_WIN32)
     /* we need to start the server in the background                    */
     /* we create a PIPE that will be used to wait for the server's "OK" */
@@ -876,15 +824,9 @@ int launch_server(const std::string& socket_spec, const char* one_device) {
         return -1;
     }
 
-    WCHAR args[4096];
-    if (one_device) {
-        snwprintf(args, arraysize(args),
-                  L"adb -L %s fork-server server --reply-fd %d --one-device %s",
-                  socket_spec.c_str(), ack_write_as_int, one_device);
-    } else {
-        snwprintf(args, arraysize(args), L"adb -L %s fork-server server --reply-fd %d",
-                  socket_spec.c_str(), ack_write_as_int);
-    }
+    WCHAR   args[64];
+    snwprintf(args, arraysize(args), L"adb -L %s fork-server server --reply-fd %d",
+              socket_spec.c_str(), ack_write_as_int);
 
     PROCESS_INFORMATION   pinfo;
     ZeroMemory(&pinfo, sizeof(pinfo));
@@ -1033,19 +975,8 @@ int launch_server(const std::string& socket_spec, const char* one_device) {
         char reply_fd[30];
         snprintf(reply_fd, sizeof(reply_fd), "%d", pipe_write.get());
         // child process
-        std::vector<const char*> child_argv = {
-                "adb", "-L", socket_spec.c_str(), "fork-server", "server", "--reply-fd", reply_fd};
-        if (one_device) {
-            child_argv.push_back("--one-device");
-            child_argv.push_back(one_device);
-        } else if (access("/etc/adb/one_device_required", F_OK) == 0) {
-            fprintf(stderr,
-                    "adb: cannot start server: --one-device option is required for this system in "
-                    "order to start adb.\n");
-            return -1;
-        }
-        child_argv.push_back(nullptr);
-        int result = execv(path.c_str(), const_cast<char* const*>(child_argv.data()));
+        int result = execl(path.c_str(), "adb", "-L", socket_spec.c_str(), "fork-server", "server",
+                           "--reply-fd", reply_fd, (char*)NULL);
         // this should not return
         fprintf(stderr, "adb: execl returned %d: %s\n", result, strerror(errno));
     } else {

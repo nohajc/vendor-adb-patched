@@ -20,18 +20,21 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+#include "FileBlobCache.h"
+
 #include <memory>
 #include <mutex>
 #include <string>
 
-#include "FileBlobCache.h"
-
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
 class egl_display_t;
 
 class EGLAPI egl_cache_t {
 public:
+
     // get returns a pointer to the singleton egl_cache_t object.  This
     // singleton object will never be destroyed.
     static egl_cache_t* get();
@@ -114,6 +117,8 @@ private:
     static egl_cache_t sCache;
 };
 
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------
 
 #endif // ANDROID_EGL_CACHE_H

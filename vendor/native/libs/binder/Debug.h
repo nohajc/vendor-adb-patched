@@ -23,6 +23,8 @@
 namespace android {
 // ---------------------------------------------------------------------------
 
+std::string hexString(const void* data, size_t size);
+
 const char* stringForIndent(int32_t indentLevel);
 
 typedef void (*debugPrintFunc)(void* cookie, const char* txt);

@@ -61,7 +61,6 @@ status_t LayerDebugInfo::writeToParcel(Parcel* parcel) const {
     RETURN_ON_ERROR(parcel->writeBool(mRefreshPending));
     RETURN_ON_ERROR(parcel->writeBool(mIsOpaque));
     RETURN_ON_ERROR(parcel->writeBool(mContentDirty));
-    RETURN_ON_ERROR(parcel->write(mStretchEffect));
     return NO_ERROR;
 }
 
@@ -106,7 +105,6 @@ status_t LayerDebugInfo::readFromParcel(const Parcel* parcel) {
     RETURN_ON_ERROR(parcel->readBool(&mRefreshPending));
     RETURN_ON_ERROR(parcel->readBool(&mIsOpaque));
     RETURN_ON_ERROR(parcel->readBool(&mContentDirty));
-    RETURN_ON_ERROR(parcel->read(mStretchEffect));
     return NO_ERROR;
 }
 
@@ -117,14 +115,6 @@ std::string to_string(const LayerDebugInfo& info) {
     info.mTransparentRegion.dump(result, "TransparentRegion");
     info.mVisibleRegion.dump(result, "VisibleRegion");
     info.mSurfaceDamageRegion.dump(result, "SurfaceDamageRegion");
-    if (info.mStretchEffect.hasEffect()) {
-        const auto& se = info.mStretchEffect;
-        StringAppendF(&result,
-                      "  StretchEffect width = %f, height = %f vec=(%f, %f) "
-                      "maxAmount=(%f, %f)\n",
-                      se.width, se.height,
-                      se.vectorX, se.vectorY, se.maxAmountX, se.maxAmountY);
-    }
 
     StringAppendF(&result, "      layerStack=%4d, z=%9d, pos=(%g,%g), size=(%4d,%4d), ",
                   info.mLayerStack, info.mZ, static_cast<double>(info.mX),

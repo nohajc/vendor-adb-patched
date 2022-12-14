@@ -17,8 +17,8 @@
 #include "libdebuggerd/scudo.h"
 #include "libdebuggerd/tombstone.h"
 
-#include "unwindstack/AndroidUnwinder.h"
 #include "unwindstack/Memory.h"
+#include "unwindstack/Unwinder.h"
 
 #include <android-base/macros.h>
 #include <bionic/macros.h>
@@ -46,9 +46,6 @@ ScudoCrashData::ScudoCrashData(unwindstack::Memory* process_memory,
                                        __scudo_get_region_info_size());
   auto ring_buffer = AllocAndReadFully(process_memory, process_info.scudo_ring_buffer,
                                        __scudo_get_ring_buffer_size());
-  if (!stack_depot || !region_info || !ring_buffer) {
-    return;
-  }
 
   untagged_fault_addr_ = process_info.untagged_fault_address;
   uintptr_t fault_page = untagged_fault_addr_ & ~(PAGE_SIZE - 1);
@@ -83,7 +80,7 @@ bool ScudoCrashData::CrashIsMine() const {
 }
 
 void ScudoCrashData::FillInCause(Cause* cause, const scudo_error_report* report,
-                                 unwindstack::AndroidUnwinder* unwinder) const {
+                                 unwindstack::Unwinder* unwinder) const {
   MemoryError* memory_error = cause->mutable_memory_error();
   HeapObject* heap_object = memory_error->mutable_heap();
 
@@ -105,12 +102,13 @@ void ScudoCrashData::FillInCause(Cause* cause, const scudo_error_report* report,
 
   heap_object->set_address(report->allocation_address);
   heap_object->set_size(report->allocation_size);
+  unwinder->SetDisplayBuildID(true);
 
   heap_object->set_allocation_tid(report->allocation_tid);
   for (size_t i = 0; i < arraysize(report->allocation_trace) && report->allocation_trace[i]; ++i) {
     unwindstack::FrameData frame_data = unwinder->BuildFrameFromPcOnly(report->allocation_trace[i]);
     BacktraceFrame* f = heap_object->add_allocation_backtrace();
-    fill_in_backtrace_frame(f, frame_data);
+    fill_in_backtrace_frame(f, frame_data, unwinder->GetMaps());
   }
 
   heap_object->set_deallocation_tid(report->deallocation_tid);
@@ -119,17 +117,100 @@ void ScudoCrashData::FillInCause(Cause* cause, const scudo_error_report* report,
     unwindstack::FrameData frame_data =
         unwinder->BuildFrameFromPcOnly(report->deallocation_trace[i]);
     BacktraceFrame* f = heap_object->add_deallocation_backtrace();
-    fill_in_backtrace_frame(f, frame_data);
+    fill_in_backtrace_frame(f, frame_data, unwinder->GetMaps());
   }
 
   set_human_readable_cause(cause, untagged_fault_addr_);
 }
 
-void ScudoCrashData::AddCauseProtos(Tombstone* tombstone,
-                                    unwindstack::AndroidUnwinder* unwinder) const {
+void ScudoCrashData::AddCauseProtos(Tombstone* tombstone, unwindstack::Unwinder* unwinder) const {
   size_t report_num = 0;
   while (report_num < sizeof(error_info_.reports) / sizeof(error_info_.reports[0]) &&
          error_info_.reports[report_num].error_type != UNKNOWN) {
     FillInCause(tombstone->add_causes(), &error_info_.reports[report_num++], unwinder);
+  }
+}
+
+void ScudoCrashData::DumpCause(log_t* log, unwindstack::Unwinder* unwinder) const {
+  if (error_info_.reports[1].error_type != UNKNOWN) {
+    _LOG(log, logtype::HEADER,
+         "\nNote: multiple potential causes for this crash were detected, listing them in "
+         "decreasing order of probability.\n");
+  }
+
+  size_t report_num = 0;
+  while (report_num < sizeof(error_info_.reports) / sizeof(error_info_.reports[0]) &&
+         error_info_.reports[report_num].error_type != UNKNOWN) {
+    DumpReport(&error_info_.reports[report_num++], log, unwinder);
+  }
+}
+
+void ScudoCrashData::DumpReport(const scudo_error_report* report, log_t* log,
+                                unwindstack::Unwinder* unwinder) const {
+  const char *error_type_str;
+  switch (report->error_type) {
+    case USE_AFTER_FREE:
+      error_type_str = "Use After Free";
+      break;
+    case BUFFER_OVERFLOW:
+      error_type_str = "Buffer Overflow";
+      break;
+    case BUFFER_UNDERFLOW:
+      error_type_str = "Buffer Underflow";
+      break;
+    default:
+      error_type_str = "Unknown";
+      break;
+  }
+
+  uintptr_t diff;
+  const char* location_str;
+
+  if (untagged_fault_addr_ < report->allocation_address) {
+    // Buffer Underflow, 6 bytes left of a 41-byte allocation at 0xdeadbeef.
+    location_str = "left of";
+    diff = report->allocation_address - untagged_fault_addr_;
+  } else if (untagged_fault_addr_ - report->allocation_address < report->allocation_size) {
+    // Use After Free, 40 bytes into a 41-byte allocation at 0xdeadbeef.
+    location_str = "into";
+    diff = untagged_fault_addr_ - report->allocation_address;
+  } else {
+    // Buffer Overflow, 6 bytes right of a 41-byte allocation at 0xdeadbeef.
+    location_str = "right of";
+    diff = untagged_fault_addr_ - report->allocation_address - report->allocation_size;
+  }
+
+  // Suffix of 'bytes', i.e. 4 bytes' vs. '1 byte'.
+  const char* byte_suffix = "s";
+  if (diff == 1) {
+    byte_suffix = "";
+  }
+  _LOG(log, logtype::HEADER,
+       "\nCause: [MTE]: %s, %" PRIuPTR " byte%s %s a %zu-byte allocation at 0x%" PRIxPTR "\n",
+       error_type_str, diff, byte_suffix, location_str, report->allocation_size,
+       report->allocation_address);
+
+  if (report->allocation_trace[0]) {
+    _LOG(log, logtype::BACKTRACE, "\nallocated by thread %u:\n", report->allocation_tid);
+    unwinder->SetDisplayBuildID(true);
+    for (size_t i = 0; i < arraysize(report->allocation_trace) && report->allocation_trace[i];
+         ++i) {
+      unwindstack::FrameData frame_data =
+          unwinder->BuildFrameFromPcOnly(report->allocation_trace[i]);
+      frame_data.num = i;
+      _LOG(log, logtype::BACKTRACE, "    %s\n", unwinder->FormatFrame(frame_data).c_str());
+    }
+  }
+
+  if (report->deallocation_trace[0]) {
+    _LOG(log, logtype::BACKTRACE, "\ndeallocated by thread %u:\n", report->deallocation_tid);
+    unwinder->SetDisplayBuildID(true);
+    for (size_t i = 0; i < arraysize(report->deallocation_trace) && report->deallocation_trace[i];
+         ++i) {
+      unwindstack::FrameData frame_data =
+          unwinder->BuildFrameFromPcOnly(report->deallocation_trace[i]);
+      frame_data.num = i;
+      _LOG(log, logtype::BACKTRACE, "    %s\n", unwinder->FormatFrame(frame_data).c_str());
+    }
   }
 }

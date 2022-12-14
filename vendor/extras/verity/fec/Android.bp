@@ -20,12 +20,7 @@ cc_binary_host {
         },
     },
     target: {
-        linux_glibc_x86_64: {
-            sanitize: {
-                misc_undefined: ["integer"],
-            },
-        },
-        linux_musl_x86_64: {
+        linux_glibc: {
             sanitize: {
                 misc_undefined: ["integer"],
             },

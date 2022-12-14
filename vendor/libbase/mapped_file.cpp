@@ -63,8 +63,8 @@ std::unique_ptr<MappedFile> MappedFile::FromOsHandle(os_handle h, off64_t offset
     }
     return nullptr;
   }
-  void* base = MapViewOfFile(handle, (prot & PROT_WRITE) ? FILE_MAP_ALL_ACCESS : FILE_MAP_READ,
-                             (file_offset >> 32), file_offset, file_length);
+  void* base = MapViewOfFile(handle, (prot & PROT_WRITE) ? FILE_MAP_ALL_ACCESS : FILE_MAP_READ, 0,
+                             file_offset, file_length);
   if (base == nullptr) {
     CloseHandle(handle);
     return nullptr;

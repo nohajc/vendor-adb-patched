@@ -14,6 +14,7 @@
 
 gensrcs {
     name: "framework-javastream-protos",
+    depfile: true,
 
     tools: [
         "aprotoc",
@@ -21,13 +22,10 @@ gensrcs {
         "soong_zip",
     ],
 
-    tool_files: [
-        ":libprotobuf-internal-protos",
-    ],
-
     cmd: "mkdir -p $(genDir)/$(in) " +
         "&& $(location aprotoc) " +
         "  --plugin=$(location protoc-gen-javastream) " +
+        "  --dependency_out=$(depfile) " +
         "  --javastream_out=$(genDir)/$(in) " +
         "  -Iexternal/protobuf/src " +
         "  -I . " +
@@ -35,46 +33,38 @@ gensrcs {
         "&& $(location soong_zip) -jar -o $(out) -C $(genDir)/$(in) -D $(genDir)/$(in)",
 
     srcs: [
-        ":framework-connectivity-protos",
         ":ipconnectivity-proto-src",
         ":libstats_atom_enum_protos",
-        ":libstats_atom_message_protos",
         ":libtombstone_proto-src",
         "core/proto/**/*.proto",
         "libs/incident/**/*.proto",
-        ":service-permission-protos",
     ],
     output_extension: "srcjar",
 }
 
 gensrcs {
     name: "framework-cppstream-protos",
+    depfile: true,
 
     tools: [
         "aprotoc",
         "protoc-gen-cppstream",
     ],
 
-    tool_files: [
-        ":libprotobuf-internal-protos",
-    ],
-
     cmd: "mkdir -p $(genDir) " +
         "&& $(location aprotoc) " +
         "  --plugin=$(location protoc-gen-cppstream) " +
+        "  --dependency_out=$(depfile) " +
         "  --cppstream_out=$(genDir) " +
         "  -Iexternal/protobuf/src " +
         "  -I . " +
         "  $(in)",
 
     srcs: [
-        ":framework-connectivity-protos",
         ":ipconnectivity-proto-src",
         ":libstats_atom_enum_protos",
-        ":libstats_atom_message_protos",
         "core/proto/**/*.proto",
         "libs/incident/**/*.proto",
-        ":service-permission-protos",
     ],
 
     output_extension: "proto.h",
@@ -84,17 +74,14 @@ gensrcs {
 java_library_host {
     name: "platformprotos",
     srcs: [
-        ":framework-connectivity-protos",
         ":ipconnectivity-proto-src",
         ":libstats_atom_enum_protos",
-        ":libstats_atom_message_protos",
         ":libstats_internal_protos",
         ":statsd_internal_protos",
         "cmds/am/proto/instrumentation_data.proto",
         "cmds/statsd/src/**/*.proto",
         "core/proto/**/*.proto",
         "libs/incident/proto/**/*.proto",
-        ":service-permission-protos",
     ],
     proto: {
         include_dirs: [
@@ -103,9 +90,8 @@ java_library_host {
         ],
         type: "full",
     },
-    // Protos have lots of MissingOverride and similar.
     errorprone: {
-        javacflags: ["-XepDisableAllChecks"],
+        javacflags: ["-Xep:MissingOverride:OFF"], // b/72714520
     },
 }
 
@@ -120,17 +106,13 @@ java_library {
     exclude_srcs: [
         "core/proto/android/privacy.proto",
         "core/proto/android/section.proto",
-        "core/proto/android/typedef.proto",
     ],
     sdk_version: "9",
     srcs: [
-        ":framework-connectivity-protos",
         ":ipconnectivity-proto-src",
         ":libstats_atom_enum_protos",
-        ":libstats_atom_message_protos",
         "core/proto/**/*.proto",
         "libs/incident/proto/android/os/**/*.proto",
-        ":service-permission-protos",
     ],
 }
 
@@ -143,18 +125,14 @@ java_library {
     },
 
     srcs: [
-        ":framework-connectivity-protos",
         ":ipconnectivity-proto-src",
         ":libstats_atom_enum_protos",
-        ":libstats_atom_message_protos",
         "core/proto/**/*.proto",
         "libs/incident/proto/android/os/**/*.proto",
-        ":service-permission-protos",
     ],
     exclude_srcs: [
         "core/proto/android/privacy.proto",
         "core/proto/android/section.proto",
-        "core/proto/android/typedef.proto",
     ],
     sdk_version: "core_current",
     // Protos have lots of MissingOverride and similar.
@@ -181,12 +159,9 @@ cc_defaults {
     ],
 
     srcs: [
-        ":framework-connectivity-protos",
         ":ipconnectivity-proto-src",
         ":libstats_atom_enum_protos",
-        ":libstats_atom_message_protos",
         "core/proto/**/*.proto",
-        ":service-permission-protos",
     ],
 }
 

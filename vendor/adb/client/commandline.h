@@ -19,28 +19,22 @@
 
 #include <android-base/strings.h>
 
-#include <optional>
-
 #include "adb.h"
 #include "adb_client.h"
 #include "adb_unique_fd.h"
-#include "transport.h"
 
 // Callback used to handle the standard streams (stdout and stderr) sent by the
 // device's upon receiving a command.
-
 //
 class StandardStreamsCallbackInterface {
   public:
     StandardStreamsCallbackInterface() {
     }
     // Handles the stdout output from devices supporting the Shell protocol.
-    // Returns true on success and false on failure.
-    virtual bool OnStdout(const char* buffer, size_t length) = 0;
+    virtual void OnStdout(const char* buffer, int length) = 0;
 
     // Handles the stderr output from devices supporting the Shell protocol.
-    // Returns true on success and false on failure.
-    virtual bool OnStderr(const char* buffer, size_t length) = 0;
+    virtual void OnStderr(const char* buffer, int length) = 0;
 
     // Indicates the communication is finished and returns the appropriate error
     // code.
@@ -50,15 +44,12 @@ class StandardStreamsCallbackInterface {
     virtual int Done(int status) = 0;
 
   protected:
-    static bool OnStream(std::string* string, FILE* stream, const char* buffer, size_t length,
-                         bool returnErrors) {
+    static void OnStream(std::string* string, FILE* stream, const char* buffer, int length) {
         if (string != nullptr) {
             string->append(buffer, length);
-            return true;
         } else {
-            bool okay = (fwrite(buffer, 1, length, stream) == length);
+            fwrite(buffer, 1, length, stream);
             fflush(stream);
-            return returnErrors ? okay : true;
         }
     }
 
@@ -66,40 +57,32 @@ class StandardStreamsCallbackInterface {
     DISALLOW_COPY_AND_ASSIGN(StandardStreamsCallbackInterface);
 };
 
-// Default implementation that redirects the streams to the equivalent host
-// stream or to a string passed to the constructor.
+// Default implementation that redirects the streams to the equilavent host
+// stream or to a string
+// passed to the constructor.
 class DefaultStandardStreamsCallback : public StandardStreamsCallbackInterface {
   public:
     // If |stdout_str| is non-null, OnStdout will append to it.
     // If |stderr_str| is non-null, OnStderr will append to it.
     DefaultStandardStreamsCallback(std::string* stdout_str, std::string* stderr_str)
-        : stdout_str_(stdout_str), stderr_str_(stderr_str), returnErrors_(false) {
-    }
-    DefaultStandardStreamsCallback(std::string* stdout_str, std::string* stderr_str,
-                                   bool returnErrors)
-        : stdout_str_(stdout_str), stderr_str_(stderr_str), returnErrors_(returnErrors) {
+        : stdout_str_(stdout_str), stderr_str_(stderr_str) {
     }
 
-    bool OnStdout(const char* buffer, size_t length) {
-        return OnStream(stdout_str_, stdout, buffer, length, returnErrors_);
+    void OnStdout(const char* buffer, int length) {
+        OnStream(stdout_str_, stdout, buffer, length);
     }
 
-    bool OnStderr(const char* buffer, size_t length) {
-        return OnStream(stderr_str_, stderr, buffer, length, returnErrors_);
+    void OnStderr(const char* buffer, int length) {
+        OnStream(stderr_str_, stderr, buffer, length);
     }
 
     int Done(int status) {
         return status;
     }
 
-    void ReturnErrors(bool returnErrors) {
-        returnErrors_ = returnErrors;
-    }
-
   private:
     std::string* stdout_str_;
     std::string* stderr_str_;
-    bool returnErrors_;
 
     DISALLOW_COPY_AND_ASSIGN(DefaultStandardStreamsCallback);
 };
@@ -107,8 +90,8 @@ class DefaultStandardStreamsCallback : public StandardStreamsCallbackInterface {
 class SilentStandardStreamsCallbackInterface : public StandardStreamsCallbackInterface {
   public:
     SilentStandardStreamsCallbackInterface() = default;
-    bool OnStdout(const char*, size_t) override final { return true; }
-    bool OnStderr(const char*, size_t) override final { return true; }
+    void OnStdout(const char*, int) override final {}
+    void OnStderr(const char*, int) override final {}
     int Done(int status) override final { return status; }
 };
 
@@ -116,9 +99,6 @@ class SilentStandardStreamsCallbackInterface : public StandardStreamsCallbackInt
 extern DefaultStandardStreamsCallback DEFAULT_STANDARD_STREAMS_CALLBACK;
 
 int adb_commandline(int argc, const char** argv);
-
-// Helper retrieval function.
-const std::optional<FeatureSet>& adb_get_feature_set_or_die(void);
 
 bool copy_to_file(int inFd, int outFd);
 

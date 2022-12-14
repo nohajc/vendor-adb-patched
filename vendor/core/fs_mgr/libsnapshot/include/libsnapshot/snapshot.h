@@ -38,17 +38,13 @@
 #include <libsnapshot/auto_device.h>
 #include <libsnapshot/return.h>
 #include <libsnapshot/snapshot_writer.h>
-#include <snapuserd/snapuserd_client.h>
+#include <libsnapshot/snapuserd_client.h>
 
 #ifndef FRIEND_TEST
 #define FRIEND_TEST(test_set_name, individual_test) \
     friend class test_set_name##_##individual_test##_Test
 #define DEFINED_FRIEND_TEST
 #endif
-
-namespace aidl::android::hardware::boot {
-enum class MergeStatus;
-}
 
 namespace android {
 
@@ -63,6 +59,13 @@ class IPartitionOpener;
 
 // Forward declare IBootControl types since we cannot include only the headers
 // with Soong. Note: keep the enum width in sync.
+namespace hardware {
+namespace boot {
+namespace V1_1 {
+enum class MergeStatus : int32_t;
+}  // namespace V1_1
+}  // namespace boot
+}  // namespace hardware
 
 namespace snapshot {
 
@@ -92,7 +95,6 @@ class ISnapshotManager {
     class IDeviceInfo {
       public:
         using IImageManager = android::fiemap::IImageManager;
-        using MergeStatus = aidl::android::hardware::boot::MergeStatus;
 
         virtual ~IDeviceInfo() {}
         virtual std::string GetMetadataDir() const = 0;
@@ -101,13 +103,13 @@ class ISnapshotManager {
         virtual std::string GetSuperDevice(uint32_t slot) const = 0;
         virtual const android::fs_mgr::IPartitionOpener& GetPartitionOpener() const = 0;
         virtual bool IsOverlayfsSetup() const = 0;
-        virtual bool SetBootControlMergeStatus(MergeStatus status) = 0;
+        virtual bool SetBootControlMergeStatus(
+                android::hardware::boot::V1_1::MergeStatus status) = 0;
         virtual bool SetSlotAsUnbootable(unsigned int slot) = 0;
         virtual bool IsRecovery() const = 0;
         virtual bool IsTestDevice() const { return false; }
         virtual bool IsFirstStageInit() const = 0;
         virtual std::unique_ptr<IImageManager> OpenImageManager() const = 0;
-        virtual android::dm::IDeviceMapper& GetDeviceMapper() = 0;
 
         // Helper method for implementing OpenImageManager.
         std::unique_ptr<IImageManager> OpenImageManager(const std::string& gsid_dir) const;
@@ -130,9 +132,6 @@ class ISnapshotManager {
     // If |wipe| is set to true, wipe is scheduled after reboot, and snapshots
     // may need to be merged before wiping.
     virtual bool FinishedSnapshotWrites(bool wipe) = 0;
-
-    // Set feature flags on an ISnapshotMergeStats object.
-    virtual void SetMergeStatsFeatures(ISnapshotMergeStats* stats) = 0;
 
     // Update an ISnapshotMergeStats object with statistics about COW usage.
     // This should be called before the merge begins as otherwise snapshots
@@ -192,9 +191,6 @@ class ISnapshotManager {
     // Returns true if compression is enabled for the current update. This always returns false if
     // UpdateState is None, or no snapshots have been created.
     virtual bool UpdateUsesCompression() = 0;
-
-    // Returns true if userspace snapshots is enabled for the current update.
-    virtual bool UpdateUsesUserSnapshots() = 0;
 
     // Create necessary COW device / files for OTA clients. New logical partitions will be added to
     // group "cow" in target_metadata. Regions of partitions of current_metadata will be
@@ -308,7 +304,7 @@ class SnapshotManager final : public ISnapshotManager {
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
     using DeltaArchiveManifest = chromeos_update_engine::DeltaArchiveManifest;
-    using MergeStatus = aidl::android::hardware::boot::MergeStatus;
+    using MergeStatus = android::hardware::boot::V1_1::MergeStatus;
     using FiemapStatus = android::fiemap::FiemapStatus;
 
     friend class SnapshotMergeStats;
@@ -355,7 +351,6 @@ class SnapshotManager final : public ISnapshotManager {
                                    const std::function<bool()>& before_cancel = {}) override;
     UpdateState GetUpdateState(double* progress = nullptr) override;
     bool UpdateUsesCompression() override;
-    bool UpdateUsesUserSnapshots() override;
     Return CreateUpdateSnapshots(const DeltaArchiveManifest& manifest) override;
     bool MapUpdateSnapshot(const CreateLogicalPartitionParams& params,
                            std::string* snapshot_path) override;
@@ -378,7 +373,6 @@ class SnapshotManager final : public ISnapshotManager {
     bool MapAllSnapshots(const std::chrono::milliseconds& timeout_ms = {}) override;
     bool UnmapAllSnapshots() override;
     std::string ReadSourceBuildFingerprint() override;
-    void SetMergeStatsFeatures(ISnapshotMergeStats* stats) override;
 
     // We can't use WaitForFile during first-stage init, because ueventd is not
     // running and therefore will not automatically create symlinks. Instead,
@@ -391,22 +385,6 @@ class SnapshotManager final : public ISnapshotManager {
     // If true, compression is enabled for this update. This is used by
     // first-stage to decide whether to launch snapuserd.
     bool IsSnapuserdRequired();
-
-    enum class SnapshotDriver {
-        DM_SNAPSHOT,
-        DM_USER,
-    };
-
-    // Add new public entries above this line.
-
-    // Helpers for failure injection.
-    using MergeConsistencyChecker =
-            std::function<MergeFailureCode(const std::string& name, const SnapshotStatus& status)>;
-
-    void set_merge_consistency_checker(MergeConsistencyChecker checker) {
-        merge_consistency_checker_ = checker;
-    }
-    MergeConsistencyChecker merge_consistency_checker() const { return merge_consistency_checker_; }
 
   private:
     FRIEND_TEST(SnapshotTest, CleanFirstStageMount);
@@ -421,8 +399,6 @@ class SnapshotManager final : public ISnapshotManager {
     FRIEND_TEST(SnapshotTest, MergeFailureCode);
     FRIEND_TEST(SnapshotTest, NoMergeBeforeReboot);
     FRIEND_TEST(SnapshotTest, UpdateBootControlHal);
-    FRIEND_TEST(SnapshotUpdateTest, AddPartition);
-    FRIEND_TEST(SnapshotUpdateTest, ConsistencyCheckResume);
     FRIEND_TEST(SnapshotUpdateTest, DaemonTransition);
     FRIEND_TEST(SnapshotUpdateTest, DataWipeAfterRollback);
     FRIEND_TEST(SnapshotUpdateTest, DataWipeRollbackInRecovery);
@@ -430,7 +406,6 @@ class SnapshotManager final : public ISnapshotManager {
     FRIEND_TEST(SnapshotUpdateTest, FullUpdateFlow);
     FRIEND_TEST(SnapshotUpdateTest, MergeCannotRemoveCow);
     FRIEND_TEST(SnapshotUpdateTest, MergeInRecovery);
-    FRIEND_TEST(SnapshotUpdateTest, QueryStatusError);
     FRIEND_TEST(SnapshotUpdateTest, SnapshotStatusFileWithoutCow);
     FRIEND_TEST(SnapshotUpdateTest, SpaceSwapUpdate);
     friend class SnapshotTest;
@@ -478,8 +453,6 @@ class SnapshotManager final : public ISnapshotManager {
     };
     static std::unique_ptr<LockedFile> OpenFile(const std::string& file, int lock_flags);
 
-    SnapshotDriver GetSnapshotDriver(LockedFile* lock);
-
     // Create a new snapshot record. This creates the backing COW store and
     // persists information needed to map the device. The device can be mapped
     // with MapSnapshot().
@@ -515,8 +488,8 @@ class SnapshotManager final : public ISnapshotManager {
 
     // Create a dm-user device for a given snapshot.
     bool MapDmUserCow(LockedFile* lock, const std::string& name, const std::string& cow_file,
-                      const std::string& base_device, const std::string& base_path_merge,
-                      const std::chrono::milliseconds& timeout_ms, std::string* path);
+                      const std::string& base_device, const std::chrono::milliseconds& timeout_ms,
+                      std::string* path);
 
     // Map the source device used for dm-user.
     bool MapSourceDevice(LockedFile* lock, const std::string& name,
@@ -538,9 +511,6 @@ class SnapshotManager final : public ISnapshotManager {
 
     // Unmap a COW and remove it from a MetadataBuilder.
     void UnmapAndDeleteCowPartition(MetadataBuilder* current_metadata);
-
-    // Remove invalid snapshots if any
-    void RemoveInvalidSnapshots(LockedFile* lock);
 
     // Unmap and remove all known snapshots.
     bool RemoveAllSnapshots(LockedFile* lock);
@@ -618,8 +588,7 @@ class SnapshotManager final : public ISnapshotManager {
     // Internal callback for when merging is complete.
     bool OnSnapshotMergeComplete(LockedFile* lock, const std::string& name,
                                  const SnapshotStatus& status);
-    bool CollapseSnapshotDevice(LockedFile* lock, const std::string& name,
-                                const SnapshotStatus& status);
+    bool CollapseSnapshotDevice(const std::string& name, const SnapshotStatus& status);
 
     struct MergeResult {
         explicit MergeResult(UpdateState state,
@@ -640,15 +609,6 @@ class SnapshotManager final : public ISnapshotManager {
                                       const SnapshotUpdateStatus& update_status);
     MergeFailureCode CheckMergeConsistency(LockedFile* lock, const std::string& name,
                                            const SnapshotStatus& update_status);
-
-    auto UpdateStateToStr(enum UpdateState state);
-    // Get status or table information about a device-mapper node with a single target.
-    enum class TableQuery {
-        Table,
-        Status,
-    };
-    bool GetSingleTarget(const std::string& dm_name, TableQuery query,
-                         android::dm::DeviceMapper::TargetInfo* target);
 
     // Interact with status files under /metadata/ota/snapshots.
     bool WriteSnapshotStatus(LockedFile* lock, const SnapshotStatus& status);
@@ -718,10 +678,7 @@ class SnapshotManager final : public ISnapshotManager {
     bool UnmapPartitionWithSnapshot(LockedFile* lock, const std::string& target_partition_name);
 
     // Unmap a dm-user device through snapuserd.
-    bool UnmapDmUserDevice(const std::string& dm_user_name);
-
-    // Unmap a dm-user device for user space snapshots
-    bool UnmapUserspaceSnapshotDevice(LockedFile* lock, const std::string& snapshot_name);
+    bool UnmapDmUserDevice(const std::string& snapshot_name);
 
     // If there isn't a previous update, return true. |needs_merge| is set to false.
     // If there is a previous update but the device has not boot into it, tries to cancel the
@@ -810,28 +767,20 @@ class SnapshotManager final : public ISnapshotManager {
 
     // Helper of UpdateUsesCompression
     bool UpdateUsesCompression(LockedFile* lock);
-    // Locked and unlocked functions to test whether the current update uses
-    // userspace snapshots.
-    bool UpdateUsesUserSnapshots(LockedFile* lock);
-
-    // Check if io_uring API's need to be used
-    bool UpdateUsesIouring(LockedFile* lock);
 
     // Wrapper around libdm, with diagnostics.
     bool DeleteDeviceIfExists(const std::string& name,
                               const std::chrono::milliseconds& timeout_ms = {});
 
-    android::dm::IDeviceMapper& dm_;
-    std::unique_ptr<IDeviceInfo> device_;
+    std::string gsid_dir_;
     std::string metadata_dir_;
+    std::unique_ptr<IDeviceInfo> device_;
     std::unique_ptr<IImageManager> images_;
     bool use_first_stage_snapuserd_ = false;
     bool in_factory_data_reset_ = false;
     std::function<bool(const std::string&)> uevent_regen_callback_;
     std::unique_ptr<SnapuserdClient> snapuserd_client_;
     std::unique_ptr<LpMetadata> old_partition_metadata_;
-    std::optional<bool> is_snapshot_userspace_;
-    MergeConsistencyChecker merge_consistency_checker_;
 };
 
 }  // namespace snapshot

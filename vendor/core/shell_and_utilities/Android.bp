@@ -26,7 +26,6 @@ phony {
         "mkshrc",
         "newfs_msdos",
         "reboot",
-        "settaskprofile",
         "sh",
         "simpleperf",
         "simpleperf_app_runner",

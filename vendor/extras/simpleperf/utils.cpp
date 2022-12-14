@@ -424,12 +424,4 @@ std::optional<std::set<pid_t>> GetTidsFromString(const std::string& s, bool chec
   return tids;
 }
 
-size_t SafeStrlen(const char* s, const char* end) {
-  const char* p = s;
-  while (p < end && *p != '\0') {
-    p++;
-  }
-  return p - s;
-}
-
 }  // namespace simpleperf

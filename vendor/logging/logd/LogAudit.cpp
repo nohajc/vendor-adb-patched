@@ -28,11 +28,11 @@
 #include <sys/uio.h>
 #include <syslog.h>
 
-#include <android-base/file.h>
-#include <android-base/logging.h>
+#include <fstream>
+#include <sstream>
+
 #include <android-base/macros.h>
 #include <android-base/properties.h>
-#include <android-base/strings.h>
 #include <private/android_filesystem_config.h>
 #include <private/android_logger.h>
 
@@ -111,48 +111,21 @@ static inline bool hasMetadata(char* str, int str_len) {
            (str[str_len - 9] == '/' || str[str_len - 39] == '/');
 }
 
-static auto populateDenialMap() {
-    std::map<std::tuple<std::string, std::string, std::string>, std::string> denial_to_bug;
-    // Order matters. Only the first occurrence of a
-    // (scontext, tcontext, tclass) combination is recorded.
-    for (const auto& bug_map_file :
-         {"/system_ext/etc/selinux/bug_map"s, "/vendor/etc/selinux/selinux_denial_metadata"s,
-          "/system/etc/selinux/bug_map"s}) {
-        std::string file_contents;
-        if (!android::base::ReadFileToString(bug_map_file, &file_contents)) {
-            continue;
-        }
-        int errors = 0;
-        for (const auto& line : android::base::Split(file_contents, "\n")) {
-            const auto fields = android::base::Tokenize(line, " ");
-            if (fields.empty() || android::base::StartsWith(fields.front(), '#')) {
-                continue;
-            }
-            if (fields.size() == 4) {
-                const std::string& scontext = fields[0];
-                const std::string& tcontext = fields[1];
-                const std::string& tclass = fields[2];
-                const std::string& bug_num = fields[3];
-                const auto [it, success] =
-                        denial_to_bug.try_emplace({scontext, tcontext, tclass}, bug_num);
-                if (!success) {
-                    const auto& [key, value] = *it;
-                    LOG(WARNING) << "Ignored bug_map definition in " << bug_map_file << ": '"
-                                 << line
-                                 << "', (scontext, tcontext, tclass) denial combination is already "
-                                    "tagged with bug metadata '"
-                                 << value << "'";
-                }
-            } else {
-                LOG(ERROR) << "Ignored ill-formed bug_map definition in " << bug_map_file << ": '"
-                           << line << "'";
-                ++errors;
-            }
-        }
-        if (errors) {
-            LOG(ERROR) << "Loaded bug_map file with " << errors << " errors: " << bug_map_file;
-        } else {
-            LOG(INFO) << "Loaded bug_map file: " << bug_map_file;
+std::map<std::string, std::string> LogAudit::populateDenialMap() {
+    std::ifstream bug_file("/vendor/etc/selinux/selinux_denial_metadata");
+    std::string line;
+    // allocate a map for the static map pointer in auditParse to keep track of,
+    // this function only runs once
+    std::map<std::string, std::string> denial_to_bug;
+    if (bug_file.good()) {
+        std::string scontext;
+        std::string tcontext;
+        std::string tclass;
+        std::string bug_num;
+        while (std::getline(bug_file, line)) {
+            std::stringstream split_line(line);
+            split_line >> scontext >> tcontext >> tclass >> bug_num;
+            denial_to_bug.emplace(scontext + tcontext + tclass, bug_num);
         }
     }
     return denial_to_bug;
@@ -170,9 +143,8 @@ std::string LogAudit::denialParse(const std::string& denial, char terminator,
 }
 
 std::string LogAudit::auditParse(const std::string& string, uid_t uid) {
-    // Allocate a static map object to memoize the loaded bug_map files.
-    static auto denial_to_bug = populateDenialMap();
-
+    static std::map<std::string, std::string> denial_to_bug =
+        populateDenialMap();
     std::string result;
     std::string scontext = denialParse(string, ':', "scontext=u:object_r:");
     std::string tcontext = denialParse(string, ':', "tcontext=u:object_r:");
@@ -183,7 +155,7 @@ std::string LogAudit::auditParse(const std::string& string, uid_t uid) {
     if (tcontext.empty()) {
         tcontext = denialParse(string, ':', "tcontext=u:r:");
     }
-    auto search = denial_to_bug.find({scontext, tcontext, tclass});
+    auto search = denial_to_bug.find(scontext + tcontext + tclass);
     if (search != denial_to_bug.end()) {
         result = " bug=" + search->second;
     }

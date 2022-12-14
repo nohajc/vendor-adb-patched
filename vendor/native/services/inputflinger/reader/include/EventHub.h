@@ -17,15 +17,8 @@
 #ifndef _RUNTIME_EVENT_HUB_H
 #define _RUNTIME_EVENT_HUB_H
 
-#include <bitset>
-#include <climits>
-#include <unordered_map>
 #include <vector>
 
-#include <ftl/Flags.h>
-#include <filesystem>
-
-#include <batteryservice/BatteryService.h>
 #include <input/Input.h>
 #include <input/InputDevice.h>
 #include <input/KeyCharacterMap.h>
@@ -33,8 +26,6 @@
 #include <input/Keyboard.h>
 #include <input/PropertyMap.h>
 #include <input/VirtualKeyMap.h>
-#include <linux/input.h>
-#include <sys/epoll.h>
 #include <utils/BitSet.h>
 #include <utils/Errors.h>
 #include <utils/KeyedVector.h>
@@ -42,22 +33,23 @@
 #include <utils/Log.h>
 #include <utils/Mutex.h>
 
+#include <linux/input.h>
+#include <sys/epoll.h>
+
 #include "TouchVideoDevice.h"
-#include "VibrationElement.h"
+
+/* Convenience constants. */
+
+#define BTN_FIRST 0x100 // first button code
+#define BTN_LAST 0x15f  // last button code
 
 namespace android {
 
-/* Number of colors : {red, green, blue} */
-static constexpr size_t COLOR_NUM = 3;
 /*
  * A raw event as retrieved from the EventHub.
  */
 struct RawEvent {
-    // Time when the event happened
     nsecs_t when;
-    // Time when the event was read by EventHub. Only populated for input events.
-    // For other events (device added/removed/etc), this value is undefined and should not be read.
-    nsecs_t readTime;
     int32_t deviceId;
     int32_t type;
     int32_t code;
@@ -87,124 +79,58 @@ struct RawAbsoluteAxisInfo {
 /*
  * Input device classes.
  */
-enum class InputDeviceClass : uint32_t {
+enum {
     /* The input device is a keyboard or has buttons. */
-    KEYBOARD = 0x00000001,
+    INPUT_DEVICE_CLASS_KEYBOARD = 0x00000001,
 
     /* The input device is an alpha-numeric keyboard (not just a dial pad). */
-    ALPHAKEY = 0x00000002,
+    INPUT_DEVICE_CLASS_ALPHAKEY = 0x00000002,
 
     /* The input device is a touchscreen or a touchpad (either single-touch or multi-touch). */
-    TOUCH = 0x00000004,
+    INPUT_DEVICE_CLASS_TOUCH = 0x00000004,
 
     /* The input device is a cursor device such as a trackball or mouse. */
-    CURSOR = 0x00000008,
+    INPUT_DEVICE_CLASS_CURSOR = 0x00000008,
 
     /* The input device is a multi-touch touchscreen. */
-    TOUCH_MT = 0x00000010,
+    INPUT_DEVICE_CLASS_TOUCH_MT = 0x00000010,
 
     /* The input device is a directional pad (implies keyboard, has DPAD keys). */
-    DPAD = 0x00000020,
+    INPUT_DEVICE_CLASS_DPAD = 0x00000020,
 
     /* The input device is a gamepad (implies keyboard, has BUTTON keys). */
-    GAMEPAD = 0x00000040,
+    INPUT_DEVICE_CLASS_GAMEPAD = 0x00000040,
 
     /* The input device has switches. */
-    SWITCH = 0x00000080,
+    INPUT_DEVICE_CLASS_SWITCH = 0x00000080,
 
     /* The input device is a joystick (implies gamepad, has joystick absolute axes). */
-    JOYSTICK = 0x00000100,
+    INPUT_DEVICE_CLASS_JOYSTICK = 0x00000100,
 
     /* The input device has a vibrator (supports FF_RUMBLE). */
-    VIBRATOR = 0x00000200,
+    INPUT_DEVICE_CLASS_VIBRATOR = 0x00000200,
 
     /* The input device has a microphone. */
-    MIC = 0x00000400,
+    INPUT_DEVICE_CLASS_MIC = 0x00000400,
 
     /* The input device is an external stylus (has data we want to fuse with touch data). */
-    EXTERNAL_STYLUS = 0x00000800,
+    INPUT_DEVICE_CLASS_EXTERNAL_STYLUS = 0x00000800,
 
     /* The input device has a rotary encoder */
-    ROTARY_ENCODER = 0x00001000,
-
-    /* The input device has a sensor like accelerometer, gyro, etc */
-    SENSOR = 0x00002000,
-
-    /* The input device has a battery */
-    BATTERY = 0x00004000,
-
-    /* The input device has sysfs controllable lights */
-    LIGHT = 0x00008000,
+    INPUT_DEVICE_CLASS_ROTARY_ENCODER = 0x00001000,
 
     /* The input device is virtual (not a real device, not part of UI configuration). */
-    VIRTUAL = 0x40000000,
+    INPUT_DEVICE_CLASS_VIRTUAL = 0x40000000,
 
     /* The input device is external (not built-in). */
-    EXTERNAL = 0x80000000,
-};
-
-enum class SysfsClass : uint32_t {
-    POWER_SUPPLY = 0,
-    LEDS = 1,
-};
-
-enum class LightColor : uint32_t {
-    RED = 0,
-    GREEN = 1,
-    BLUE = 2,
-};
-
-enum class InputLightClass : uint32_t {
-    /* The input light has brightness node. */
-    BRIGHTNESS = 0x00000001,
-    /* The input light has red name. */
-    RED = 0x00000002,
-    /* The input light has green name. */
-    GREEN = 0x00000004,
-    /* The input light has blue name. */
-    BLUE = 0x00000008,
-    /* The input light has global name. */
-    GLOBAL = 0x00000010,
-    /* The input light has multi index node. */
-    MULTI_INDEX = 0x00000020,
-    /* The input light has multi intensity node. */
-    MULTI_INTENSITY = 0x00000040,
-    /* The input light has max brightness node. */
-    MAX_BRIGHTNESS = 0x00000080,
-};
-
-enum class InputBatteryClass : uint32_t {
-    /* The input device battery has capacity node. */
-    CAPACITY = 0x00000001,
-    /* The input device battery has capacity_level node. */
-    CAPACITY_LEVEL = 0x00000002,
-    /* The input device battery has status node. */
-    STATUS = 0x00000004,
-};
-
-/* Describes a raw light. */
-struct RawLightInfo {
-    int32_t id;
-    std::string name;
-    std::optional<int32_t> maxBrightness;
-    Flags<InputLightClass> flags;
-    std::array<int32_t, COLOR_NUM> rgbIndex;
-    std::filesystem::path path;
-};
-
-/* Describes a raw battery. */
-struct RawBatteryInfo {
-    int32_t id;
-    std::string name;
-    Flags<InputBatteryClass> flags;
-    std::filesystem::path path;
+    INPUT_DEVICE_CLASS_EXTERNAL = 0x80000000,
 };
 
 /*
  * Gets the class that owns an axis, in cases where multiple classes might claim
  * the same axis for different purposes.
  */
-extern Flags<InputDeviceClass> getAbsAxisUsage(int32_t axis, Flags<InputDeviceClass> deviceClasses);
+extern uint32_t getAbsAxisUsage(int32_t axis, uint32_t deviceClasses);
 
 /*
  * Grand Central Station for events.
@@ -237,7 +163,7 @@ public:
         FIRST_SYNTHETIC_EVENT = DEVICE_ADDED,
     };
 
-    virtual Flags<InputDeviceClass> getDeviceClasses(int32_t deviceId) const = 0;
+    virtual uint32_t getDeviceClasses(int32_t deviceId) const = 0;
 
     virtual InputDeviceIdentifier getDeviceIdentifier(int32_t deviceId) const = 0;
 
@@ -251,8 +177,6 @@ public:
     virtual bool hasRelativeAxis(int32_t deviceId, int axis) const = 0;
 
     virtual bool hasInputProperty(int32_t deviceId, int property) const = 0;
-
-    virtual bool hasMscEvent(int32_t deviceId, int mscEvent) const = 0;
 
     virtual status_t mapKey(int32_t deviceId, int32_t scanCode, int32_t usageCode,
                             int32_t metaState, int32_t* outKeycode, int32_t* outMetaState,
@@ -278,24 +202,7 @@ public:
      */
     virtual size_t getEvents(int timeoutMillis, RawEvent* buffer, size_t bufferSize) = 0;
     virtual std::vector<TouchVideoFrame> getVideoFrames(int32_t deviceId) = 0;
-    virtual base::Result<std::pair<InputDeviceSensorType, int32_t>> mapSensor(int32_t deviceId,
-                                                                              int32_t absCode) = 0;
-    // Raw batteries are sysfs power_supply nodes we found from the EventHub device sysfs node,
-    // containing the raw info of the sysfs node structure.
-    virtual const std::vector<int32_t> getRawBatteryIds(int32_t deviceId) = 0;
-    virtual std::optional<RawBatteryInfo> getRawBatteryInfo(int32_t deviceId,
-                                                            int32_t BatteryId) = 0;
 
-    // Raw lights are sysfs led light nodes we found from the EventHub device sysfs node,
-    // containing the raw info of the sysfs node structure.
-    virtual const std::vector<int32_t> getRawLightIds(int32_t deviceId) = 0;
-    virtual std::optional<RawLightInfo> getRawLightInfo(int32_t deviceId, int32_t lightId) = 0;
-    virtual std::optional<int32_t> getLightBrightness(int32_t deviceId, int32_t lightId) = 0;
-    virtual void setLightBrightness(int32_t deviceId, int32_t lightId, int32_t brightness) = 0;
-    virtual std::optional<std::unordered_map<LightColor, int32_t>> getLightIntensities(
-            int32_t deviceId, int32_t lightId) = 0;
-    virtual void setLightIntensities(int32_t deviceId, int32_t lightId,
-                                     std::unordered_map<LightColor, int32_t> intensities) = 0;
     /*
      * Query current input state.
      */
@@ -320,21 +227,12 @@ public:
     virtual void getVirtualKeyDefinitions(
             int32_t deviceId, std::vector<VirtualKeyDefinition>& outVirtualKeys) const = 0;
 
-    virtual const std::shared_ptr<KeyCharacterMap> getKeyCharacterMap(int32_t deviceId) const = 0;
-    virtual bool setKeyboardLayoutOverlay(int32_t deviceId,
-                                          std::shared_ptr<KeyCharacterMap> map) = 0;
+    virtual sp<KeyCharacterMap> getKeyCharacterMap(int32_t deviceId) const = 0;
+    virtual bool setKeyboardLayoutOverlay(int32_t deviceId, const sp<KeyCharacterMap>& map) = 0;
 
     /* Control the vibrator. */
-    virtual void vibrate(int32_t deviceId, const VibrationElement& effect) = 0;
+    virtual void vibrate(int32_t deviceId, nsecs_t duration) = 0;
     virtual void cancelVibrate(int32_t deviceId) = 0;
-    virtual std::vector<int32_t> getVibratorIds(int32_t deviceId) = 0;
-
-    /* Query battery level. */
-    virtual std::optional<int32_t> getBatteryCapacity(int32_t deviceId,
-                                                      int32_t batteryId) const = 0;
-
-    /* Query battery status. */
-    virtual std::optional<int32_t> getBatteryStatus(int32_t deviceId, int32_t batteryId) const = 0;
 
     /* Requests the EventHub to reopen all input devices on the next call to getEvents(). */
     virtual void requestReopenDevices() = 0;
@@ -358,193 +256,73 @@ public:
     virtual status_t disableDevice(int32_t deviceId) = 0;
 };
 
-template <std::size_t BITS>
-class BitArray {
-    /* Array element type and vector of element type. */
-    using Element = std::uint32_t;
-    /* Number of bits in each BitArray element. */
-    static constexpr size_t WIDTH = sizeof(Element) * CHAR_BIT;
-    /* Number of elements to represent a bit array of the specified size of bits. */
-    static constexpr size_t COUNT = (BITS + WIDTH - 1) / WIDTH;
-
-public:
-    /* BUFFER type declaration for BitArray */
-    using Buffer = std::array<Element, COUNT>;
-    /* To tell if a bit is set in array, it selects an element from the array, and test
-     * if the relevant bit set.
-     * Note the parameter "bit" is an index to the bit, 0 <= bit < BITS.
-     */
-    inline bool test(size_t bit) const {
-        return (bit < BITS) ? mData[bit / WIDTH].test(bit % WIDTH) : false;
-    }
-    /* Returns total number of bytes needed for the array */
-    inline size_t bytes() { return (BITS + CHAR_BIT - 1) / CHAR_BIT; }
-    /* Returns true if array contains any non-zero bit from the range defined by start and end
-     * bit index [startIndex, endIndex).
-     */
-    bool any(size_t startIndex, size_t endIndex) {
-        if (startIndex >= endIndex || startIndex > BITS || endIndex > BITS + 1) {
-            ALOGE("Invalid start/end index. start = %zu, end = %zu, total bits = %zu", startIndex,
-                  endIndex, BITS);
-            return false;
-        }
-        size_t se = startIndex / WIDTH; // Start of element
-        size_t ee = endIndex / WIDTH;   // End of element
-        size_t si = startIndex % WIDTH; // Start index in start element
-        size_t ei = endIndex % WIDTH;   // End index in end element
-        // Need to check first unaligned bitset for any non zero bit
-        if (si > 0) {
-            size_t nBits = se == ee ? ei - si : WIDTH - si;
-            // Generate the mask of interested bit range
-            Element mask = ((1 << nBits) - 1) << si;
-            if (mData[se++].to_ulong() & mask) {
-                return true;
-            }
-        }
-        // Check whole bitset for any bit set
-        for (; se < ee; se++) {
-            if (mData[se].any()) {
-                return true;
-            }
-        }
-        // Need to check last unaligned bitset for any non zero bit
-        if (ei > 0 && se <= ee) {
-            // Generate the mask of interested bit range
-            Element mask = (1 << ei) - 1;
-            if (mData[se].to_ulong() & mask) {
-                return true;
-            }
-        }
-        return false;
-    }
-    /* Load bit array values from buffer */
-    void loadFromBuffer(const Buffer& buffer) {
-        for (size_t i = 0; i < COUNT; i++) {
-            mData[i] = std::bitset<WIDTH>(buffer[i]);
-        }
-    }
-
-private:
-    std::array<std::bitset<WIDTH>, COUNT> mData;
-};
-
 class EventHub : public EventHubInterface {
 public:
     EventHub();
 
-    Flags<InputDeviceClass> getDeviceClasses(int32_t deviceId) const override final;
+    virtual uint32_t getDeviceClasses(int32_t deviceId) const override;
 
-    InputDeviceIdentifier getDeviceIdentifier(int32_t deviceId) const override final;
+    virtual InputDeviceIdentifier getDeviceIdentifier(int32_t deviceId) const override;
 
-    int32_t getDeviceControllerNumber(int32_t deviceId) const override final;
+    virtual int32_t getDeviceControllerNumber(int32_t deviceId) const override;
 
-    void getConfiguration(int32_t deviceId, PropertyMap* outConfiguration) const override final;
+    virtual void getConfiguration(int32_t deviceId, PropertyMap* outConfiguration) const override;
 
-    status_t getAbsoluteAxisInfo(int32_t deviceId, int axis,
-                                 RawAbsoluteAxisInfo* outAxisInfo) const override final;
+    virtual status_t getAbsoluteAxisInfo(int32_t deviceId, int axis,
+                                         RawAbsoluteAxisInfo* outAxisInfo) const override;
 
-    bool hasRelativeAxis(int32_t deviceId, int axis) const override final;
+    virtual bool hasRelativeAxis(int32_t deviceId, int axis) const override;
 
-    bool hasInputProperty(int32_t deviceId, int property) const override final;
+    virtual bool hasInputProperty(int32_t deviceId, int property) const override;
 
-    bool hasMscEvent(int32_t deviceId, int mscEvent) const override final;
+    virtual status_t mapKey(int32_t deviceId, int32_t scanCode, int32_t usageCode,
+                            int32_t metaState, int32_t* outKeycode, int32_t* outMetaState,
+                            uint32_t* outFlags) const override;
 
-    status_t mapKey(int32_t deviceId, int32_t scanCode, int32_t usageCode, int32_t metaState,
-                    int32_t* outKeycode, int32_t* outMetaState,
-                    uint32_t* outFlags) const override final;
+    virtual status_t mapAxis(int32_t deviceId, int32_t scanCode,
+                             AxisInfo* outAxisInfo) const override;
 
-    status_t mapAxis(int32_t deviceId, int32_t scanCode,
-                     AxisInfo* outAxisInfo) const override final;
+    virtual void setExcludedDevices(const std::vector<std::string>& devices) override;
 
-    base::Result<std::pair<InputDeviceSensorType, int32_t>> mapSensor(
-            int32_t deviceId, int32_t absCode) override final;
+    virtual int32_t getScanCodeState(int32_t deviceId, int32_t scanCode) const override;
+    virtual int32_t getKeyCodeState(int32_t deviceId, int32_t keyCode) const override;
+    virtual int32_t getSwitchState(int32_t deviceId, int32_t sw) const override;
+    virtual status_t getAbsoluteAxisValue(int32_t deviceId, int32_t axis,
+                                          int32_t* outValue) const override;
 
-    const std::vector<int32_t> getRawBatteryIds(int32_t deviceId) override final;
-    std::optional<RawBatteryInfo> getRawBatteryInfo(int32_t deviceId,
-                                                    int32_t BatteryId) override final;
+    virtual bool markSupportedKeyCodes(int32_t deviceId, size_t numCodes, const int32_t* keyCodes,
+                                       uint8_t* outFlags) const override;
 
-    const std::vector<int32_t> getRawLightIds(int32_t deviceId) override final;
+    virtual size_t getEvents(int timeoutMillis, RawEvent* buffer, size_t bufferSize) override;
+    virtual std::vector<TouchVideoFrame> getVideoFrames(int32_t deviceId) override;
 
-    std::optional<RawLightInfo> getRawLightInfo(int32_t deviceId, int32_t lightId) override final;
+    virtual bool hasScanCode(int32_t deviceId, int32_t scanCode) const override;
+    virtual bool hasLed(int32_t deviceId, int32_t led) const override;
+    virtual void setLedState(int32_t deviceId, int32_t led, bool on) override;
 
-    std::optional<int32_t> getLightBrightness(int32_t deviceId, int32_t lightId) override final;
-    void setLightBrightness(int32_t deviceId, int32_t lightId, int32_t brightness) override final;
-    std::optional<std::unordered_map<LightColor, int32_t>> getLightIntensities(
-            int32_t deviceId, int32_t lightId) override final;
-    void setLightIntensities(int32_t deviceId, int32_t lightId,
-                             std::unordered_map<LightColor, int32_t> intensities) override final;
+    virtual void getVirtualKeyDefinitions(
+            int32_t deviceId, std::vector<VirtualKeyDefinition>& outVirtualKeys) const override;
 
-    void setExcludedDevices(const std::vector<std::string>& devices) override final;
+    virtual sp<KeyCharacterMap> getKeyCharacterMap(int32_t deviceId) const override;
+    virtual bool setKeyboardLayoutOverlay(int32_t deviceId,
+                                          const sp<KeyCharacterMap>& map) override;
 
-    int32_t getScanCodeState(int32_t deviceId, int32_t scanCode) const override final;
-    int32_t getKeyCodeState(int32_t deviceId, int32_t keyCode) const override final;
-    int32_t getSwitchState(int32_t deviceId, int32_t sw) const override final;
-    status_t getAbsoluteAxisValue(int32_t deviceId, int32_t axis,
-                                  int32_t* outValue) const override final;
+    virtual void vibrate(int32_t deviceId, nsecs_t duration) override;
+    virtual void cancelVibrate(int32_t deviceId) override;
 
-    bool markSupportedKeyCodes(int32_t deviceId, size_t numCodes, const int32_t* keyCodes,
-                               uint8_t* outFlags) const override final;
+    virtual void requestReopenDevices() override;
 
-    size_t getEvents(int timeoutMillis, RawEvent* buffer, size_t bufferSize) override final;
-    std::vector<TouchVideoFrame> getVideoFrames(int32_t deviceId) override final;
+    virtual void wake() override;
 
-    bool hasScanCode(int32_t deviceId, int32_t scanCode) const override final;
-    bool hasLed(int32_t deviceId, int32_t led) const override final;
-    void setLedState(int32_t deviceId, int32_t led, bool on) override final;
+    virtual void dump(std::string& dump) override;
+    virtual void monitor() override;
 
-    void getVirtualKeyDefinitions(
-            int32_t deviceId,
-            std::vector<VirtualKeyDefinition>& outVirtualKeys) const override final;
-
-    const std::shared_ptr<KeyCharacterMap> getKeyCharacterMap(
-            int32_t deviceId) const override final;
-    bool setKeyboardLayoutOverlay(int32_t deviceId,
-                                  std::shared_ptr<KeyCharacterMap> map) override final;
-
-    void vibrate(int32_t deviceId, const VibrationElement& effect) override final;
-    void cancelVibrate(int32_t deviceId) override final;
-    std::vector<int32_t> getVibratorIds(int32_t deviceId) override final;
-
-    void requestReopenDevices() override final;
-
-    void wake() override final;
-
-    void dump(std::string& dump) override final;
-
-    void monitor() override final;
-
-    std::optional<int32_t> getBatteryCapacity(int32_t deviceId,
-                                              int32_t batteryId) const override final;
-
-    std::optional<int32_t> getBatteryStatus(int32_t deviceId,
-                                            int32_t batteryId) const override final;
-
-    bool isDeviceEnabled(int32_t deviceId) override final;
-
-    status_t enableDevice(int32_t deviceId) override final;
-
-    status_t disableDevice(int32_t deviceId) override final;
-
-    ~EventHub() override;
+    virtual ~EventHub() override;
 
 private:
-    struct AssociatedDevice {
-        // The device descriptor from evdev device the misc device associated with.
-        std::string descriptor;
-        // The sysfs root path of the misc device.
-        std::filesystem::path sysfsRootPath;
-
-        int32_t nextBatteryId;
-        int32_t nextLightId;
-        std::unordered_map<int32_t, RawBatteryInfo> batteryInfos;
-        std::unordered_map<int32_t, RawLightInfo> lightInfos;
-        explicit AssociatedDevice(std::filesystem::path sysfsRootPath)
-              : sysfsRootPath(sysfsRootPath), nextBatteryId(0), nextLightId(0) {}
-        bool configureBatteryLocked();
-        bool configureLightsLocked();
-    };
-
     struct Device {
+        Device* next;
+
         int fd; // may be -1 if device is closed
         const int32_t id;
         const std::string path;
@@ -552,30 +330,26 @@ private:
 
         std::unique_ptr<TouchVideoDevice> videoDevice;
 
-        Flags<InputDeviceClass> classes;
+        uint32_t classes;
 
-        BitArray<KEY_MAX> keyBitmask;
-        BitArray<KEY_MAX> keyState;
-        BitArray<ABS_MAX> absBitmask;
-        BitArray<REL_MAX> relBitmask;
-        BitArray<SW_MAX> swBitmask;
-        BitArray<SW_MAX> swState;
-        BitArray<LED_MAX> ledBitmask;
-        BitArray<FF_MAX> ffBitmask;
-        BitArray<INPUT_PROP_MAX> propBitmask;
-        BitArray<MSC_MAX> mscBitmask;
+        uint8_t keyBitmask[(KEY_MAX + 1) / 8];
+        uint8_t absBitmask[(ABS_MAX + 1) / 8];
+        uint8_t relBitmask[(REL_MAX + 1) / 8];
+        uint8_t swBitmask[(SW_MAX + 1) / 8];
+        uint8_t ledBitmask[(LED_MAX + 1) / 8];
+        uint8_t ffBitmask[(FF_MAX + 1) / 8];
+        uint8_t propBitmask[(INPUT_PROP_MAX + 1) / 8];
 
         std::string configurationFile;
-        std::unique_ptr<PropertyMap> configuration;
+        PropertyMap* configuration;
         std::unique_ptr<VirtualKeyMap> virtualKeyMap;
         KeyMap keyMap;
 
+        sp<KeyCharacterMap> overlayKeyMap;
+        sp<KeyCharacterMap> combinedKeyMap;
+
         bool ffEffectPlaying;
         int16_t ffEffectId; // initially -1
-
-        // A shared_ptr of a device associated with the input device.
-        // The input devices with same descriptor has the same associated device.
-        std::shared_ptr<AssociatedDevice> associatedDevice;
 
         int32_t controllerNumber;
 
@@ -588,88 +362,75 @@ private:
         bool enabled; // initially true
         status_t enable();
         status_t disable();
-        bool hasValidFd() const;
+        bool hasValidFd();
         const bool isVirtual; // set if fd < 0 is passed to constructor
 
-        const std::shared_ptr<KeyCharacterMap> getKeyCharacterMap() const;
-
-        template <std::size_t N>
-        status_t readDeviceBitMask(unsigned long ioctlCode, BitArray<N>& bitArray);
-
-        void configureFd();
-        bool hasKeycodeLocked(int keycode) const;
-        void loadConfigurationLocked();
-        bool loadVirtualKeyMapLocked();
-        status_t loadKeyMapLocked();
-        bool isExternalDeviceLocked();
-        bool deviceHasMicLocked();
-        void setLedForControllerLocked();
-        status_t mapLed(int32_t led, int32_t* outScanCode) const;
-        void setLedStateLocked(int32_t led, bool on);
+        const sp<KeyCharacterMap>& getKeyCharacterMap() const {
+            if (combinedKeyMap != nullptr) {
+                return combinedKeyMap;
+            }
+            return keyMap.keyCharacterMap;
+        }
     };
 
-    /**
-     * Create a new device for the provided path.
-     */
-    void openDeviceLocked(const std::string& devicePath) REQUIRES(mLock);
-    void openVideoDeviceLocked(const std::string& devicePath) REQUIRES(mLock);
-    /**
-     * Try to associate a video device with an input device. If the association succeeds,
-     * the videoDevice is moved into the input device. 'videoDevice' will become null if this
-     * happens.
-     * Return true if the association succeeds.
-     * Return false otherwise.
-     */
-    bool tryAddVideoDeviceLocked(Device& device, std::unique_ptr<TouchVideoDevice>& videoDevice)
-            REQUIRES(mLock);
-    void createVirtualKeyboardLocked() REQUIRES(mLock);
-    void addDeviceLocked(std::unique_ptr<Device> device) REQUIRES(mLock);
-    void assignDescriptorLocked(InputDeviceIdentifier& identifier) REQUIRES(mLock);
+    status_t openDeviceLocked(const std::string& devicePath);
+    void openVideoDeviceLocked(const std::string& devicePath);
+    void createVirtualKeyboardLocked();
+    void addDeviceLocked(Device* device);
+    void assignDescriptorLocked(InputDeviceIdentifier& identifier);
 
-    void closeDeviceByPathLocked(const std::string& devicePath) REQUIRES(mLock);
-    void closeVideoDeviceByPathLocked(const std::string& devicePath) REQUIRES(mLock);
-    void closeDeviceLocked(Device& device) REQUIRES(mLock);
-    void closeAllDevicesLocked() REQUIRES(mLock);
+    void closeDeviceByPathLocked(const std::string& devicePath);
+    void closeVideoDeviceByPathLocked(const std::string& devicePath);
+    void closeDeviceLocked(Device* device);
+    void closeAllDevicesLocked();
 
+    void configureFd(Device* device);
+
+    bool isDeviceEnabled(int32_t deviceId) override;
+    status_t enableDevice(int32_t deviceId) override;
+    status_t disableDevice(int32_t deviceId) override;
     status_t registerFdForEpoll(int fd);
     status_t unregisterFdFromEpoll(int fd);
-    status_t registerDeviceForEpollLocked(Device& device) REQUIRES(mLock);
-    void registerVideoDeviceForEpollLocked(const TouchVideoDevice& videoDevice) REQUIRES(mLock);
-    status_t unregisterDeviceFromEpollLocked(Device& device) REQUIRES(mLock);
-    void unregisterVideoDeviceFromEpollLocked(const TouchVideoDevice& videoDevice) REQUIRES(mLock);
+    status_t registerDeviceForEpollLocked(Device* device);
+    void registerVideoDeviceForEpollLocked(const TouchVideoDevice& videoDevice);
+    status_t unregisterDeviceFromEpollLocked(Device* device);
+    void unregisterVideoDeviceFromEpollLocked(const TouchVideoDevice& videoDevice);
 
-    status_t scanDirLocked(const std::string& dirname) REQUIRES(mLock);
-    status_t scanVideoDirLocked(const std::string& dirname) REQUIRES(mLock);
-    void scanDevicesLocked() REQUIRES(mLock);
-    status_t readNotifyLocked() REQUIRES(mLock);
+    status_t scanDirLocked(const std::string& dirname);
+    status_t scanVideoDirLocked(const std::string& dirname);
+    void scanDevicesLocked();
+    status_t readNotifyLocked();
 
-    Device* getDeviceLocked(int32_t deviceId) const REQUIRES(mLock);
-    Device* getDeviceByPathLocked(const std::string& devicePath) const REQUIRES(mLock);
+    Device* getDeviceByDescriptorLocked(const std::string& descriptor) const;
+    Device* getDeviceLocked(int32_t deviceId) const;
+    Device* getDeviceByPathLocked(const std::string& devicePath) const;
     /**
      * Look through all available fd's (both for input devices and for video devices),
      * and return the device pointer.
      */
-    Device* getDeviceByFdLocked(int fd) const REQUIRES(mLock);
+    Device* getDeviceByFdLocked(int fd) const;
 
-    int32_t getNextControllerNumberLocked(const std::string& name) REQUIRES(mLock);
+    bool hasKeycodeLocked(Device* device, int keycode) const;
 
-    bool hasDeviceWithDescriptorLocked(const std::string& descriptor) const REQUIRES(mLock);
+    void loadConfigurationLocked(Device* device);
+    bool loadVirtualKeyMapLocked(Device* device);
+    status_t loadKeyMapLocked(Device* device);
 
-    void releaseControllerNumberLocked(int32_t num) REQUIRES(mLock);
-    void reportDeviceAddedForStatisticsLocked(const InputDeviceIdentifier& identifier,
-                                              Flags<InputDeviceClass> classes) REQUIRES(mLock);
+    bool isExternalDeviceLocked(Device* device);
+    bool deviceHasMicLocked(Device* device);
 
-    const std::unordered_map<int32_t, RawBatteryInfo>& getBatteryInfoLocked(int32_t deviceId) const
-            REQUIRES(mLock);
+    int32_t getNextControllerNumberLocked(Device* device);
+    void releaseControllerNumberLocked(Device* device);
+    void setLedForControllerLocked(Device* device);
 
-    const std::unordered_map<int32_t, RawLightInfo>& getLightInfoLocked(int32_t deviceId) const
-            REQUIRES(mLock);
+    status_t mapLed(Device* device, int32_t led, int32_t* outScanCode) const;
+    void setLedStateLocked(Device* device, int32_t led, bool on);
 
     void addDeviceInputInotify();
     void addDeviceInotify();
 
     // Protect all internal state.
-    mutable std::mutex mLock;
+    mutable Mutex mLock;
 
     // The actual id of the built-in keyboard, or NO_BUILT_IN_KEYBOARD if none.
     // EventHub remaps the built-in keyboard to id 0 externally as required by the API.
@@ -684,7 +445,7 @@ private:
 
     BitSet32 mControllerNumbers;
 
-    std::unordered_map<int32_t, std::unique_ptr<Device>> mDevices;
+    KeyedVector<int32_t, Device*> mDevices;
     /**
      * Video devices that report touchscreen heatmap, but have not (yet) been paired
      * with a specific input device. Video device discovery is independent from input device
@@ -694,8 +455,8 @@ private:
      */
     std::vector<std::unique_ptr<TouchVideoDevice>> mUnattachedVideoDevices;
 
-    std::vector<std::unique_ptr<Device>> mOpeningDevices;
-    std::vector<std::unique_ptr<Device>> mClosingDevices;
+    Device* mOpeningDevices;
+    Device* mClosingDevices;
 
     bool mNeedToSendFinishedDeviceScan;
     bool mNeedToReopenDevices;

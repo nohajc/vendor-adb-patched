@@ -23,6 +23,9 @@
 #include <sys/system_properties.h>
 #include <sys/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Forward declare these classes so not everyone has to include GWP-ASan
 // headers.
@@ -78,3 +81,6 @@ static void __attribute__((__unused__)) debuggerd_register_handlers(struct sigac
   sigaction(BIONIC_SIGNAL_DEBUGGER, action, nullptr);
 }
 
+#ifdef __cplusplus
+}
+#endif

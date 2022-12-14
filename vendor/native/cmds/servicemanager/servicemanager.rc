@@ -3,12 +3,11 @@ service servicemanager /system/bin/servicemanager
     user system
     group system readproc
     critical
-    onrestart setprop servicemanager.ready false
     onrestart restart apexd
     onrestart restart audioserver
     onrestart restart gatekeeperd
-    onrestart class_restart --only-enabled main
-    onrestart class_restart --only-enabled hal
-    onrestart class_restart --only-enabled early_hal
-    task_profiles ServiceCapacityLow
+    onrestart class_restart main
+    onrestart class_restart hal
+    onrestart class_restart early_hal
+    writepid /dev/cpuset/system-background/tasks
     shutdown critical

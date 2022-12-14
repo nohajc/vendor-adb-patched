@@ -50,21 +50,34 @@ std::shared_ptr<Display> createDisplay(
 Display::~Display() = default;
 
 void Display::setConfiguration(const compositionengine::DisplayCreationArgs& args) {
-    mId = args.id;
-    mIsVirtual = !args.connectionType;
+    mIsVirtual = !args.physical;
+    mId = args.physical ? std::make_optional(args.physical->id) : std::nullopt;
     mPowerAdvisor = args.powerAdvisor;
+
     editState().isSecure = args.isSecure;
-    editState().displaySpace.bounds = Rect(args.pixels);
+
     setLayerStackFilter(args.layerStackId,
-                        args.connectionType == ui::DisplayConnectionType::Internal);
+                        args.physical ? args.physical->type == DisplayConnectionType::Internal
+                                      : false);
     setName(args.name);
+
+    if (!args.physical && args.useHwcVirtualDisplays) {
+        mId = maybeAllocateDisplayIdForVirtualDisplay(args.pixels, args.pixelFormat);
+    }
+}
+
+std::optional<DisplayId> Display::maybeAllocateDisplayIdForVirtualDisplay(
+        ui::Size pixels, ui::PixelFormat pixelFormat) const {
+    auto& hwc = getCompositionEngine().getHwComposer();
+    return hwc.allocateVirtualDisplay(static_cast<uint32_t>(pixels.width),
+                                      static_cast<uint32_t>(pixels.height), &pixelFormat);
 }
 
 bool Display::isValid() const {
     return Output::isValid() && mPowerAdvisor;
 }
 
-DisplayId Display::getId() const {
+const std::optional<DisplayId>& Display::getId() const {
     return mId;
 }
 
@@ -80,29 +93,31 @@ std::optional<DisplayId> Display::getDisplayId() const {
     return mId;
 }
 
-void Display::disconnect() {
-    if (mIsDisconnected) {
-        return;
-    }
-
-    mIsDisconnected = true;
-
-    if (const auto id = HalDisplayId::tryCast(mId)) {
-        getCompositionEngine().getHwComposer().disconnectDisplay(*id);
-    }
+void Display::setDisplayIdForTesting(std::optional<DisplayId> displayId) {
+    mId = displayId;
 }
 
-void Display::setColorTransform(const compositionengine::CompositionRefreshArgs& args) {
-    Output::setColorTransform(args);
-    const auto halDisplayId = HalDisplayId::tryCast(mId);
-    if (mIsDisconnected || !halDisplayId || CC_LIKELY(!args.colorTransformMatrix)) {
+void Display::disconnect() {
+    if (!mId) {
         return;
     }
 
     auto& hwc = getCompositionEngine().getHwComposer();
-    status_t result = hwc.setColorTransform(*halDisplayId, *args.colorTransformMatrix);
+    hwc.disconnectDisplay(*mId);
+    mId.reset();
+}
+
+void Display::setColorTransform(const compositionengine::CompositionRefreshArgs& args) {
+    Output::setColorTransform(args);
+
+    if (!mId || CC_LIKELY(!args.colorTransformMatrix)) {
+        return;
+    }
+
+    auto& hwc = getCompositionEngine().getHwComposer();
+    status_t result = hwc.setColorTransform(*mId, *args.colorTransformMatrix);
     ALOGE_IF(result != NO_ERROR, "Failed to set color transform on display \"%s\": %d",
-             to_string(mId).c_str(), result);
+             mId ? to_string(*mId).c_str() : "", result);
 }
 
 void Display::setColorProfile(const ColorProfile& colorProfile) {
@@ -124,10 +139,8 @@ void Display::setColorProfile(const ColorProfile& colorProfile) {
 
     Output::setColorProfile(colorProfile);
 
-    const auto physicalId = PhysicalDisplayId::tryCast(mId);
-    LOG_FATAL_IF(!physicalId);
-    getCompositionEngine().getHwComposer().setActiveColorMode(*physicalId, colorProfile.mode,
-                                                              colorProfile.renderIntent);
+    auto& hwc = getCompositionEngine().getHwComposer();
+    hwc.setActiveColorMode(*mId, colorProfile.mode, colorProfile.renderIntent);
 }
 
 void Display::dump(std::string& out) const {
@@ -136,8 +149,14 @@ void Display::dump(std::string& out) const {
     StringAppendF(&out, "   Composition Display State: [\"%s\"]", getName().c_str());
 
     out.append("\n   ");
+
     dumpVal(out, "isVirtual", mIsVirtual);
-    dumpVal(out, "DisplayId", to_string(mId));
+    if (mId) {
+        dumpVal(out, "hwcId", to_string(*mId));
+    } else {
+        StringAppendF(&out, "no hwcId, ");
+    }
+
     out.append("\n");
 
     Output::dumpBase(out);
@@ -158,24 +177,31 @@ void Display::createClientCompositionCache(uint32_t cacheSize) {
 
 std::unique_ptr<compositionengine::OutputLayer> Display::createOutputLayer(
         const sp<compositionengine::LayerFE>& layerFE) const {
-    auto outputLayer = impl::createOutputLayer(*this, layerFE);
+    auto result = impl::createOutputLayer(*this, layerFE);
 
-    if (const auto halDisplayId = HalDisplayId::tryCast(mId);
-        outputLayer && !mIsDisconnected && halDisplayId) {
+    if (result && mId) {
         auto& hwc = getCompositionEngine().getHwComposer();
-        auto hwcLayer = hwc.createLayer(*halDisplayId);
+        auto displayId = *mId;
+        // Note: For the moment we ensure it is safe to take a reference to the
+        // HWComposer implementation by destroying all the OutputLayers (and
+        // hence the HWC2::Layers they own) before setting a new HWComposer. See
+        // for example SurfaceFlinger::updateVrFlinger().
+        // TODO(b/121291683): Make this safer.
+        auto hwcLayer = std::shared_ptr<HWC2::Layer>(hwc.createLayer(displayId),
+                                                     [&hwc, displayId](HWC2::Layer* layer) {
+                                                         hwc.destroyLayer(displayId, layer);
+                                                     });
         ALOGE_IF(!hwcLayer, "Failed to create a HWC layer for a HWC supported display %s",
                  getName().c_str());
-        outputLayer->setHwcLayer(std::move(hwcLayer));
+        result->setHwcLayer(std::move(hwcLayer));
     }
-    return outputLayer;
+    return result;
 }
 
 void Display::setReleasedLayers(const compositionengine::CompositionRefreshArgs& refreshArgs) {
     Output::setReleasedLayers(refreshArgs);
 
-    if (mIsDisconnected || GpuVirtualDisplayId::tryCast(mId) ||
-        refreshArgs.layersWithQueuedFrames.empty()) {
+    if (!mId || refreshArgs.layersWithQueuedFrames.empty()) {
         return;
     }
 
@@ -211,26 +237,19 @@ void Display::chooseCompositionStrategy() {
     ATRACE_CALL();
     ALOGV(__FUNCTION__);
 
-    if (mIsDisconnected) {
-        return;
-    }
-
     // Default to the base settings -- client composition only.
     Output::chooseCompositionStrategy();
 
-    // If we don't have a HWC display, then we are done.
-    const auto halDisplayId = HalDisplayId::tryCast(mId);
-    if (!halDisplayId) {
+    // If we don't have a HWC display, then we are done
+    if (!mId) {
         return;
     }
 
     // Get any composition changes requested by the HWC device, and apply them.
     std::optional<android::HWComposer::DeviceRequestedChanges> changes;
     auto& hwc = getCompositionEngine().getHwComposer();
-    if (status_t result =
-                hwc.getDeviceCompositionChanges(*halDisplayId, anyLayersRequireClientComposition(),
-                                                getState().earliestPresentTime,
-                                                getState().previousPresentFence, &changes);
+    if (status_t result = hwc.getDeviceCompositionChanges(*mId, anyLayersRequireClientComposition(),
+                                                          &changes);
         result != NO_ERROR) {
         ALOGE("chooseCompositionStrategy failed for %s: %d (%s)", getName().c_str(), result,
               strerror(-result));
@@ -251,12 +270,8 @@ void Display::chooseCompositionStrategy() {
 
 bool Display::getSkipColorTransform() const {
     const auto& hwc = getCompositionEngine().getHwComposer();
-    if (const auto halDisplayId = HalDisplayId::tryCast(mId)) {
-        return hwc.hasDisplayCapability(*halDisplayId,
-                                        hal::DisplayCapability::SKIP_CLIENT_COLOR_TRANSFORM);
-    }
-
-    return hwc.hasCapability(hal::Capability::SKIP_CLIENT_COLOR_TRANSFORM);
+    return mId ? hwc.hasDisplayCapability(*mId, hal::DisplayCapability::SKIP_CLIENT_COLOR_TRANSFORM)
+               : hwc.hasCapability(hal::Capability::SKIP_CLIENT_COLOR_TRANSFORM);
 }
 
 bool Display::anyLayersRequireClientComposition() const {
@@ -316,25 +331,23 @@ void Display::applyClientTargetRequests(const ClientTargetProperty& clientTarget
     if (clientTargetProperty.dataspace == ui::Dataspace::UNKNOWN) {
         return;
     }
-
-    editState().dataspace = clientTargetProperty.dataspace;
+    auto outputState = editState();
+    outputState.dataspace = clientTargetProperty.dataspace;
     getRenderSurface()->setBufferDataspace(clientTargetProperty.dataspace);
     getRenderSurface()->setBufferPixelFormat(clientTargetProperty.pixelFormat);
 }
 
 compositionengine::Output::FrameFences Display::presentAndGetFrameFences() {
-    auto fences = impl::Output::presentAndGetFrameFences();
+    auto result = impl::Output::presentAndGetFrameFences();
 
-    const auto halDisplayIdOpt = HalDisplayId::tryCast(mId);
-    if (mIsDisconnected || !halDisplayIdOpt) {
-        return fences;
+    if (!mId) {
+        return result;
     }
 
     auto& hwc = getCompositionEngine().getHwComposer();
-    hwc.presentAndGetReleaseFences(*halDisplayIdOpt, getState().earliestPresentTime,
-                                   getState().previousPresentFence);
+    hwc.presentAndGetReleaseFences(*mId);
 
-    fences.presentFence = hwc.getPresentFence(*halDisplayIdOpt);
+    result.presentFence = hwc.getPresentFence(*mId);
 
     // TODO(b/121291683): Change HWComposer call to return entire map
     for (const auto* layer : getOutputLayersOrderedByZ()) {
@@ -343,19 +356,19 @@ compositionengine::Output::FrameFences Display::presentAndGetFrameFences() {
             continue;
         }
 
-        fences.layerFences.emplace(hwcLayer, hwc.getLayerReleaseFence(*halDisplayIdOpt, hwcLayer));
+        result.layerFences.emplace(hwcLayer, hwc.getLayerReleaseFence(*mId, hwcLayer));
     }
 
-    hwc.clearReleaseFences(*halDisplayIdOpt);
+    hwc.clearReleaseFences(*mId);
 
-    return fences;
+    return result;
 }
 
 void Display::setExpensiveRenderingExpected(bool enabled) {
     Output::setExpensiveRenderingExpected(enabled);
 
-    if (mPowerAdvisor && !GpuVirtualDisplayId::tryCast(mId)) {
-        mPowerAdvisor->setExpensiveRenderingExpected(mId, enabled);
+    if (mPowerAdvisor && mId) {
+        mPowerAdvisor->setExpensiveRenderingExpected(*mId, enabled);
     }
 }
 
@@ -364,10 +377,11 @@ void Display::finishFrame(const compositionengine::CompositionRefreshArgs& refre
     // 1) It is being handled by hardware composer, which may need this to
     //    keep its virtual display state machine in sync, or
     // 2) There is work to be done (the dirty region isn't empty)
-    if (GpuVirtualDisplayId::tryCast(mId) &&
-        getDirtyRegion(refreshArgs.repaintEverything).isEmpty()) {
-        ALOGV("Skipping display composition");
-        return;
+    if (!mId) {
+        if (getDirtyRegion(refreshArgs.repaintEverything).isEmpty()) {
+            ALOGV("Skipping display composition");
+            return;
+        }
     }
 
     impl::Output::finishFrame(refreshArgs);

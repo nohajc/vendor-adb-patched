@@ -51,15 +51,7 @@ sp<GraphicBuffer> ImageConsumer::dequeueBuffer(int* outSlotid, android_dataspace
     }
 
     int slot = item.mSlot;
-    *outQueueEmpty = false;
     if (item.mFence->isValid()) {
-        // If fence is not signaled, that means frame is not ready and
-        // outQueueEmpty is set to true. By the time the fence is signaled,
-        // there may be a new buffer queued. This is a proper detection for an
-        // empty queue and it is needed to avoid infinite loop in
-        // ASurfaceTexture_dequeueBuffer (see b/159921224).
-        *outQueueEmpty = item.mFence->getStatus() == Fence::Status::Unsignaled;
-
         // Wait on the producer fence for the buffer to be ready.
         err = fenceWait(item.mFence->get(), fencePassThroughHandle);
         if (err != OK) {
@@ -120,6 +112,7 @@ sp<GraphicBuffer> ImageConsumer::dequeueBuffer(int* outSlotid, android_dataspace
     st.mCurrentFrameNumber = item.mFrameNumber;
     st.computeCurrentTransformMatrixLocked();
 
+    *outQueueEmpty = false;
     *outDataspace = item.mDataSpace;
     *outSlotid = slot;
     return st.mSlots[slot].mGraphicBuffer;

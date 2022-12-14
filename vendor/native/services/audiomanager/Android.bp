@@ -7,7 +7,7 @@ package {
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
-cc_library {
+cc_library_shared {
     name: "libaudiomanager",
 
     srcs: [

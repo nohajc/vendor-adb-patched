@@ -110,7 +110,6 @@ void GpuMemTracer::traceInitialCounters() {
     mGpuMem->traverseGpuMemTotals([](int64_t ts, uint32_t gpuId, uint32_t pid, uint64_t size) {
         GpuMemDataSource::Trace([&](GpuMemDataSource::TraceContext ctx) {
             auto packet = ctx.NewTracePacket();
-            packet->set_timestamp_clock_id(perfetto::protos::pbzero::BUILTIN_CLOCK_MONOTONIC);
             packet->set_timestamp(ts);
             auto* event = packet->set_gpu_mem_total_event();
             event->set_gpu_id(gpuId);

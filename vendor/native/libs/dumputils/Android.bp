@@ -26,7 +26,6 @@ cc_library {
 
     shared_libs: [
         "libbase",
-        "libbinder",
         "libhidlbase",
         "liblog",
         "libutils",
@@ -34,10 +33,7 @@ cc_library {
 
     srcs: ["dump_utils.cpp"],
 
-    cflags: [
-        "-Wall",
-        "-Werror",
-    ],
+    cflags: ["-Wall", "-Werror"],
 
     export_include_dirs: [
         "include",

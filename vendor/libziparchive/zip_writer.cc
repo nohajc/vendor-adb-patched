@@ -236,8 +236,7 @@ int32_t ZipWriter::StartAlignedEntryWithTime(std::string_view path, size_t flags
   if (flags & ZipWriter::kCompress) {
     file_entry.compression_method = kCompressDeflated;
 
-    int compression_level = (flags & ZipWriter::kDefaultCompression) ? 6 : 9;
-    int32_t result = PrepareDeflate(compression_level);
+    int32_t result = PrepareDeflate();
     if (result != kNoError) {
       return result;
     }
@@ -316,7 +315,7 @@ int32_t ZipWriter::GetLastEntry(FileEntry* out_entry) {
   return kNoError;
 }
 
-int32_t ZipWriter::PrepareDeflate(int compression_level) {
+int32_t ZipWriter::PrepareDeflate() {
   CHECK(state_ == State::kWritingZip);
 
   // Initialize the z_stream for compression.
@@ -324,8 +323,8 @@ int32_t ZipWriter::PrepareDeflate(int compression_level) {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
-  int zerr = deflateInit2(z_stream_.get(), compression_level, Z_DEFLATED,
-                          -MAX_WBITS, DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY);
+  int zerr = deflateInit2(z_stream_.get(), Z_BEST_COMPRESSION, Z_DEFLATED, -MAX_WBITS,
+                          DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY);
 #pragma GCC diagnostic pop
 
   if (zerr != Z_OK) {

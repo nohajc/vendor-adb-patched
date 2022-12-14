@@ -64,13 +64,15 @@ cc_library {
         symbol_file: "libnativewindow.map.txt",
         unversioned: true,
         override_export_include_dirs: [
-            "include",
+            "include"
         ],
     },
     export_include_dirs: [
         "include",
         "include-private",
     ],
+
+    clang: true,
 
     cflags: [
         "-Wall",

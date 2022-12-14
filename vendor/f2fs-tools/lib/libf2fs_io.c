@@ -23,13 +23,9 @@
 #include <mntent.h>
 #endif
 #include <time.h>
-#ifdef HAVE_SYS_STAT_H
+#ifndef ANDROID_WINDOWS_HOST
 #include <sys/stat.h>
-#endif
-#ifdef HAVE_SYS_MOUNT_H
 #include <sys/mount.h>
-#endif
-#ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
 #ifdef HAVE_LINUX_HDREG_H
@@ -43,11 +39,11 @@
 
 struct f2fs_configuration c;
 
-#ifdef HAVE_SPARSE_SPARSE_H
+#ifdef WITH_ANDROID
 #include <sparse/sparse.h>
 struct sparse_file *f2fs_sparse_file;
 static char **blocks;
-uint64_t blocks_count;
+u_int64_t blocks_count;
 static char *zeroed_block;
 #endif
 
@@ -402,7 +398,7 @@ int dev_read_version(void *buf, __u64 offset, size_t len)
 	return 0;
 }
 
-#ifdef HAVE_SPARSE_SPARSE_H
+#ifdef WITH_ANDROID
 static int sparse_read_blk(__u64 block, int count, void *buf)
 {
 	int i;
@@ -501,22 +497,9 @@ static int sparse_merge_blocks(uint64_t start, uint64_t num, int zero)
 					F2FS_BLKSIZE * num, start);
 }
 #else
-static int sparse_read_blk(__u64 UNUSED(block),
-				int UNUSED(count), void *UNUSED(buf))
-{
-	return 0;
-}
-
-static int sparse_write_blk(__u64 UNUSED(block),
-				int UNUSED(count), const void *UNUSED(buf))
-{
-	return 0;
-}
-
-static int sparse_write_zeroed_blk(__u64 UNUSED(block), int UNUSED(count))
-{
-	return 0;
-}
+static int sparse_read_blk(__u64 block, int count, void *buf) { return 0; }
+static int sparse_write_blk(__u64 block, int count, const void *buf) { return 0; }
+static int sparse_write_zeroed_blk(__u64 block, int count) { return 0; }
 #endif
 
 int dev_read(void *buf, __u64 offset, size_t len)
@@ -651,7 +634,7 @@ int dev_reada_block(__u64 blk_addr)
 
 int f2fs_fsync_device(void)
 {
-#ifdef HAVE_FSYNC
+#ifndef ANDROID_WINDOWS_HOST
 	int i;
 
 	for (i = 0; i < c.ndevs; i++) {
@@ -666,7 +649,7 @@ int f2fs_fsync_device(void)
 
 int f2fs_init_sparse_file(void)
 {
-#ifdef HAVE_SPARSE_SPARSE_H
+#ifdef WITH_ANDROID
 	if (c.func == MKFS) {
 		f2fs_sparse_file = sparse_file_new(F2FS_BLKSIZE, c.device_size);
 		if (!f2fs_sparse_file)
@@ -678,7 +661,7 @@ int f2fs_init_sparse_file(void)
 			return -1;
 
 		c.device_size = sparse_file_len(f2fs_sparse_file, 0, 0);
-		c.device_size &= (~((uint64_t)(F2FS_BLKSIZE - 1)));
+		c.device_size &= (~((u_int64_t)(F2FS_BLKSIZE - 1)));
 	}
 
 	if (sparse_file_block_size(f2fs_sparse_file) != F2FS_BLKSIZE) {
@@ -708,7 +691,7 @@ int f2fs_init_sparse_file(void)
 
 void f2fs_release_sparse_resource(void)
 {
-#ifdef HAVE_SPARSE_SPARSE_H
+#ifdef WITH_ANDROID
 	int j;
 
 	if (c.sparse_mode) {
@@ -733,7 +716,7 @@ int f2fs_finalize_device(void)
 	int i;
 	int ret = 0;
 
-#ifdef HAVE_SPARSE_SPARSE_H
+#ifdef WITH_ANDROID
 	if (c.sparse_mode) {
 		int64_t chunk_start = (blocks[0] == NULL) ? -1 : 0;
 		uint64_t j;
@@ -800,7 +783,7 @@ int f2fs_finalize_device(void)
 	 * in the block device page cache.
 	 */
 	for (i = 0; i < c.ndevs; i++) {
-#ifdef HAVE_FSYNC
+#ifndef ANDROID_WINDOWS_HOST
 		ret = fsync(c.devices[i].fd);
 		if (ret < 0) {
 			MSG(0, "\tError: Could not conduct fsync!!!\n");

@@ -21,7 +21,6 @@
 #include <sys/types.h>
 #include <ostream>
 
-#include <math/HashCombine.h>
 #include <ui/Rect.h>
 #include <utils/Flattenable.h>
 
@@ -234,18 +233,5 @@ static inline void PrintTo(const Region& region, ::std::ostream* os) {
 
 // ---------------------------------------------------------------------------
 }; // namespace android
-
-namespace std {
-template <>
-struct hash<android::Region> {
-    size_t operator()(const android::Region& region) const {
-        size_t hash = 0;
-        for (const android::Rect& rect : region) {
-            android::hashCombineSingle(hash, rect);
-        }
-        return hash;
-    }
-};
-} // namespace std
 
 #endif // ANDROID_UI_REGION_H

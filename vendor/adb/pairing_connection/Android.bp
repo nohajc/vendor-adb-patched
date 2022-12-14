@@ -81,7 +81,6 @@ cc_library {
     name: "libadb_pairing_connection",
     defaults: ["libadb_pairing_connection_defaults"],
 
-    min_sdk_version: "30",
     apex_available: [
         "com.android.adbd",
     ],
@@ -164,7 +163,6 @@ cc_library {
     name: "libadb_pairing_server",
     defaults: ["libadb_pairing_server_defaults"],
 
-    min_sdk_version: "30",
     apex_available: [
         "com.android.adbd",
     ],

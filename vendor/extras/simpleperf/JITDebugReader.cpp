@@ -33,7 +33,6 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 
-#include "JITDebugReader_impl.h"
 #include "dso.h"
 #include "environment.h"
 #include "read_apk.h"
@@ -203,6 +202,53 @@ static_assert(sizeof(JITCodeEntry32V2) == 40, "");
 static_assert(sizeof(JITCodeEntry64) == 40, "");
 static_assert(sizeof(JITCodeEntry64V2) == 48, "");
 #endif
+
+class TempSymFile {
+ public:
+  static std::unique_ptr<TempSymFile> Create(std::string&& path, bool remove_in_destructor) {
+    FILE* fp = fopen(path.data(), "web");
+    if (fp == nullptr) {
+      PLOG(ERROR) << "failed to create " << path;
+      return nullptr;
+    }
+    if (remove_in_destructor) {
+      ScopedTempFiles::RegisterTempFile(path);
+    }
+    return std::unique_ptr<TempSymFile>(new TempSymFile(std::move(path), fp));
+  }
+
+  bool WriteEntry(const char* data, size_t size) {
+    if (fwrite(data, size, 1, fp_.get()) != 1) {
+      PLOG(ERROR) << "failed to write to " << path_;
+      return false;
+    }
+    file_offset_ += size;
+    need_flush_ = true;
+    return true;
+  }
+
+  bool Flush() {
+    if (need_flush_) {
+      if (fflush(fp_.get()) != 0) {
+        PLOG(ERROR) << "failed to flush " << path_;
+        return false;
+      }
+      need_flush_ = false;
+    }
+    return true;
+  }
+
+  const std::string& GetPath() const { return path_; }
+  uint64_t GetOffset() const { return file_offset_; }
+
+ private:
+  TempSymFile(std::string&& path, FILE* fp) : path_(std::move(path)), fp_(fp, fclose) {}
+
+  const std::string path_;
+  std::unique_ptr<FILE, decltype(&fclose)> fp_;
+  uint64_t file_offset_ = 0;
+  bool need_flush_ = false;
+};
 
 JITDebugReader::JITDebugReader(const std::string& symfile_prefix, SymFileOption symfile_option,
                                SyncOption sync_option)
@@ -411,15 +457,17 @@ bool JITDebugReader::InitializeProcess(Process& process) {
   if (art_lib_path.empty()) {
     return false;
   }
+  process.is_64bit = art_lib_path.find("lib64") != std::string::npos;
 
   // 2. Read libart.so to find the addresses of __jit_debug_descriptor and __dex_debug_descriptor.
-  const DescriptorsLocation* location = GetDescriptorsLocation(art_lib_path);
+  const DescriptorsLocation* location = GetDescriptorsLocation(art_lib_path, process.is_64bit);
   if (location == nullptr) {
     return false;
   }
-  process.is_64bit = location->is_64bit;
-  process.jit_descriptor_addr = location->jit_descriptor_addr + min_vaddr_in_memory;
-  process.dex_descriptor_addr = location->dex_descriptor_addr + min_vaddr_in_memory;
+  process.descriptors_addr = location->relative_addr + min_vaddr_in_memory;
+  process.descriptors_size = location->size;
+  process.jit_descriptor_offset = location->jit_descriptor_offset;
+  process.dex_descriptor_offset = location->dex_descriptor_offset;
 
   for (auto& map : thread_mmaps) {
     if (StartsWith(map.name, kJITZygoteCacheMmapPrefix)) {
@@ -432,10 +480,10 @@ bool JITDebugReader::InitializeProcess(Process& process) {
 }
 
 const JITDebugReader::DescriptorsLocation* JITDebugReader::GetDescriptorsLocation(
-    const std::string& art_lib_path) {
+    const std::string& art_lib_path, bool is_64bit) {
   auto it = descriptors_location_cache_.find(art_lib_path);
   if (it != descriptors_location_cache_.end()) {
-    return it->second.jit_descriptor_addr == 0u ? nullptr : &it->second;
+    return it->second.relative_addr == 0u ? nullptr : &it->second;
   }
   DescriptorsLocation& location = descriptors_location_cache_[art_lib_path];
 
@@ -467,9 +515,18 @@ const JITDebugReader::DescriptorsLocation* JITDebugReader::GetDescriptorsLocatio
   if (jit_addr == 0u || dex_addr == 0u) {
     return nullptr;
   }
-  location.is_64bit = elf->Is64Bit();
-  location.jit_descriptor_addr = jit_addr;
-  location.dex_descriptor_addr = dex_addr;
+  location.relative_addr = std::min(jit_addr, dex_addr);
+  location.size = std::max(jit_addr, dex_addr) +
+                  (is_64bit ? sizeof(JITDescriptor64) : sizeof(JITDescriptor32)) -
+                  location.relative_addr;
+  if (location.size >= 4096u) {
+    PLOG(WARNING) << "The descriptors_size is unexpected large: " << location.size;
+  }
+  if (descriptors_buf_.size() < location.size) {
+    descriptors_buf_.resize(location.size);
+  }
+  location.jit_descriptor_offset = jit_addr - location.relative_addr;
+  location.dex_descriptor_offset = dex_addr - location.relative_addr;
   return &location;
 }
 
@@ -494,40 +551,14 @@ bool JITDebugReader::ReadRemoteMem(Process& process, uint64_t remote_addr, uint6
 
 bool JITDebugReader::ReadDescriptors(Process& process, Descriptor* jit_descriptor,
                                      Descriptor* dex_descriptor) {
-  if (process.is_64bit) {
-    return ReadDescriptorsImpl<JITDescriptor64>(process, jit_descriptor, dex_descriptor);
-  }
-  return ReadDescriptorsImpl<JITDescriptor32>(process, jit_descriptor, dex_descriptor);
-}
-
-template <typename DescriptorT>
-bool JITDebugReader::ReadDescriptorsImpl(Process& process, Descriptor* jit_descriptor,
-                                         Descriptor* dex_descriptor) {
-  DescriptorT raw_jit_descriptor;
-  DescriptorT raw_dex_descriptor;
-  iovec local_iovs[2];
-  local_iovs[0].iov_base = &raw_jit_descriptor;
-  local_iovs[0].iov_len = sizeof(DescriptorT);
-  local_iovs[1].iov_base = &raw_dex_descriptor;
-  local_iovs[1].iov_len = sizeof(DescriptorT);
-  iovec remote_iovs[2];
-  remote_iovs[0].iov_base =
-      reinterpret_cast<void*>(static_cast<uintptr_t>(process.jit_descriptor_addr));
-  remote_iovs[0].iov_len = sizeof(DescriptorT);
-  remote_iovs[1].iov_base =
-      reinterpret_cast<void*>(static_cast<uintptr_t>(process.dex_descriptor_addr));
-  remote_iovs[1].iov_len = sizeof(DescriptorT);
-  ssize_t result = process_vm_readv(process.pid, local_iovs, 2, remote_iovs, 2, 0);
-  if (static_cast<size_t>(result) != sizeof(DescriptorT) * 2) {
-    PLOG(DEBUG) << "ReadDescriptor(pid " << process.pid << ", jit_addr " << std::hex
-                << process.jit_descriptor_addr << ", dex_addr " << process.dex_descriptor_addr
-                << ") failed";
-    process.died = true;
+  if (!ReadRemoteMem(process, process.descriptors_addr, process.descriptors_size,
+                     descriptors_buf_.data())) {
     return false;
   }
-
-  if (!ParseDescriptor(raw_jit_descriptor, jit_descriptor) ||
-      !ParseDescriptor(raw_dex_descriptor, dex_descriptor)) {
+  if (!LoadDescriptor(process.is_64bit, &descriptors_buf_[process.jit_descriptor_offset],
+                      jit_descriptor) ||
+      !LoadDescriptor(process.is_64bit, &descriptors_buf_[process.dex_descriptor_offset],
+                      dex_descriptor)) {
     return false;
   }
   jit_descriptor->type = DescriptorType::kJIT;
@@ -535,8 +566,17 @@ bool JITDebugReader::ReadDescriptorsImpl(Process& process, Descriptor* jit_descr
   return true;
 }
 
+bool JITDebugReader::LoadDescriptor(bool is_64bit, const char* data, Descriptor* descriptor) {
+  if (is_64bit) {
+    return LoadDescriptorImpl<JITDescriptor64>(data, descriptor);
+  }
+  return LoadDescriptorImpl<JITDescriptor32>(data, descriptor);
+}
+
 template <typename DescriptorT>
-bool JITDebugReader::ParseDescriptor(const DescriptorT& raw_descriptor, Descriptor* descriptor) {
+bool JITDebugReader::LoadDescriptorImpl(const char* data, Descriptor* descriptor) {
+  DescriptorT raw_descriptor;
+  MoveFromBinaryFormat(raw_descriptor, data);
   if (!raw_descriptor.Valid()) {
     return false;
   }

@@ -58,5 +58,5 @@ service logcatd /system/bin/logcatd -L -b ${logd.logpersistd.buffer:-all} -v thr
     # logd for write to /data/misc/logd, log group for read from log daemon
     user logd
     group log
-    task_profiles ServiceCapacityLow
+    writepid /dev/cpuset/system-background/tasks
     oom_score_adjust -600

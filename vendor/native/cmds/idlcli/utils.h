@@ -17,7 +17,6 @@
 #ifndef FRAMEWORK_NATIVE_CMDS_IDLCLI_UTILS_H_
 #define FRAMEWORK_NATIVE_CMDS_IDLCLI_UTILS_H_
 
-#include <android/binder_enums.h>
 #include <hidl/HidlSupport.h>
 
 #include <iomanip>
@@ -67,7 +66,7 @@ inline std::istream &operator>>(std::istream &stream, uint8_t &out) {
 
 } // namespace overrides
 
-template <typename T, typename R = ndk::enum_range<T>>
+template <typename T, typename R = hardware::hidl_enum_range<T>>
 inline std::istream &operator>>(std::istream &stream, T &out) {
     using overrides::operator>>;
     auto validRange = R();
@@ -249,7 +248,7 @@ private:
 
 template <typename T>
 class CommandWithSubcommands : public Command {
-protected:
+private:
     Status doArgs(Args &args) override {
         mCommand = CommandRegistry<T>::Create(*args.get());
         if (!mCommand) {

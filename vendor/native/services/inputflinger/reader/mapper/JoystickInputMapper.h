@@ -36,26 +36,6 @@ public:
 
 private:
     struct Axis {
-        explicit Axis(const RawAbsoluteAxisInfo& rawAxisInfo, const AxisInfo& axisInfo,
-                      bool explicitlyMapped, float scale, float offset, float highScale,
-                      float highOffset, float min, float max, float flat, float fuzz,
-                      float resolution, float filter)
-              : rawAxisInfo(rawAxisInfo),
-                axisInfo(axisInfo),
-                explicitlyMapped(explicitlyMapped),
-                scale(scale),
-                offset(offset),
-                highScale(highScale),
-                highOffset(highOffset),
-                min(min),
-                max(max),
-                flat(flat),
-                fuzz(fuzz),
-                resolution(resolution),
-                filter(filter) {
-            resetValue();
-        }
-
         RawAbsoluteAxisInfo rawAxisInfo;
         AxisInfo axisInfo;
 
@@ -78,6 +58,26 @@ private:
         float highCurrentValue; // current value of high split
         float highNewValue;     // most recent value of high split
 
+        void initialize(const RawAbsoluteAxisInfo& rawAxisInfo, const AxisInfo& axisInfo,
+                        bool explicitlyMapped, float scale, float offset, float highScale,
+                        float highOffset, float min, float max, float flat, float fuzz,
+                        float resolution) {
+            this->rawAxisInfo = rawAxisInfo;
+            this->axisInfo = axisInfo;
+            this->explicitlyMapped = explicitlyMapped;
+            this->scale = scale;
+            this->offset = offset;
+            this->highScale = highScale;
+            this->highOffset = highOffset;
+            this->min = min;
+            this->max = max;
+            this->flat = flat;
+            this->fuzz = fuzz;
+            this->resolution = resolution;
+            this->filter = 0;
+            resetValue();
+        }
+
         void resetValue() {
             this->currentValue = 0;
             this->newValue = 0;
@@ -86,13 +86,10 @@ private:
         }
     };
 
-    static Axis createAxis(const AxisInfo& AxisInfo, const RawAbsoluteAxisInfo& rawAxisInfo,
-                           bool explicitlyMapped);
-
     // Axes indexed by raw ABS_* axis index.
-    std::unordered_map<int32_t, Axis> mAxes;
+    KeyedVector<int32_t, Axis> mAxes;
 
-    void sync(nsecs_t when, nsecs_t readTime, bool force);
+    void sync(nsecs_t when, bool force);
 
     bool haveAxis(int32_t axisId);
     void pruneAxes(bool ignoreExplicitlyMappedAxes);

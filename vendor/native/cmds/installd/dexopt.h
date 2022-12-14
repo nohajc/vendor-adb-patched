@@ -121,18 +121,11 @@ bool hash_secondary_dex_file(const std::string& dex_path,
         const std::string& pkgname, int uid, const std::optional<std::string>& volume_uuid,
         int storage_flag, std::vector<uint8_t>* out_secondary_dex_hash);
 
-// completed pass false if it is canceled. Otherwise it will be true even if there is other
-// error.
 int dexopt(const char *apk_path, uid_t uid, const char *pkgName, const char *instruction_set,
         int dexopt_needed, const char* oat_dir, int dexopt_flags, const char* compiler_filter,
         const char* volume_uuid, const char* class_loader_context, const char* se_info,
         bool downgrade, int target_sdk_version, const char* profile_name,
-        const char* dexMetadataPath, const char* compilation_reason, std::string* error_msg,
-        /* out */ bool* completed = nullptr);
-
-bool is_dexopt_blocked();
-
-void control_dexopt_blocking(bool block);
+        const char* dexMetadataPath, const char* compilation_reason, std::string* error_msg);
 
 bool calculate_oat_file_path_default(char path[PKG_PATH_MAX], const char *oat_dir,
         const char *apk_path, const char *instruction_set);

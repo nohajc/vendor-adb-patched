@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+
 #undef LOG_TAG
 #define LOG_TAG "DisplayIdentification"
 
@@ -25,7 +29,6 @@
 #include <log/log.h>
 
 #include "DisplayIdentification.h"
-#include "Hash.h"
 
 namespace android {
 namespace {
@@ -35,6 +38,7 @@ using byte_view = std::basic_string_view<uint8_t>;
 constexpr size_t kEdidBlockSize = 128;
 constexpr size_t kEdidHeaderLength = 5;
 
+constexpr uint16_t kFallbackEdidManufacturerId = 0;
 constexpr uint16_t kVirtualEdidManufacturerId = 0xffffu;
 
 std::optional<uint8_t> getEdidDescriptorType(const byte_view& view) {
@@ -67,8 +71,12 @@ char getPnpLetter(uint16_t id) {
 
 DeviceProductInfo buildDeviceProductInfo(const Edid& edid) {
     DeviceProductInfo info;
-    info.name.assign(edid.displayName);
-    info.productId = std::to_string(edid.productId);
+    std::copy(edid.displayName.begin(), edid.displayName.end(), info.name.begin());
+    info.name[edid.displayName.size()] = '\0';
+
+    const auto productId = std::to_string(edid.productId);
+    std::copy(productId.begin(), productId.end(), info.productId.begin());
+    info.productId[productId.size()] = '\0';
     info.manufacturerPnpId = edid.pnpId;
 
     constexpr uint8_t kModelYearFlag = 0xff;
@@ -91,6 +99,8 @@ DeviceProductInfo buildDeviceProductInfo(const Edid& edid) {
     if (edid.cea861Block && edid.cea861Block->hdmiVendorDataBlock) {
         const auto& address = edid.cea861Block->hdmiVendorDataBlock->physicalAddress;
         info.relativeAddress = {address.a, address.b, address.c, address.d};
+    } else {
+        info.relativeAddress = DeviceProductInfo::NO_RELATIVE_ADDRESS;
     }
     return info;
 }
@@ -122,8 +132,8 @@ Cea861ExtensionBlock parseCea861Block(const byte_view& block) {
         constexpr uint8_t kVendorSpecificDataBlockTag = 0x3;
 
         if (tag == kVendorSpecificDataBlockTag) {
-            const uint32_t ieeeRegistrationId = static_cast<uint32_t>(
-                    dataBlock[1] | (dataBlock[2] << 8) | (dataBlock[3] << 16));
+            const uint32_t ieeeRegistrationId =
+                    dataBlock[1] | (dataBlock[2] << 8) | (dataBlock[3] << 16);
             constexpr uint32_t kHdmiIeeeRegistrationId = 0xc03;
 
             if (ieeeRegistrationId == kHdmiIeeeRegistrationId) {
@@ -147,6 +157,14 @@ Cea861ExtensionBlock parseCea861Block(const byte_view& block) {
 }
 
 } // namespace
+
+uint16_t DisplayId::manufacturerId() const {
+    return static_cast<uint16_t>(value >> 40);
+}
+
+DisplayId DisplayId::fromEdid(uint8_t port, uint16_t manufacturerId, uint32_t modelHash) {
+    return {(static_cast<Type>(manufacturerId) << 40) | (static_cast<Type>(modelHash) << 8) | port};
+}
 
 bool isEdid(const DisplayIdentificationData& data) {
     const uint8_t kMagic[] = {0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0};
@@ -172,7 +190,7 @@ std::optional<Edid> parseEdid(const DisplayIdentificationData& edid) {
 
     // Plug and play ID encoded as big-endian 16-bit value.
     const uint16_t manufacturerId =
-            static_cast<uint16_t>((edid[kManufacturerOffset] << 8) | edid[kManufacturerOffset + 1]);
+            (edid[kManufacturerOffset] << 8) | edid[kManufacturerOffset + 1];
 
     const auto pnpId = getPnpId(manufacturerId);
     if (!pnpId) {
@@ -185,8 +203,7 @@ std::optional<Edid> parseEdid(const DisplayIdentificationData& edid) {
         ALOGE("Invalid EDID: product ID is truncated.");
         return {};
     }
-    const uint16_t productId =
-            static_cast<uint16_t>(edid[kProductIdOffset] | (edid[kProductIdOffset + 1] << 8));
+    const uint16_t productId = edid[kProductIdOffset] | (edid[kProductIdOffset + 1] << 8);
 
     constexpr size_t kManufactureWeekOffset = 16;
     if (edid.size() < kManufactureWeekOffset + sizeof(uint8_t)) {
@@ -221,6 +238,7 @@ std::optional<Edid> parseEdid(const DisplayIdentificationData& edid) {
 
     constexpr size_t kDescriptorCount = 4;
     constexpr size_t kDescriptorLength = 18;
+    static_assert(kDescriptorLength - kEdidHeaderLength < DeviceProductInfo::TEXT_BUFFER_SIZE);
 
     for (size_t i = 0; i < kDescriptorCount; i++) {
         if (view.size() < kDescriptorLength) {
@@ -263,9 +281,8 @@ std::optional<Edid> parseEdid(const DisplayIdentificationData& edid) {
     }
 
     // Hash model string instead of using product code or (integer) serial number, since the latter
-    // have been observed to change on some displays with multiple inputs. Use a stable hash instead
-    // of std::hash which is only required to be same within a single execution of a program.
-    const uint32_t modelHash = static_cast<uint32_t>(cityHash64Len0To16(modelString));
+    // have been observed to change on some displays with multiple inputs.
+    const auto modelHash = static_cast<uint32_t>(std::hash<std::string_view>()(modelString));
 
     // Parse extension blocks.
     std::optional<Cea861ExtensionBlock> cea861Block;
@@ -313,8 +330,8 @@ std::optional<PnpId> getPnpId(uint16_t manufacturerId) {
     return a && b && c ? std::make_optional(PnpId{a, b, c}) : std::nullopt;
 }
 
-std::optional<PnpId> getPnpId(PhysicalDisplayId displayId) {
-    return getPnpId(displayId.getManufacturerId());
+std::optional<PnpId> getPnpId(DisplayId displayId) {
+    return getPnpId(displayId.manufacturerId());
 }
 
 std::optional<DisplayIdentificationInfo> parseDisplayIdentificationData(
@@ -329,15 +346,21 @@ std::optional<DisplayIdentificationInfo> parseDisplayIdentificationData(
         return {};
     }
 
-    const auto displayId = PhysicalDisplayId::fromEdid(port, edid->manufacturerId, edid->modelHash);
+    const auto displayId = DisplayId::fromEdid(port, edid->manufacturerId, edid->modelHash);
     return DisplayIdentificationInfo{.id = displayId,
                                      .name = std::string(edid->displayName),
                                      .deviceProductInfo = buildDeviceProductInfo(*edid)};
 }
 
-PhysicalDisplayId getVirtualDisplayId(uint32_t id) {
-    return PhysicalDisplayId::fromEdid(0, kVirtualEdidManufacturerId, id);
+DisplayId getFallbackDisplayId(uint8_t port) {
+    return DisplayId::fromEdid(port, kFallbackEdidManufacturerId, 0);
+}
+
+DisplayId getVirtualDisplayId(uint32_t id) {
+    return DisplayId::fromEdid(0, kVirtualEdidManufacturerId, id);
 }
 
 } // namespace android
 
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic pop // ignored "-Wconversion"

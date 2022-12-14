@@ -32,8 +32,8 @@ uint32_t JoystickInputMapper::getSources() {
 void JoystickInputMapper::populateDeviceInfo(InputDeviceInfo* info) {
     InputMapper::populateDeviceInfo(info);
 
-    for (std::pair<const int32_t, Axis>& pair : mAxes) {
-        const Axis& axis = pair.second;
+    for (size_t i = 0; i < mAxes.size(); i++) {
+        const Axis& axis = mAxes.valueAt(i);
         addMotionRange(axis.axisInfo.axis, axis, info);
 
         if (axis.axisInfo.mode == AxisInfo::MODE_SPLIT) {
@@ -72,15 +72,17 @@ void JoystickInputMapper::dump(std::string& dump) {
     dump += INDENT2 "Joystick Input Mapper:\n";
 
     dump += INDENT3 "Axes:\n";
-    for (const auto& [rawAxis, axis] : mAxes) {
-        const char* label = InputEventLookup::getAxisLabel(axis.axisInfo.axis);
+    size_t numAxes = mAxes.size();
+    for (size_t i = 0; i < numAxes; i++) {
+        const Axis& axis = mAxes.valueAt(i);
+        const char* label = getAxisLabel(axis.axisInfo.axis);
         if (label) {
             dump += StringPrintf(INDENT4 "%s", label);
         } else {
             dump += StringPrintf(INDENT4 "%d", axis.axisInfo.axis);
         }
         if (axis.axisInfo.mode == AxisInfo::MODE_SPLIT) {
-            label = InputEventLookup::getAxisLabel(axis.axisInfo.highAxis);
+            label = getAxisLabel(axis.axisInfo.highAxis);
             if (label) {
                 dump += StringPrintf(" / %s (split at %d)", label, axis.axisInfo.splitValue);
             } else {
@@ -98,7 +100,7 @@ void JoystickInputMapper::dump(std::string& dump) {
                              axis.scale, axis.offset, axis.highScale, axis.highOffset);
         dump += StringPrintf(INDENT4 "  rawAxis=%d, rawMin=%d, rawMax=%d, "
                                      "rawFlat=%d, rawFuzz=%d, rawResolution=%d\n",
-                             rawAxis, axis.rawAxisInfo.minValue, axis.rawAxisInfo.maxValue,
+                             mAxes.keyAt(i), axis.rawAxisInfo.minValue, axis.rawAxisInfo.maxValue,
                              axis.rawAxisInfo.flat, axis.rawAxisInfo.fuzz,
                              axis.rawAxisInfo.resolution);
     }
@@ -111,8 +113,8 @@ void JoystickInputMapper::configure(nsecs_t when, const InputReaderConfiguration
     if (!changes) { // first time only
         // Collect all axes.
         for (int32_t abs = 0; abs <= ABS_MAX; abs++) {
-            if (!(getAbsAxisUsage(abs, getDeviceContext().getDeviceClasses())
-                          .test(InputDeviceClass::JOYSTICK))) {
+            if (!(getAbsAxisUsage(abs, getDeviceContext().getDeviceClasses()) &
+                  INPUT_DEVICE_CLASS_JOYSTICK)) {
                 continue; // axis must be claimed by a different device
             }
 
@@ -121,14 +123,43 @@ void JoystickInputMapper::configure(nsecs_t when, const InputReaderConfiguration
             if (rawAxisInfo.valid) {
                 // Map axis.
                 AxisInfo axisInfo;
-                const bool explicitlyMapped = !getDeviceContext().mapAxis(abs, &axisInfo);
-
+                bool explicitlyMapped = !getDeviceContext().mapAxis(abs, &axisInfo);
                 if (!explicitlyMapped) {
                     // Axis is not explicitly mapped, will choose a generic axis later.
                     axisInfo.mode = AxisInfo::MODE_NORMAL;
                     axisInfo.axis = -1;
                 }
-                mAxes.insert({abs, createAxis(axisInfo, rawAxisInfo, explicitlyMapped)});
+
+                // Apply flat override.
+                int32_t rawFlat =
+                        axisInfo.flatOverride < 0 ? rawAxisInfo.flat : axisInfo.flatOverride;
+
+                // Calculate scaling factors and limits.
+                Axis axis;
+                if (axisInfo.mode == AxisInfo::MODE_SPLIT) {
+                    float scale = 1.0f / (axisInfo.splitValue - rawAxisInfo.minValue);
+                    float highScale = 1.0f / (rawAxisInfo.maxValue - axisInfo.splitValue);
+                    axis.initialize(rawAxisInfo, axisInfo, explicitlyMapped, scale, 0.0f, highScale,
+                                    0.0f, 0.0f, 1.0f, rawFlat * scale, rawAxisInfo.fuzz * scale,
+                                    rawAxisInfo.resolution * scale);
+                } else if (isCenteredAxis(axisInfo.axis)) {
+                    float scale = 2.0f / (rawAxisInfo.maxValue - rawAxisInfo.minValue);
+                    float offset = avg(rawAxisInfo.minValue, rawAxisInfo.maxValue) * -scale;
+                    axis.initialize(rawAxisInfo, axisInfo, explicitlyMapped, scale, offset, scale,
+                                    offset, -1.0f, 1.0f, rawFlat * scale, rawAxisInfo.fuzz * scale,
+                                    rawAxisInfo.resolution * scale);
+                } else {
+                    float scale = 1.0f / (rawAxisInfo.maxValue - rawAxisInfo.minValue);
+                    axis.initialize(rawAxisInfo, axisInfo, explicitlyMapped, scale, 0.0f, scale,
+                                    0.0f, 0.0f, 1.0f, rawFlat * scale, rawAxisInfo.fuzz * scale,
+                                    rawAxisInfo.resolution * scale);
+                }
+
+                // To eliminate noise while the joystick is at rest, filter out small variations
+                // in axis values up front.
+                axis.filter = axis.fuzz ? axis.fuzz : axis.flat * 0.25f;
+
+                mAxes.add(abs, axis);
             }
         }
 
@@ -143,8 +174,9 @@ void JoystickInputMapper::configure(nsecs_t when, const InputReaderConfiguration
 
         // Assign generic axis ids to remaining axes.
         int32_t nextGenericAxisId = AMOTION_EVENT_AXIS_GENERIC_1;
-        for (auto it = mAxes.begin(); it != mAxes.end(); /*increment it inside loop*/) {
-            Axis& axis = it->second;
+        size_t numAxes = mAxes.size();
+        for (size_t i = 0; i < numAxes; i++) {
+            Axis& axis = mAxes.editValueAt(i);
             if (axis.axisInfo.axis < 0) {
                 while (nextGenericAxisId <= AMOTION_EVENT_AXIS_GENERIC_16 &&
                        haveAxis(nextGenericAxisId)) {
@@ -157,57 +189,19 @@ void JoystickInputMapper::configure(nsecs_t when, const InputReaderConfiguration
                 } else {
                     ALOGI("Ignoring joystick '%s' axis %d because all of the generic axis ids "
                           "have already been assigned to other axes.",
-                          getDeviceName().c_str(), it->first);
-                    it = mAxes.erase(it);
-                    continue;
+                          getDeviceName().c_str(), mAxes.keyAt(i));
+                    mAxes.removeItemsAt(i--);
+                    numAxes -= 1;
                 }
             }
-            it++;
         }
     }
 }
 
-JoystickInputMapper::Axis JoystickInputMapper::createAxis(const AxisInfo& axisInfo,
-                                                          const RawAbsoluteAxisInfo& rawAxisInfo,
-                                                          bool explicitlyMapped) {
-    // Apply flat override.
-    int32_t rawFlat = axisInfo.flatOverride < 0 ? rawAxisInfo.flat : axisInfo.flatOverride;
-
-    float scale = std::numeric_limits<float>::signaling_NaN();
-    float highScale = std::numeric_limits<float>::signaling_NaN();
-    float highOffset = 0;
-    float offset = 0;
-    float min = 0;
-    // Calculate scaling factors and limits.
-    if (axisInfo.mode == AxisInfo::MODE_SPLIT) {
-        scale = 1.0f / (axisInfo.splitValue - rawAxisInfo.minValue);
-        highScale = 1.0f / (rawAxisInfo.maxValue - axisInfo.splitValue);
-    } else if (isCenteredAxis(axisInfo.axis)) {
-        scale = 2.0f / (rawAxisInfo.maxValue - rawAxisInfo.minValue);
-        offset = avg(rawAxisInfo.minValue, rawAxisInfo.maxValue) * -scale;
-        highOffset = offset;
-        highScale = scale;
-        min = -1.0f;
-    } else {
-        scale = 1.0f / (rawAxisInfo.maxValue - rawAxisInfo.minValue);
-        highScale = scale;
-    }
-
-    constexpr float max = 1.0;
-    const float flat = rawFlat * scale;
-    const float fuzz = rawAxisInfo.fuzz * scale;
-    const float resolution = rawAxisInfo.resolution * scale;
-
-    // To eliminate noise while the joystick is at rest, filter out small variations
-    // in axis values up front.
-    const float filter = fuzz ? fuzz : flat * 0.25f;
-    return Axis(rawAxisInfo, axisInfo, explicitlyMapped, scale, offset, highScale, highOffset, min,
-                max, flat, fuzz, resolution, filter);
-}
-
 bool JoystickInputMapper::haveAxis(int32_t axisId) {
-    for (const std::pair<const int32_t, Axis>& pair : mAxes) {
-        const Axis& axis = pair.second;
+    size_t numAxes = mAxes.size();
+    for (size_t i = 0; i < numAxes; i++) {
+        const Axis& axis = mAxes.valueAt(i);
         if (axis.axisInfo.axis == axisId ||
             (axis.axisInfo.mode == AxisInfo::MODE_SPLIT && axis.axisInfo.highAxis == axisId)) {
             return true;
@@ -217,14 +211,14 @@ bool JoystickInputMapper::haveAxis(int32_t axisId) {
 }
 
 void JoystickInputMapper::pruneAxes(bool ignoreExplicitlyMappedAxes) {
-    while (mAxes.size() > PointerCoords::MAX_AXES) {
-        auto it = mAxes.begin();
-        if (ignoreExplicitlyMappedAxes && it->second.explicitlyMapped) {
+    size_t i = mAxes.size();
+    while (mAxes.size() > PointerCoords::MAX_AXES && i-- > 0) {
+        if (ignoreExplicitlyMappedAxes && mAxes.valueAt(i).explicitlyMapped) {
             continue;
         }
         ALOGI("Discarding joystick '%s' axis %d because there are too many axes.",
-              getDeviceName().c_str(), it->first);
-        mAxes.erase(it);
+              getDeviceName().c_str(), mAxes.keyAt(i));
+        mAxes.removeItemsAt(i);
     }
 }
 
@@ -249,8 +243,9 @@ bool JoystickInputMapper::isCenteredAxis(int32_t axis) {
 
 void JoystickInputMapper::reset(nsecs_t when) {
     // Recenter all axes.
-    for (std::pair<const int32_t, Axis>& pair : mAxes) {
-        Axis& axis = pair.second;
+    size_t numAxes = mAxes.size();
+    for (size_t i = 0; i < numAxes; i++) {
+        Axis& axis = mAxes.editValueAt(i);
         axis.resetValue();
     }
 
@@ -260,9 +255,9 @@ void JoystickInputMapper::reset(nsecs_t when) {
 void JoystickInputMapper::process(const RawEvent* rawEvent) {
     switch (rawEvent->type) {
         case EV_ABS: {
-            auto it = mAxes.find(rawEvent->code);
-            if (it != mAxes.end()) {
-                Axis& axis = it->second;
+            ssize_t index = mAxes.indexOfKey(rawEvent->code);
+            if (index >= 0) {
+                Axis& axis = mAxes.editValueAt(index);
                 float newValue, highNewValue;
                 switch (axis.axisInfo.mode) {
                     case AxisInfo::MODE_INVERT:
@@ -299,14 +294,14 @@ void JoystickInputMapper::process(const RawEvent* rawEvent) {
         case EV_SYN:
             switch (rawEvent->code) {
                 case SYN_REPORT:
-                    sync(rawEvent->when, rawEvent->readTime, false /*force*/);
+                    sync(rawEvent->when, false /*force*/);
                     break;
             }
             break;
     }
 }
 
-void JoystickInputMapper::sync(nsecs_t when, nsecs_t readTime, bool force) {
+void JoystickInputMapper::sync(nsecs_t when, bool force) {
     if (!filterAxes(force)) {
         return;
     }
@@ -322,8 +317,9 @@ void JoystickInputMapper::sync(nsecs_t when, nsecs_t readTime, bool force) {
     PointerCoords pointerCoords;
     pointerCoords.clear();
 
-    for (std::pair<const int32_t, Axis>& pair : mAxes) {
-        const Axis& axis = pair.second;
+    size_t numAxes = mAxes.size();
+    for (size_t i = 0; i < numAxes; i++) {
+        const Axis& axis = mAxes.valueAt(i);
         setPointerCoordsAxisValue(&pointerCoords, axis.axisInfo.axis, axis.currentValue);
         if (axis.axisInfo.mode == AxisInfo::MODE_SPLIT) {
             setPointerCoordsAxisValue(&pointerCoords, axis.axisInfo.highAxis,
@@ -337,10 +333,9 @@ void JoystickInputMapper::sync(nsecs_t when, nsecs_t readTime, bool force) {
     // TODO: Use the input device configuration to control this behavior more finely.
     uint32_t policyFlags = 0;
 
-    NotifyMotionArgs args(getContext()->getNextId(), when, readTime, getDeviceId(),
-                          AINPUT_SOURCE_JOYSTICK, ADISPLAY_ID_NONE, policyFlags,
-                          AMOTION_EVENT_ACTION_MOVE, 0, 0, metaState, buttonState,
-                          MotionClassification::NONE, AMOTION_EVENT_EDGE_FLAG_NONE, 1,
+    NotifyMotionArgs args(getContext()->getNextId(), when, getDeviceId(), AINPUT_SOURCE_JOYSTICK,
+                          ADISPLAY_ID_NONE, policyFlags, AMOTION_EVENT_ACTION_MOVE, 0, 0, metaState,
+                          buttonState, MotionClassification::NONE, AMOTION_EVENT_EDGE_FLAG_NONE, 1,
                           &pointerProperties, &pointerCoords, 0, 0,
                           AMOTION_EVENT_INVALID_CURSOR_POSITION,
                           AMOTION_EVENT_INVALID_CURSOR_POSITION, 0, /* videoFrames */ {});
@@ -362,8 +357,9 @@ void JoystickInputMapper::setPointerCoordsAxisValue(PointerCoords* pointerCoords
 
 bool JoystickInputMapper::filterAxes(bool force) {
     bool atLeastOneSignificantChange = force;
-    for (std::pair<const int32_t, Axis>& pair : mAxes) {
-        Axis& axis = pair.second;
+    size_t numAxes = mAxes.size();
+    for (size_t i = 0; i < numAxes; i++) {
+        Axis& axis = mAxes.editValueAt(i);
         if (force ||
             hasValueChangedSignificantly(axis.filter, axis.newValue, axis.currentValue, axis.min,
                                          axis.max)) {

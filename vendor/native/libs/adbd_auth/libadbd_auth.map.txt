@@ -1,17 +1,17 @@
 LIBADBD_AUTH {
   global:
-    adbd_auth_new; # systemapi introduced=30
-    adbd_auth_delete; # systemapi introduced=30
-    adbd_auth_run; # systemapi introduced=30
-    adbd_auth_get_public_keys; # systemapi introduced=30
-    adbd_auth_notify_auth; # systemapi introduced=30
-    adbd_auth_notify_disconnect; # systemapi introduced=30
-    adbd_auth_prompt_user; # systemapi introduced=30
-    adbd_auth_prompt_user_with_id; # systemapi introduced=30
-    adbd_auth_tls_device_connected; # systemapi introduced=30
-    adbd_auth_tls_device_disconnected; # systemapi introduced=30
-    adbd_auth_get_max_version; # systemapi introduced=30
-    adbd_auth_supports_feature; # systemapi introduced=30
+    adbd_auth_new; # apex introduced=30
+    adbd_auth_delete; # apex introduced=30
+    adbd_auth_run; # apex introduced=30
+    adbd_auth_get_public_keys; #apex introduced=30
+    adbd_auth_notify_auth; # apex introduced=30
+    adbd_auth_notify_disconnect; # apex introduced=30
+    adbd_auth_prompt_user; # apex introduced=30
+    adbd_auth_prompt_user_with_id; # apex introduced=30
+    adbd_auth_tls_device_connected; # apex introduced=30
+    adbd_auth_tls_device_disconnected; # apex introduced=30
+    adbd_auth_get_max_version; # apex introduced=30
+    adbd_auth_supports_feature; # apex introduced=30
   local:
     *;
 };

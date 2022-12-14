@@ -16,14 +16,17 @@
 
 #include "egl_cache.h"
 
-#include <log/log.h>
+#include "../egl_impl.h"
+
+#include "egl_display.h"
+
 #include <private/EGL/cache.h>
+
 #include <unistd.h>
 
 #include <thread>
 
-#include "../egl_impl.h"
-#include "egl_display.h"
+#include <log/log.h>
 
 // Cache size limits.
 static const size_t maxKeySize = 12 * 1024;
@@ -33,7 +36,9 @@ static const size_t maxTotalSize = 2 * 1024 * 1024;
 // The time in seconds to wait before saving newly inserted cache entries.
 static const unsigned int deferredSaveDelay = 4;
 
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
 #define BC_EXT_STR "EGL_ANDROID_blob_cache"
 
@@ -45,22 +50,25 @@ void egl_set_cache_filename(const char* filename) {
 //
 // Callback functions passed to EGL.
 //
-static void setBlob(const void* key, EGLsizeiANDROID keySize, const void* value,
-                    EGLsizeiANDROID valueSize) {
+static void setBlob(const void* key, EGLsizeiANDROID keySize,
+        const void* value, EGLsizeiANDROID valueSize) {
     egl_cache_t::get()->setBlob(key, keySize, value, valueSize);
 }
 
-static EGLsizeiANDROID getBlob(const void* key, EGLsizeiANDROID keySize, void* value,
-                               EGLsizeiANDROID valueSize) {
+static EGLsizeiANDROID getBlob(const void* key, EGLsizeiANDROID keySize,
+        void* value, EGLsizeiANDROID valueSize) {
     return egl_cache_t::get()->getBlob(key, keySize, value, valueSize);
 }
 
 //
 // egl_cache_t definition
 //
-egl_cache_t::egl_cache_t() : mInitialized(false) {}
+egl_cache_t::egl_cache_t() :
+        mInitialized(false) {
+}
 
-egl_cache_t::~egl_cache_t() {}
+egl_cache_t::~egl_cache_t() {
+}
 
 egl_cache_t egl_cache_t::sCache;
 
@@ -68,7 +76,7 @@ egl_cache_t* egl_cache_t::get() {
     return &sCache;
 }
 
-void egl_cache_t::initialize(egl_display_t* display) {
+void egl_cache_t::initialize(egl_display_t *display) {
     std::lock_guard<std::mutex> lock(mMutex);
 
     egl_connection_t* const cnx = &gEGLImpl;
@@ -77,26 +85,28 @@ void egl_cache_t::initialize(egl_display_t* display) {
         size_t bcExtLen = strlen(BC_EXT_STR);
         size_t extsLen = strlen(exts);
         bool equal = !strcmp(BC_EXT_STR, exts);
-        bool atStart = !strncmp(BC_EXT_STR " ", exts, bcExtLen + 1);
-        bool atEnd = (bcExtLen + 1) < extsLen &&
-                !strcmp(" " BC_EXT_STR, exts + extsLen - (bcExtLen + 1));
+        bool atStart = !strncmp(BC_EXT_STR " ", exts, bcExtLen+1);
+        bool atEnd = (bcExtLen+1) < extsLen &&
+                !strcmp(" " BC_EXT_STR, exts + extsLen - (bcExtLen+1));
         bool inMiddle = strstr(exts, " " BC_EXT_STR " ") != nullptr;
         if (equal || atStart || atEnd || inMiddle) {
             PFNEGLSETBLOBCACHEFUNCSANDROIDPROC eglSetBlobCacheFuncsANDROID;
-            eglSetBlobCacheFuncsANDROID = reinterpret_cast<PFNEGLSETBLOBCACHEFUNCSANDROIDPROC>(
-                    cnx->egl.eglGetProcAddress("eglSetBlobCacheFuncsANDROID"));
+            eglSetBlobCacheFuncsANDROID =
+                    reinterpret_cast<PFNEGLSETBLOBCACHEFUNCSANDROIDPROC>(
+                            cnx->egl.eglGetProcAddress(
+                                    "eglSetBlobCacheFuncsANDROID"));
             if (eglSetBlobCacheFuncsANDROID == nullptr) {
                 ALOGE("EGL_ANDROID_blob_cache advertised, "
-                      "but unable to get eglSetBlobCacheFuncsANDROID");
+                        "but unable to get eglSetBlobCacheFuncsANDROID");
                 return;
             }
 
-            eglSetBlobCacheFuncsANDROID(display->disp.dpy, android::setBlob, android::getBlob);
+            eglSetBlobCacheFuncsANDROID(display->disp.dpy,
+                    android::setBlob, android::getBlob);
             EGLint err = cnx->egl.eglGetError();
             if (err != EGL_SUCCESS) {
                 ALOGE("eglSetBlobCacheFuncsANDROID resulted in an error: "
-                      "%#x",
-                      err);
+                        "%#x", err);
             }
         }
     }
@@ -112,8 +122,8 @@ void egl_cache_t::terminate() {
     mBlobCache = nullptr;
 }
 
-void egl_cache_t::setBlob(const void* key, EGLsizeiANDROID keySize, const void* value,
-                          EGLsizeiANDROID valueSize) {
+void egl_cache_t::setBlob(const void* key, EGLsizeiANDROID keySize,
+        const void* value, EGLsizeiANDROID valueSize) {
     std::lock_guard<std::mutex> lock(mMutex);
 
     if (keySize < 0 || valueSize < 0) {
@@ -140,8 +150,8 @@ void egl_cache_t::setBlob(const void* key, EGLsizeiANDROID keySize, const void* 
     }
 }
 
-EGLsizeiANDROID egl_cache_t::getBlob(const void* key, EGLsizeiANDROID keySize, void* value,
-                                     EGLsizeiANDROID valueSize) {
+EGLsizeiANDROID egl_cache_t::getBlob(const void* key, EGLsizeiANDROID keySize,
+        void* value, EGLsizeiANDROID valueSize) {
     std::lock_guard<std::mutex> lock(mMutex);
 
     if (keySize < 0 || valueSize < 0) {
@@ -168,4 +178,6 @@ BlobCache* egl_cache_t::getBlobCacheLocked() {
     return mBlobCache.get();
 }
 
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------

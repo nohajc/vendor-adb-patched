@@ -29,6 +29,7 @@
 #include <android-base/strings.h>
 #include <android/dlext.h>
 #include <binder/IServiceManager.h>
+#include <cutils/properties.h>
 #include <graphicsenv/IGpuService.h>
 #include <log/log.h>
 #include <nativeloader/dlext_namespaces.h>
@@ -73,7 +74,7 @@ static constexpr const char* kNativeLibrariesSystemConfigPath[] =
 
 static std::string vndkVersionStr() {
 #ifdef __BIONIC__
-    return base::GetProperty("ro.vndk.version", "");
+    return android::base::GetProperty("ro.vndk.version", "");
 #endif
     return "";
 }
@@ -343,6 +344,81 @@ void* GraphicsEnv::loadLibrary(std::string name) {
     return nullptr;
 }
 
+bool GraphicsEnv::checkAngleRules(void* so) {
+    char manufacturer[PROPERTY_VALUE_MAX];
+    char model[PROPERTY_VALUE_MAX];
+    property_get("ro.product.manufacturer", manufacturer, "UNSET");
+    property_get("ro.product.model", model, "UNSET");
+
+    auto ANGLEGetFeatureSupportUtilAPIVersion =
+            (fpANGLEGetFeatureSupportUtilAPIVersion)dlsym(so,
+                                                          "ANGLEGetFeatureSupportUtilAPIVersion");
+
+    if (!ANGLEGetFeatureSupportUtilAPIVersion) {
+        ALOGW("Cannot find ANGLEGetFeatureSupportUtilAPIVersion function");
+        return false;
+    }
+
+    // Negotiate the interface version by requesting most recent known to the platform
+    unsigned int versionToUse = CURRENT_ANGLE_API_VERSION;
+    if (!(ANGLEGetFeatureSupportUtilAPIVersion)(&versionToUse)) {
+        ALOGW("Cannot use ANGLE feature-support library, it is older than supported by EGL, "
+              "requested version %u",
+              versionToUse);
+        return false;
+    }
+
+    // Add and remove versions below as needed
+    bool useAngle = false;
+    switch (versionToUse) {
+        case 2: {
+            ALOGV("Using version %d of ANGLE feature-support library", versionToUse);
+            void* rulesHandle = nullptr;
+            int rulesVersion = 0;
+            void* systemInfoHandle = nullptr;
+
+            // Get the symbols for the feature-support-utility library:
+#define GET_SYMBOL(symbol)                                                 \
+    fp##symbol symbol = (fp##symbol)dlsym(so, #symbol);                    \
+    if (!symbol) {                                                         \
+        ALOGW("Cannot find " #symbol " in ANGLE feature-support library"); \
+        break;                                                             \
+    }
+            GET_SYMBOL(ANGLEAndroidParseRulesString);
+            GET_SYMBOL(ANGLEGetSystemInfo);
+            GET_SYMBOL(ANGLEAddDeviceInfoToSystemInfo);
+            GET_SYMBOL(ANGLEShouldBeUsedForApplication);
+            GET_SYMBOL(ANGLEFreeRulesHandle);
+            GET_SYMBOL(ANGLEFreeSystemInfoHandle);
+
+            // Parse the rules, obtain the SystemInfo, and evaluate the
+            // application against the rules:
+            if (!(ANGLEAndroidParseRulesString)(mRulesBuffer.data(), &rulesHandle, &rulesVersion)) {
+                ALOGW("ANGLE feature-support library cannot parse rules file");
+                break;
+            }
+            if (!(ANGLEGetSystemInfo)(&systemInfoHandle)) {
+                ALOGW("ANGLE feature-support library cannot obtain SystemInfo");
+                break;
+            }
+            if (!(ANGLEAddDeviceInfoToSystemInfo)(manufacturer, model, systemInfoHandle)) {
+                ALOGW("ANGLE feature-support library cannot add device info to SystemInfo");
+                break;
+            }
+            useAngle = (ANGLEShouldBeUsedForApplication)(rulesHandle, rulesVersion,
+                                                         systemInfoHandle, mAngleAppName.c_str());
+            (ANGLEFreeRulesHandle)(rulesHandle);
+            (ANGLEFreeSystemInfoHandle)(systemInfoHandle);
+        } break;
+
+        default:
+            ALOGW("Version %u of ANGLE feature-support library is NOT supported.", versionToUse);
+    }
+
+    ALOGV("Close temporarily-loaded ANGLE opt-in/out logic");
+    return useAngle;
+}
+
 bool GraphicsEnv::shouldUseAngle(std::string appName) {
     if (appName != mAngleAppName) {
         // Make sure we are checking the app we were init'ed for
@@ -370,20 +446,30 @@ void GraphicsEnv::updateUseAngle() {
     const char* ANGLE_PREFER_ANGLE = "angle";
     const char* ANGLE_PREFER_NATIVE = "native";
 
-    mUseAngle = NO;
     if (mAngleDeveloperOptIn == ANGLE_PREFER_ANGLE) {
         ALOGV("User set \"Developer Options\" to force the use of ANGLE");
         mUseAngle = YES;
     } else if (mAngleDeveloperOptIn == ANGLE_PREFER_NATIVE) {
         ALOGV("User set \"Developer Options\" to force the use of Native");
+        mUseAngle = NO;
     } else {
-        ALOGV("User set invalid \"Developer Options\": '%s'", mAngleDeveloperOptIn.c_str());
+        // The "Developer Options" value wasn't set to force the use of ANGLE.  Need to temporarily
+        // load ANGLE and call the updatable opt-in/out logic:
+        void* featureSo = loadLibrary("feature_support");
+        if (featureSo) {
+            ALOGV("loaded ANGLE's opt-in/out logic from namespace");
+            mUseAngle = checkAngleRules(featureSo) ? YES : NO;
+            dlclose(featureSo);
+            featureSo = nullptr;
+        } else {
+            ALOGV("Could not load the ANGLE opt-in/out logic, cannot use ANGLE.");
+        }
     }
 }
 
 void GraphicsEnv::setAngleInfo(const std::string path, const std::string appName,
-                               const std::string developerOptIn,
-                               const std::vector<std::string> eglFeatures) {
+                               const std::string developerOptIn, const int rulesFd,
+                               const long rulesOffset, const long rulesLength) {
     if (mUseAngle != UNKNOWN) {
         // We've already figured out an answer for this app, so just return.
         ALOGV("Already evaluated the rules file for '%s': use ANGLE = %s", appName.c_str(),
@@ -391,14 +477,28 @@ void GraphicsEnv::setAngleInfo(const std::string path, const std::string appName
         return;
     }
 
-    mAngleEglFeatures = std::move(eglFeatures);
-
     ALOGV("setting ANGLE path to '%s'", path.c_str());
     mAnglePath = path;
     ALOGV("setting ANGLE app name to '%s'", appName.c_str());
     mAngleAppName = appName;
     ALOGV("setting ANGLE application opt-in to '%s'", developerOptIn.c_str());
     mAngleDeveloperOptIn = developerOptIn;
+
+    lseek(rulesFd, rulesOffset, SEEK_SET);
+    mRulesBuffer = std::vector<char>(rulesLength + 1);
+    ssize_t numBytesRead = read(rulesFd, mRulesBuffer.data(), rulesLength);
+    if (numBytesRead < 0) {
+        ALOGE("Cannot read rules file: numBytesRead = %zd", numBytesRead);
+        numBytesRead = 0;
+    } else if (numBytesRead == 0) {
+        ALOGW("Empty rules file");
+    }
+    if (numBytesRead != rulesLength) {
+        ALOGW("Did not read all of the necessary bytes from the rules file."
+              "expected: %ld, got: %zd",
+              rulesLength, numBytesRead);
+    }
+    mRulesBuffer[numBytesRead] = '\0';
 
     // Update the current status of whether we should use ANGLE or not
     updateUseAngle();
@@ -422,10 +522,6 @@ std::string& GraphicsEnv::getAngleAppName() {
     return mAngleAppName;
 }
 
-const std::vector<std::string>& GraphicsEnv::getAngleEglFeatures() {
-    return mAngleEglFeatures;
-}
-
 const std::string& GraphicsEnv::getLayerPaths() {
     return mLayerPaths;
 }
@@ -447,7 +543,7 @@ void GraphicsEnv::setDebugLayersGLES(const std::string layers) {
 }
 
 // Return true if all the required libraries from vndk and sphal namespace are
-// linked to the updatable gfx driver namespace correctly.
+// linked to the Game Driver namespace correctly.
 bool GraphicsEnv::linkDriverNamespaceLocked(android_namespace_t* vndkNamespace) {
     const std::string llndkLibraries = getSystemNativeLibraries(NativeLibrary::LLNDK);
     if (llndkLibraries.empty()) {
@@ -557,7 +653,8 @@ android_namespace_t* GraphicsEnv::getAngleNamespace() {
     mAngleNamespace = android_create_namespace("ANGLE",
                                                nullptr,            // ld_library_path
                                                mAnglePath.c_str(), // default_library_path
-                                               ANDROID_NAMESPACE_TYPE_SHARED_ISOLATED,
+                                               ANDROID_NAMESPACE_TYPE_SHARED |
+                                                       ANDROID_NAMESPACE_TYPE_ISOLATED,
                                                nullptr, // permitted_when_isolated_path
                                                nullptr);
 

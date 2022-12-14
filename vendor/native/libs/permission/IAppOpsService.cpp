@@ -18,8 +18,8 @@
 
 #include <binder/IAppOpsService.h>
 
-#include <binder/Parcel.h>
 #include <utils/Log.h>
+#include <binder/Parcel.h>
 #include <utils/String8.h>
 
 #include <optional>
@@ -50,29 +50,24 @@ public:
 
     virtual int32_t noteOperation(int32_t code, int32_t uid, const String16& packageName,
                 const std::optional<String16>& attributionTag, bool shouldCollectAsyncNotedOp,
-                const String16& message, bool shouldCollectMessage) {
+                const String16& message) {
         Parcel data, reply;
         data.writeInterfaceToken(IAppOpsService::getInterfaceDescriptor());
         data.writeInt32(code);
         data.writeInt32(uid);
         data.writeString16(packageName);
         data.writeString16(attributionTag);
-        data.writeBool(shouldCollectAsyncNotedOp);
+        data.writeInt32(shouldCollectAsyncNotedOp ? 1 : 0);
         data.writeString16(message);
-        data.writeBool(shouldCollectMessage);
         remote()->transact(NOTE_OPERATION_TRANSACTION, data, &reply);
         // fail on exception
         if (reply.readExceptionCode() != 0) return MODE_ERRORED;
-        // TODO b/184855056: extract to class
-        reply.readInt32();
-        reply.readByte();
         return reply.readInt32();
     }
 
     virtual int32_t startOperation(const sp<IBinder>& token, int32_t code, int32_t uid,
                 const String16& packageName, const std::optional<String16>& attributionTag,
-                bool startIfModeDefault, bool shouldCollectAsyncNotedOp, const String16& message,
-                bool shouldCollectMessage) {
+                bool startIfModeDefault, bool shouldCollectAsyncNotedOp, const String16& message) {
         Parcel data, reply;
         data.writeInterfaceToken(IAppOpsService::getInterfaceDescriptor());
         data.writeStrongBinder(token);
@@ -80,16 +75,12 @@ public:
         data.writeInt32(uid);
         data.writeString16(packageName);
         data.writeString16(attributionTag);
-        data.writeBool(startIfModeDefault);
-        data.writeBool(shouldCollectAsyncNotedOp);
+        data.writeInt32(startIfModeDefault ? 1 : 0);
+        data.writeInt32(shouldCollectAsyncNotedOp ? 1 : 0);
         data.writeString16(message);
-        data.writeBool(shouldCollectMessage);
         remote()->transact(START_OPERATION_TRANSACTION, data, &reply);
         // fail on exception
         if (reply.readExceptionCode() != 0) return MODE_ERRORED;
-        // TODO b/184855056: extract to class
-        reply.readInt32();
-        reply.readByte();
         return reply.readInt32();
     }
 
@@ -195,11 +186,10 @@ status_t BnAppOpsService::onTransact(
             String16 packageName = data.readString16();
             std::optional<String16> attributionTag;
             data.readString16(&attributionTag);
-            bool shouldCollectAsyncNotedOp = data.readBool();
+            bool shouldCollectAsyncNotedOp = data.readInt32() == 1;
             String16 message = data.readString16();
-            bool shouldCollectMessage = data.readBool();
             int32_t res = noteOperation(code, uid, packageName, attributionTag,
-                    shouldCollectAsyncNotedOp, message, shouldCollectMessage);
+                    shouldCollectAsyncNotedOp, message);
             reply->writeNoException();
             reply->writeInt32(res);
             return NO_ERROR;
@@ -212,12 +202,11 @@ status_t BnAppOpsService::onTransact(
             String16 packageName = data.readString16();
             std::optional<String16> attributionTag;
             data.readString16(&attributionTag);
-            bool startIfModeDefault = data.readBool();
-            bool shouldCollectAsyncNotedOp = data.readBool();
+            bool startIfModeDefault = data.readInt32() == 1;
+            bool shouldCollectAsyncNotedOp = data.readInt32() == 1;
             String16 message = data.readString16();
-            bool shouldCollectMessage = data.readBool();
             int32_t res = startOperation(token, code, uid, packageName, attributionTag,
-                    startIfModeDefault, shouldCollectAsyncNotedOp, message, shouldCollectMessage);
+                    startIfModeDefault, shouldCollectAsyncNotedOp, message);
             reply->writeNoException();
             reply->writeInt32(res);
             return NO_ERROR;

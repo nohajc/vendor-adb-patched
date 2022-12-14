@@ -57,5 +57,3 @@ ASurfaceTexture* ASurfaceTexture_fromSurfaceTexture(JNIEnv* env, jobject surface
 #endif
 
 #endif /* ANDROID_NATIVE_SURFACE_TEXTURE_JNI_H */
-
-/** @} */

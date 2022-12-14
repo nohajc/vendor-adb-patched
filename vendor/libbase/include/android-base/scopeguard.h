@@ -26,14 +26,14 @@ namespace base {
 template <typename F>
 class ScopeGuard {
  public:
-  constexpr ScopeGuard(F&& f) : f_(std::forward<F>(f)), active_(true) {}
+  ScopeGuard(F&& f) : f_(std::forward<F>(f)), active_(true) {}
 
-  constexpr ScopeGuard(ScopeGuard&& that) noexcept : f_(std::move(that.f_)), active_(that.active_) {
+  ScopeGuard(ScopeGuard&& that) noexcept : f_(std::move(that.f_)), active_(that.active_) {
     that.active_ = false;
   }
 
   template <typename Functor>
-  constexpr ScopeGuard(ScopeGuard<Functor>&& that) : f_(std::move(that.f_)), active_(that.active_) {
+  ScopeGuard(ScopeGuard<Functor>&& that) : f_(std::move(that.f_)), active_(that.active_) {
     that.active_ = false;
   }
 
@@ -48,7 +48,7 @@ class ScopeGuard {
 
   void Disable() { active_ = false; }
 
-  constexpr bool active() const { return active_; }
+  bool active() const { return active_; }
 
  private:
   template <typename Functor>

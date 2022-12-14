@@ -220,21 +220,6 @@ typedef binder_status_t (*AIBinder_onDump)(AIBinder* binder, int fd, const char*
 void AIBinder_Class_setOnDump(AIBinder_Class* clazz, AIBinder_onDump onDump) __INTRODUCED_IN(29);
 
 /**
- * This tells users of this class not to use a transaction header. By default, libbinder_ndk users
- * read/write transaction headers implicitly (in the SDK, this must be manually written by
- * android.os.Parcel#writeInterfaceToken, and it is read/checked with
- * android.os.Parcel#enforceInterface). This method is provided in order to talk to legacy code
- * which does not write an interface token. When this is disabled, type safety is reduced, so you
- * must have a separate way of determining the binder you are talking to is the right type. Must
- * be called before any instance of the class is created.
- *
- * Available since API level 33.
- *
- * \param clazz class to disable interface header on.
- */
-void AIBinder_Class_disableInterfaceTokenHeader(AIBinder_Class* clazz) __INTRODUCED_IN(33);
-
-/**
  * Creates a new binder object of the appropriate class.
  *
  * Ownership of args is passed to this object. The lifecycle is implemented with AIBinder_incStrong
@@ -320,9 +305,9 @@ binder_status_t AIBinder_dump(AIBinder* binder, int fd, const char** args, uint3
 /**
  * Registers for notifications that the associated binder is dead. The same death recipient may be
  * associated with multiple different binders. If the binder is local, then no death recipient will
- * be given (since if the local process dies, then no recipient will exist to receive a
+ * be given (since if the local process dies, then no recipient will exist to recieve a
  * transaction). The cookie is passed to recipient in the case that this binder dies and can be
- * null. The exact cookie must also be used to unlink this transaction (see AIBinder_unlinkToDeath).
+ * null. The exact cookie must also be used to unlink this transaction (see AIBinder_linkToDeath).
  * This function may return a binder transaction failure. The cookie can be used both for
  * identification and holding user data.
  *
@@ -348,10 +333,6 @@ binder_status_t AIBinder_linkToDeath(AIBinder* binder, AIBinder_DeathRecipient* 
  * AIBinder objects. If the death recipient is deleted, all binders will automatically be unlinked.
  * If the binder dies, it will automatically unlink. If the binder is deleted, it will be
  * automatically unlinked.
- *
- * Be aware that it is not safe to immediately deallocate the cookie when this call returns. If you
- * need to clean up the cookie, you should do so in the onUnlinked callback, which can be set using
- * AIBinder_DeathRecipient_setOnUnlinked.
  *
  * Available since API level 29.
  *
@@ -392,14 +373,6 @@ uid_t AIBinder_getCallingUid() __INTRODUCED_IN(29);
  * If the transaction being processed is a oneway transaction, then this method will return 0.
  */
 pid_t AIBinder_getCallingPid() __INTRODUCED_IN(29);
-
-/**
- * Determine whether the current thread is currently executing an incoming transaction.
- *
- * \return true if the current thread is currently executing an incoming transaction, and false
- * otherwise.
- */
-bool AIBinder_isHandlingTransaction() __INTRODUCED_IN(33);
 
 /**
  * This can only be called if a strong reference to this object already exists in process.
@@ -581,22 +554,6 @@ __attribute__((warn_unused_result)) AIBinder* AIBinder_Weak_promote(AIBinder_Wea
 typedef void (*AIBinder_DeathRecipient_onBinderDied)(void* cookie) __INTRODUCED_IN(29);
 
 /**
- * This function is intended for cleaning up the data in the provided cookie, and it is executed
- * when the DeathRecipient is unlinked. When the DeathRecipient is unlinked due to a death receipt,
- * this method is called after the call to onBinderDied.
- *
- * This method is called once for each binder that is unlinked. Hence, if the same cookie is passed
- * to multiple binders, then the caller is responsible for reference counting the cookie.
- *
- * See also AIBinder_linkToDeath/AIBinder_unlinkToDeath.
- *
- * Available since API level 33.
- *
- * \param cookie the cookie passed to AIBinder_linkToDeath.
- */
-typedef void (*AIBinder_DeathRecipient_onBinderUnlinked)(void* cookie) __INTRODUCED_IN(33);
-
-/**
  * Creates a new binder death recipient. This can be attached to multiple different binder objects.
  *
  * Available since API level 29.
@@ -609,46 +566,8 @@ __attribute__((warn_unused_result)) AIBinder_DeathRecipient* AIBinder_DeathRecip
         AIBinder_DeathRecipient_onBinderDied onBinderDied) __INTRODUCED_IN(29);
 
 /**
- * Set the callback to be called when this DeathRecipient is unlinked from a binder. The callback is
- * called in the following situations:
- *
- *  1. If the binder died, shortly after the call to onBinderDied.
- *  2. If the binder is explicitly unlinked with AIBinder_unlinkToDeath or
- *     AIBinder_DeathRecipient_delete.
- *  3. During or shortly after the AIBinder_linkToDeath call if it returns an error.
- *
- * It is guaranteed that the callback is called exactly once for each call to linkToDeath unless the
- * process is aborted before the binder is unlinked.
- *
- * Be aware that when the binder is explicitly unlinked, it is not guaranteed that onUnlinked has
- * been called before the call to AIBinder_unlinkToDeath or AIBinder_DeathRecipient_delete returns.
- * For example, if the binder dies concurrently with a call to AIBinder_unlinkToDeath, the binder is
- * not unlinked until after the death notification is delivered, even if AIBinder_unlinkToDeath
- * returns before that happens.
- *
- * This method should be called before linking the DeathRecipient to a binder because the function
- * pointer is cached. If you change it after linking to a binder, it is unspecified whether the old
- * binder will call the old or new onUnlinked callback.
- *
- * The onUnlinked argument may be null. In this case, no notification is given when the binder is
- * unlinked.
- *
- * Available since API level 33.
- *
- * \param recipient the DeathRecipient to set the onUnlinked callback for.
- * \param onUnlinked the callback to call when a binder is unlinked from recipient.
- */
-void AIBinder_DeathRecipient_setOnUnlinked(AIBinder_DeathRecipient* recipient,
-                                           AIBinder_DeathRecipient_onBinderUnlinked onUnlinked)
-        __INTRODUCED_IN(33);
-
-/**
  * Deletes a binder death recipient. It is not necessary to call AIBinder_unlinkToDeath before
  * calling this as these will all be automatically unlinked.
- *
- * Be aware that it is not safe to immediately deallocate the cookie when this call returns. If you
- * need to clean up the cookie, you should do so in the onUnlinked callback, which can be set using
- * AIBinder_DeathRecipient_setOnUnlinked.
  *
  * Available since API level 29.
  *

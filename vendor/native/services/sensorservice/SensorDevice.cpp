@@ -132,6 +132,8 @@ SensorDevice::SensorDevice()
 }
 
 void SensorDevice::initializeSensorList() {
+    float minPowerMa = 0.001; // 1 microAmp
+
     checkReturn(mSensors->getSensorsList(
             [&](const auto &list) {
                 const size_t count = list.size();
@@ -143,37 +145,34 @@ void SensorDevice::initializeSensorList() {
                     convertToSensor(convertToOldSensorInfo(list[i]), &sensor);
 
                     if (sensor.type < static_cast<int>(SensorType::DEVICE_PRIVATE_BASE)) {
-                        sensor.resolution = SensorDeviceUtils::resolutionForSensor(sensor);
+                        if(sensor.resolution == 0) {
+                            // Don't crash here or the device will go into a crashloop.
+                            ALOGW("%s must have a non-zero resolution", sensor.name);
+                            // For simple algos, map their resolution to 1 if it's not specified
+                            sensor.resolution =
+                                    SensorDeviceUtils::defaultResolutionForType(sensor.type);
+                        }
 
                         // Some sensors don't have a default resolution and will be left at 0.
                         // Don't crash in this case since CTS will verify that devices don't go to
                         // production with a resolution of 0.
                         if (sensor.resolution != 0) {
-                            float quantizedRange = sensor.maxRange;
-                            SensorDeviceUtils::quantizeValue(
-                                    &quantizedRange, sensor.resolution, /*factor=*/ 1);
-                            // Only rewrite maxRange if the requantization produced a "significant"
-                            // change, which is fairly arbitrarily defined as resolution / 8.
-                            // Smaller deltas are permitted, as they may simply be due to floating
-                            // point representation error, etc.
-                            if (fabsf(sensor.maxRange - quantizedRange) > sensor.resolution / 8) {
-                                ALOGW("%s's max range %.12f is not a multiple of the resolution "
-                                      "%.12f - updated to %.12f", sensor.name, sensor.maxRange,
-                                      sensor.resolution, quantizedRange);
-                                sensor.maxRange = quantizedRange;
+                            double promotedResolution = sensor.resolution;
+                            double promotedMaxRange = sensor.maxRange;
+                            if (fmod(promotedMaxRange, promotedResolution) != 0) {
+                                ALOGW("%s's max range %f is not a multiple of the resolution %f",
+                                        sensor.name, sensor.maxRange, sensor.resolution);
+                                SensorDeviceUtils::quantizeValue(
+                                        &sensor.maxRange, promotedResolution);
                             }
-                        } else {
-                            // Don't crash here or the device will go into a crashloop.
-                            ALOGW("%s should have a non-zero resolution", sensor.name);
                         }
                     }
 
                     // Sanity check and clamp power if it is 0 (or close)
-                    constexpr float MIN_POWER_MA = 0.001; // 1 microAmp
-                    if (sensor.power < MIN_POWER_MA) {
-                        ALOGI("%s's reported power %f invalid, clamped to %f",
-                              sensor.name, sensor.power, MIN_POWER_MA);
-                        sensor.power = MIN_POWER_MA;
+                    if (sensor.power < minPowerMa) {
+                        ALOGI("Reported power %f not deemed sane, clamping to %f",
+                              sensor.power, minPowerMa);
+                        sensor.power = minPowerMa;
                     }
                     mSensorList.push_back(sensor);
 
@@ -326,7 +325,7 @@ void SensorDevice::reconnect() {
     mActivationCount.clear();
     mSensorList.clear();
 
-    if (connectHidlService()) {
+    if (connectHidlServiceV2_0() == HalConnectionStatus::CONNECTED) {
         initializeSensorList();
 
         if (sensorHandlesChanged(previousSensorList, mSensorList)) {
@@ -614,8 +613,6 @@ ssize_t SensorDevice::pollFmq(sensors_event_t* buffer, size_t maxNumEventsToRead
 
 Return<void> SensorDevice::onDynamicSensorsConnected(
         const hidl_vec<SensorInfo> &dynamicSensorsAdded) {
-    std::unique_lock<std::mutex> lock(mDynamicSensorsMutex);
-
     // Allocate a sensor_t structure for each dynamic sensor added and insert
     // it into the dictionary of connected dynamic sensors keyed by handle.
     for (size_t i = 0; i < dynamicSensorsAdded.size(); ++i) {
@@ -630,8 +627,6 @@ Return<void> SensorDevice::onDynamicSensorsConnected(
         mConnectedDynamicSensors.insert(
                 std::make_pair(sensor->handle, sensor));
     }
-
-    mDynamicSensorsCv.notify_all();
 
     return Return<void>();
 }
@@ -919,22 +914,7 @@ bool SensorDevice::isSensorActive(int handle) const {
     if (activationIndex < 0) {
         return false;
     }
-    return mActivationCount.valueAt(activationIndex).isActive;
-}
-
-void SensorDevice::onMicSensorAccessChanged(void* ident, int handle, nsecs_t samplingPeriodNs) {
-    Mutex::Autolock _l(mLock);
-    ssize_t activationIndex = mActivationCount.indexOfKey(handle);
-    if (activationIndex < 0) {
-        ALOGW("Handle %d cannot be found in activation record", handle);
-        return;
-    }
-    Info& info(mActivationCount.editValueAt(activationIndex));
-    if (info.hasBatchParamsForIdent(ident)) {
-        ssize_t index = info.batchParams.indexOfKey(ident);
-        BatchParams& params = info.batchParams.editValueAt(index);
-        params.mTSample = samplingPeriodNs;
-    }
+    return mActivationCount.valueAt(activationIndex).numActiveClients() > 0;
 }
 
 void SensorDevice::enableAllSensors() {
@@ -1178,20 +1158,8 @@ void SensorDevice::convertToSensorEvent(
         dst->dynamic_sensor_meta.connected = dyn.connected;
         dst->dynamic_sensor_meta.handle = dyn.sensorHandle;
         if (dyn.connected) {
-            std::unique_lock<std::mutex> lock(mDynamicSensorsMutex);
-            // Give MAX_DYN_SENSOR_WAIT_SEC for onDynamicSensorsConnected to be invoked since it
-            // can be received out of order from this event due to a bug in the HIDL spec that
-            // marks it as oneway.
             auto it = mConnectedDynamicSensors.find(dyn.sensorHandle);
-            if (it == mConnectedDynamicSensors.end()) {
-                mDynamicSensorsCv.wait_for(lock, MAX_DYN_SENSOR_WAIT,
-                        [&, dyn]{
-                            return mConnectedDynamicSensors.find(dyn.sensorHandle)
-                                    != mConnectedDynamicSensors.end();
-                });
-                it = mConnectedDynamicSensors.find(dyn.sensorHandle);
-                CHECK(it != mConnectedDynamicSensors.end());
-            }
+            CHECK(it != mConnectedDynamicSensors.end());
 
             dst->dynamic_sensor_meta.sensor = it->second;
 

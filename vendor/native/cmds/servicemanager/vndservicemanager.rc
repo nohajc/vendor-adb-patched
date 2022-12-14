@@ -2,7 +2,7 @@ service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
     class core
     user system
     group system readproc
-    task_profiles ServiceCapacityLow
+    writepid /dev/cpuset/system-background/tasks
     onrestart class_restart main
     onrestart class_restart hal
     onrestart class_restart early_hal

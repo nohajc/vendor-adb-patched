@@ -256,8 +256,7 @@ enum {
     NATIVE_WINDOW_ALLOCATE_BUFFERS                = 45,    /* private */
     NATIVE_WINDOW_GET_LAST_QUEUED_BUFFER          = 46,    /* private */
     NATIVE_WINDOW_SET_QUERY_INTERCEPTOR           = 47,    /* private */
-    NATIVE_WINDOW_SET_FRAME_TIMELINE_INFO         = 48,    /* private */
-    NATIVE_WINDOW_GET_LAST_QUEUED_BUFFER2         = 49,    /* private */
+    NATIVE_WINDOW_GET_LAST_QUEUED_BUFFER2         = 50,    /* private */
     // clang-format on
 };
 
@@ -1020,16 +1019,9 @@ static inline int native_window_set_auto_prerotation(struct ANativeWindow* windo
 }
 
 static inline int native_window_set_frame_rate(struct ANativeWindow* window, float frameRate,
-                                        int8_t compatibility, int8_t changeFrameRateStrategy) {
+                                               int8_t compatibility) {
     return window->perform(window, NATIVE_WINDOW_SET_FRAME_RATE, (double)frameRate,
-                           (int)compatibility, (int)changeFrameRateStrategy);
-}
-
-static inline int native_window_set_frame_timeline_info(struct ANativeWindow* window,
-                                                         int64_t frameTimelineVsyncId,
-                                                         int32_t inputEventId) {
-    return window->perform(window, NATIVE_WINDOW_SET_FRAME_TIMELINE_INFO,
-                           frameTimelineVsyncId, inputEventId);
+                           (int)compatibility);
 }
 
 // ------------------------------------------------------------------------------------------------

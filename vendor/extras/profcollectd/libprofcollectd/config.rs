@@ -22,7 +22,6 @@ use macaddr::MacAddr6;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::fs::{read_dir, remove_file};
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
@@ -30,19 +29,17 @@ use std::time::Duration;
 const PROFCOLLECT_CONFIG_NAMESPACE: &str = "profcollect_native_boot";
 const PROFCOLLECT_NODE_ID_PROPERTY: &str = "persist.profcollectd.node_id";
 
-const DEFAULT_BINARY_FILTER: &str = "^/(system|apex/.+)/(bin|lib|lib64)/.+";
-pub const REPORT_RETENTION_SECS: u64 = 14 * 24 * 60 * 60; // 14 days.
-
-// Static configs that cannot be changed.
 lazy_static! {
     pub static ref TRACE_OUTPUT_DIR: &'static Path = Path::new("/data/misc/profcollectd/trace/");
     pub static ref PROFILE_OUTPUT_DIR: &'static Path = Path::new("/data/misc/profcollectd/output/");
     pub static ref REPORT_OUTPUT_DIR: &'static Path = Path::new("/data/misc/profcollectd/report/");
+    pub static ref BETTERBUG_CACHE_DIR_PREFIX: &'static Path = Path::new("/data/user/");
+    pub static ref BETTERBUG_CACHE_DIR_SUFFIX: &'static Path =
+        Path::new("com.google.android.apps.internal.betterbug/cache/");
     pub static ref CONFIG_FILE: &'static Path =
         Path::new("/data/misc/profcollectd/output/config.json");
 }
 
-/// Dynamic configs, stored in config.json.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct Config {
     /// Version of config file scheme, always equals to 1.
@@ -57,8 +54,6 @@ pub struct Config {
     pub sampling_period: Duration,
     /// An optional filter to limit which binaries to or not to profile.
     pub binary_filter: String,
-    /// Maximum size of the trace directory.
-    pub max_trace_limit: u64,
 }
 
 impl Config {
@@ -72,11 +67,7 @@ impl Config {
                 600,
             )?),
             sampling_period: Duration::from_millis(get_device_config("sampling_period", 500)?),
-            binary_filter: get_device_config("binary_filter", DEFAULT_BINARY_FILTER.to_string())?,
-            max_trace_limit: get_device_config(
-                "max_trace_limit",
-                /* 512MB */ 512 * 1024 * 1024,
-            )?,
+            binary_filter: get_device_config("binary_filter", "".to_string())?,
         })
     }
 }
@@ -95,10 +86,10 @@ impl FromStr for Config {
 }
 
 fn get_or_initialise_node_id() -> Result<MacAddr6> {
-    let mut node_id = get_property(PROFCOLLECT_NODE_ID_PROPERTY, MacAddr6::nil())?;
+    let mut node_id = get_property(&PROFCOLLECT_NODE_ID_PROPERTY, MacAddr6::nil())?;
     if node_id.is_nil() {
         node_id = generate_random_node_id();
-        set_property(PROFCOLLECT_NODE_ID_PROPERTY, node_id)?;
+        set_property(&PROFCOLLECT_NODE_ID_PROPERTY, node_id);
     }
 
     Ok(node_id)
@@ -114,9 +105,9 @@ where
     T::Err: Error + Send + Sync + 'static,
 {
     let default_value = default_value.to_string();
-    let config = profcollect_libflags_rust::GetServerConfigurableFlag(
-        PROFCOLLECT_CONFIG_NAMESPACE,
-        key,
+    let config = profcollect_libflags_rust::get_server_configurable_flag(
+        &PROFCOLLECT_CONFIG_NAMESPACE,
+        &key,
         &default_value,
     );
     Ok(T::from_str(&config)?)
@@ -128,36 +119,20 @@ where
     T::Err: Error + Send + Sync + 'static,
 {
     let default_value = default_value.to_string();
-    let value = rustutils::system_properties::read(key).unwrap_or(None).unwrap_or(default_value);
+    let value = profcollect_libbase_rust::GetProperty(&key, &default_value);
     Ok(T::from_str(&value)?)
 }
 
-fn set_property<T>(key: &str, value: T) -> Result<()>
+fn set_property<T>(key: &str, value: T)
 where
     T: ToString,
 {
     let value = value.to_string();
-    Ok(rustutils::system_properties::write(key, &value)?)
+    profcollect_libbase_rust::SetProperty(&key, &value);
 }
 
 fn generate_random_node_id() -> MacAddr6 {
     let mut node_id = rand::thread_rng().gen::<[u8; 6]>();
     node_id[0] |= 0x1;
     MacAddr6::from(node_id)
-}
-
-pub fn clear_data() -> Result<()> {
-    fn remove_files(path: &Path) -> Result<()> {
-        read_dir(path)?
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|e| e.is_file())
-            .try_for_each(remove_file)?;
-        Ok(())
-    }
-
-    remove_files(&TRACE_OUTPUT_DIR)?;
-    remove_files(&PROFILE_OUTPUT_DIR)?;
-    remove_files(&REPORT_OUTPUT_DIR)?;
-    Ok(())
 }

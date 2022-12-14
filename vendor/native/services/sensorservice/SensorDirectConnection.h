@@ -50,8 +50,6 @@ public:
     // regained due to changes in the sensor restricted/privacy mode or the
     // app changed to idle/active status.
     void onSensorAccessChanged(bool hasAccess);
-    void onMicSensorAccessChanged(bool isMicToggleOn);
-    userid_t getUserId() const { return mUserId; }
 
 protected:
     virtual ~SensorDirectConnection();
@@ -84,11 +82,6 @@ private:
     // If no requests are backed up by stopAll(), this method is no-op.
     void recoverAll();
 
-    // Limits all active sensor direct report requests when the mic toggle is flipped to on.
-    void capRates();
-    // Recover sensor requests previously capped by capRates().
-    void uncapRates();
-
     const sp<SensorService> mService;
     const uid_t mUid;
     const sensors_direct_mem_t mMem;
@@ -98,12 +91,9 @@ private:
     mutable Mutex mConnectionLock;
     std::unordered_map<int, int> mActivated;
     std::unordered_map<int, int> mActivatedBackup;
-    std::unordered_map<int, int> mMicRateBackup;
 
-    std::atomic_bool mIsRateCappedBasedOnPermission;
     mutable Mutex mDestroyLock;
     bool mDestroyed;
-    userid_t mUserId;
 };
 
 } // namepsace android

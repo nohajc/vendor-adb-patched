@@ -44,11 +44,10 @@
 #include <android-base/strings.h>
 
 #if !defined(_WIN32)
+#include <signal.h>
 #include <sys/ioctl.h>
 #include <termios.h>
-#else
-#define _POSIX
-#include <signal.h>
+#include <unistd.h>
 #endif
 
 #include <google/protobuf/text_format.h>
@@ -87,19 +86,14 @@ static void help() {
     // clang-format off
     fprintf(stdout,
         "global options:\n"
-        " -a                       listen on all network interfaces, not just localhost\n"
-        " -d                       use USB device (error if multiple devices connected)\n"
-        " -e                       use TCP/IP device (error if multiple TCP/IP devices available)\n"
-        " -s SERIAL                use device with given serial (overrides $ANDROID_SERIAL)\n"
-        " -t ID                    use device with given transport id\n"
-        " -H                       name of adb server host [default=localhost]\n"
-        " -P                       port of adb server [default=5037]\n"
-        " -L SOCKET                listen on given socket for adb server"
-        " [default=tcp:localhost:5037]\n"
-        " --one-device SERIAL|USB  only allowed with 'start-server' or 'server nodaemon', server"
-        " will only connect to one USB device, specified by a serial number or USB device"
-        " address.\n"
-        " --exit-on-write-error    exit if stdout is closed\n"
+        " -a         listen on all network interfaces, not just localhost\n"
+        " -d         use USB device (error if multiple devices connected)\n"
+        " -e         use TCP/IP device (error if multiple TCP/IP devices available)\n"
+        " -s SERIAL  use device with given serial (overrides $ANDROID_SERIAL)\n"
+        " -t ID      use device with given transport id\n"
+        " -H         name of adb server host [default=localhost]\n"
+        " -P         port of adb server [default=5037]\n"
+        " -L SOCKET  listen on given socket for adb server [default=tcp:localhost:5037]\n"
         "\n"
         "general commands:\n"
         " devices [-l]             list connected devices (-l for long output)\n"
@@ -125,6 +119,7 @@ static void help() {
         "       acceptfd:<fd> (listen only)\n"
         " forward --remove LOCAL   remove specific forward socket connection\n"
         " forward --remove-all     remove all forward socket connections\n"
+        " ppp TTY [PARAMETER...]   run PPP over USB\n"
         " reverse --list           list all reverse socket connections from device\n"
         " reverse [--no-rebind] REMOTE LOCAL\n"
         "     reverse socket connection using:\n"
@@ -142,18 +137,18 @@ static void help() {
         "     copy local files/directories to device\n"
         "     --sync: only push files that are newer on the host than the device\n"
         "     -n: dry run: push files to device without storing to the filesystem\n"
-        "     -z: enable compression with a specified algorithm (any/none/brotli/lz4/zstd)\n"
+        "     -z: enable compression with a specified algorithm (any, none, brotli)\n"
         "     -Z: disable compression\n"
         " pull [-a] [-z ALGORITHM] [-Z] REMOTE... LOCAL\n"
         "     copy files/dirs from device\n"
         "     -a: preserve file timestamp and mode\n"
-        "     -z: enable compression with a specified algorithm (any/none/brotli/lz4/zstd)\n"
+        "     -z: enable compression with a specified algorithm (any, none, brotli)\n"
         "     -Z: disable compression\n"
         " sync [-l] [-z ALGORITHM] [-Z] [all|data|odm|oem|product|system|system_ext|vendor]\n"
         "     sync a local build from $ANDROID_PRODUCT_OUT to the device (default all)\n"
         "     -n: dry run: push files to device without storing to the filesystem\n"
         "     -l: list files that would be copied, but don't copy them\n"
-        "     -z: enable compression with a specified algorithm (any/none/brotli/lz4/zstd)\n"
+        "     -z: enable compression with a specified algorithm (any, none, brotli)\n"
         "     -Z: disable compression\n"
         "\n"
         "shell:\n"
@@ -285,55 +280,57 @@ static void stdin_raw_restore() {
 }
 #endif
 
-int read_and_dump_protocol(borrowed_fd fd, StandardStreamsCallbackInterface* callback) {
-    int exit_code = 0;
-    std::unique_ptr<ShellProtocol> protocol = std::make_unique<ShellProtocol>(fd);
-    if (!protocol) {
-      LOG(ERROR) << "failed to allocate memory for ShellProtocol object";
-      return 1;
-    }
-    while (protocol->Read()) {
-      if (protocol->id() == ShellProtocol::kIdStdout) {
-        if (!callback->OnStdout(protocol->data(), protocol->data_length())) {
-          exit_code = SIGPIPE + 128;
-          break;
-        }
-      } else if (protocol->id() == ShellProtocol::kIdStderr) {
-        if (!callback->OnStderr(protocol->data(), protocol->data_length())) {
-          exit_code = SIGPIPE + 128;
-          break;
-        }
-      } else if (protocol->id() == ShellProtocol::kIdExit) {
-        // data() returns a char* which doesn't have defined signedness.
-        // Cast to uint8_t to prevent 255 from being sign extended to INT_MIN,
-        // which doesn't get truncated on Windows.
-        exit_code = static_cast<uint8_t>(protocol->data()[0]);
-      }
-    }
-    return exit_code;
-}
-
 int read_and_dump(borrowed_fd fd, bool use_shell_protocol,
                   StandardStreamsCallbackInterface* callback) {
     int exit_code = 0;
     if (fd < 0) return exit_code;
 
+    std::unique_ptr<ShellProtocol> protocol;
+    int length = 0;
+
+    char raw_buffer[BUFSIZ];
+    char* buffer_ptr = raw_buffer;
     if (use_shell_protocol) {
-      exit_code = read_and_dump_protocol(fd, callback);
-    } else {
-      char raw_buffer[BUFSIZ];
-      char* buffer_ptr = raw_buffer;
-      while (true) {
-        D("read_and_dump(): pre adb_read(fd=%d)", fd.get());
-        int length = adb_read(fd, raw_buffer, sizeof(raw_buffer));
-        D("read_and_dump(): post adb_read(fd=%d): length=%d", fd.get(), length);
-        if (length <= 0) {
-          break;
+        protocol = std::make_unique<ShellProtocol>(fd);
+        if (!protocol) {
+            LOG(ERROR) << "failed to allocate memory for ShellProtocol object";
+            return 1;
         }
-        if (!callback->OnStdout(buffer_ptr, length)) {
-          break;
+        buffer_ptr = protocol->data();
+    }
+
+    while (true) {
+        if (use_shell_protocol) {
+            if (!protocol->Read()) {
+                break;
+            }
+            length = protocol->data_length();
+            switch (protocol->id()) {
+                case ShellProtocol::kIdStdout:
+                    callback->OnStdout(buffer_ptr, length);
+                    break;
+                case ShellProtocol::kIdStderr:
+                    callback->OnStderr(buffer_ptr, length);
+                    break;
+                case ShellProtocol::kIdExit:
+                    // data() returns a char* which doesn't have defined signedness.
+                    // Cast to uint8_t to prevent 255 from being sign extended to INT_MIN,
+                    // which doesn't get truncated on Windows.
+                    exit_code = static_cast<uint8_t>(protocol->data()[0]);
+                    continue;
+                default:
+                    continue;
+            }
+            length = protocol->data_length();
+        } else {
+            D("read_and_dump(): pre adb_read(fd=%d)", fd.get());
+            length = adb_read(fd, raw_buffer, sizeof(raw_buffer));
+            D("read_and_dump(): post adb_read(fd=%d): length=%d", fd.get(), length);
+            if (length <= 0) {
+                break;
+            }
+            callback->OnStdout(buffer_ptr, length);
         }
-      }
     }
 
     return callback->Done(exit_code);
@@ -684,11 +681,16 @@ static int RemoteShell(bool use_shell_protocol, const std::string& type_arg, cha
 }
 
 static int adb_shell(int argc, const char** argv) {
+    std::string error;
+    auto&& features = adb_get_feature_set(&error);
+    if (!features) {
+        error_exit("%s", error.c_str());
+    }
+
     enum PtyAllocationMode { kPtyAuto, kPtyNo, kPtyYes, kPtyDefinitely };
 
     // Defaults.
     char escape_char = '~';                                                 // -e
-    auto&& features = adb_get_feature_set_or_die();
     bool use_shell_protocol = CanUseFeature(*features, kFeatureShell2);     // -x
     PtyAllocationMode tty = use_shell_protocol ? kPtyAuto : kPtyDefinitely; // -t/-T
 
@@ -785,7 +787,12 @@ static int adb_shell(int argc, const char** argv) {
 }
 
 static int adb_abb(int argc, const char** argv) {
-    auto&& features = adb_get_feature_set_or_die();
+    std::string error;
+    auto&& features = adb_get_feature_set(&error);
+    if (!features) {
+        error_exit("%s", error.c_str());
+        return 1;
+    }
     if (!CanUseFeature(*features, kFeatureAbb)) {
         error_exit("abb is not supported by the device");
     }
@@ -1006,6 +1013,60 @@ static int adb_wipe_devices() {
         fprintf(stderr, "adb: got unexpected message from rescue wipe %s\n", message.c_str());
     }
     return 1;
+}
+
+/**
+ * Run ppp in "notty" mode against a resource listed as the first parameter
+ * eg:
+ *
+ * ppp dev:/dev/omap_csmi_tty0 <ppp options>
+ *
+ */
+static int ppp(int argc, const char** argv) {
+#if defined(_WIN32)
+    error_exit("adb %s not implemented on Win32", argv[0]);
+    __builtin_unreachable();
+#else
+    if (argc < 2) error_exit("usage: adb %s <adb service name> [ppp opts]", argv[0]);
+
+    const char* adb_service_name = argv[1];
+    std::string error_message;
+    int fd = adb_connect(adb_service_name, &error_message);
+    if (fd < 0) {
+        error_exit("could not open adb service %s: %s", adb_service_name, error_message.c_str());
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror_exit("fork failed");
+    }
+
+    if (pid == 0) {
+        // child side
+        int i;
+
+        // copy args
+        const char** ppp_args = (const char**)alloca(sizeof(char*) * argc + 1);
+        ppp_args[0] = "pppd";
+        for (i = 2 ; i < argc ; i++) {
+            //argv[2] and beyond become ppp_args[1] and beyond
+            ppp_args[i - 1] = argv[i];
+        }
+        ppp_args[i-1] = nullptr;
+
+        dup2(fd, STDIN_FILENO);
+        dup2(fd, STDOUT_FILENO);
+        adb_close(STDERR_FILENO);
+        adb_close(fd);
+
+        execvp("pppd", (char* const*)ppp_args);
+        perror_exit("exec pppd failed");
+    }
+
+    // parent side
+    adb_close(fd);
+    return 0;
+#endif /* !defined(_WIN32) */
 }
 
 static bool wait_for_device(const char* service,
@@ -1358,8 +1419,8 @@ class TrackAppStreamsCallback : public DefaultStandardStreamsCallback {
     TrackAppStreamsCallback() : DefaultStandardStreamsCallback(nullptr, nullptr) {}
 
     // Assume the buffer contains at least 4 bytes of valid data.
-    bool OnStdout(const char* buffer, size_t length) override {
-        if (length < 4) return true;  // Unexpected length received. Do nothing.
+    void OnStdout(const char* buffer, int length) override {
+        if (length < 4) return;  // Unexpected length received. Do nothing.
 
         adb::proto::AppProcesses binary_proto;
         // The first 4 bytes are the length of remaining content in hexadecimal format.
@@ -1367,13 +1428,11 @@ class TrackAppStreamsCallback : public DefaultStandardStreamsCallback {
         char summary[24];  // The following string includes digits and 16 fixed characters.
         int written = snprintf(summary, sizeof(summary), "Process count: %d\n",
                                binary_proto.process_size());
-        if (!OnStream(nullptr, stdout, summary, written, false)) {
-          return false;
-        }
+        OnStream(nullptr, stdout, summary, written);
 
         std::string string_proto;
         google::protobuf::TextFormat::PrintToString(binary_proto, &string_proto);
-        return OnStream(nullptr, stdout, string_proto.data(), string_proto.length(), false);
+        OnStream(nullptr, stdout, string_proto.data(), string_proto.length());
     }
 
   private:
@@ -1413,33 +1472,6 @@ static int adb_connect_command_bidirectional(const std::string& command) {
     read.join();
     write.join();
     return 0;
-}
-
-const std::optional<FeatureSet>& adb_get_feature_set_or_die(void) {
-    std::string error;
-    const std::optional<FeatureSet>& features = adb_get_feature_set(&error);
-    if (!features) {
-        error_exit("%s", error.c_str());
-    }
-    return features;
-}
-
-// Helper function to handle processing of shell service commands:
-// remount, disable/enable-verity. There's only one "feature",
-// but they were all moved from adbd to external binaries in the
-// same release.
-static int process_remount_or_verity_service(const int argc, const char** argv) {
-    auto&& features = adb_get_feature_set_or_die();
-    if (CanUseFeature(*features, kFeatureRemountShell)) {
-        std::vector<const char*> args = {"shell"};
-        args.insert(args.cend(), argv, argv + argc);
-        return adb_shell_noinput(args.size(), args.data());
-    } else if (argc > 1) {
-        auto command = android::base::StringPrintf("%s:%s", argv[0], argv[1]);
-        return adb_connect_command(command);
-    } else {
-        return adb_connect_command(std::string(argv[0]) + ":");
-    }
 }
 
 static int adb_query_command(const std::string& command) {
@@ -1501,7 +1533,6 @@ int adb_commandline(int argc, const char** argv) {
     const char* server_host_str = nullptr;
     const char* server_port_str = nullptr;
     const char* server_socket_str = nullptr;
-    const char* one_device_str = nullptr;
 
     // We need to check for -d and -e before we look at $ANDROID_SERIAL.
     const char* serial = nullptr;
@@ -1518,26 +1549,21 @@ int adb_commandline(int argc, const char** argv) {
         } else if (!strcmp(argv[0], "--reply-fd")) {
             if (argc < 2) error_exit("--reply-fd requires an argument");
             const char* reply_fd_str = argv[1];
-            --argc;
-            ++argv;
+            argc--;
+            argv++;
             ack_reply_fd = strtol(reply_fd_str, nullptr, 10);
             if (!_is_valid_ack_reply_fd(ack_reply_fd)) {
                 fprintf(stderr, "adb: invalid reply fd \"%s\"\n", reply_fd_str);
                 return 1;
             }
-        } else if (!strcmp(argv[0], "--one-device")) {
-            if (argc < 2) error_exit("--one-device requires an argument");
-            one_device_str = argv[1];
-            --argc;
-            ++argv;
         } else if (!strncmp(argv[0], "-s", 2)) {
             if (isdigit(argv[0][2])) {
                 serial = argv[0] + 2;
             } else {
                 if (argc < 2 || argv[0][2] != '\0') error_exit("-s requires an argument");
                 serial = argv[1];
-                --argc;
-                ++argv;
+                argc--;
+                argv++;
             }
         } else if (!strncmp(argv[0], "-t", 2)) {
             const char* id;
@@ -1545,8 +1571,8 @@ int adb_commandline(int argc, const char** argv) {
                 id = argv[0] + 2;
             } else {
                 id = argv[1];
-                --argc;
-                ++argv;
+                argc--;
+                argv++;
             }
             transport_id = strtoll(id, const_cast<char**>(&id), 10);
             if (*id != '\0') {
@@ -1562,8 +1588,8 @@ int adb_commandline(int argc, const char** argv) {
             if (argv[0][2] == '\0') {
                 if (argc < 2) error_exit("-H requires an argument");
                 server_host_str = argv[1];
-                --argc;
-                ++argv;
+                argc--;
+                argv++;
             } else {
                 server_host_str = argv[0] + 2;
             }
@@ -1571,24 +1597,22 @@ int adb_commandline(int argc, const char** argv) {
             if (argv[0][2] == '\0') {
                 if (argc < 2) error_exit("-P requires an argument");
                 server_port_str = argv[1];
-                --argc;
-                ++argv;
+                argc--;
+                argv++;
             } else {
                 server_port_str = argv[0] + 2;
             }
         } else if (!strcmp(argv[0], "-L")) {
             if (argc < 2) error_exit("-L requires an argument");
             server_socket_str = argv[1];
-            --argc;
-            ++argv;
-        } else if (strcmp(argv[0], "--exit-on-write-error") == 0) {
-            DEFAULT_STANDARD_STREAMS_CALLBACK.ReturnErrors(true);
+            argc--;
+            argv++;
         } else {
             /* out of recognized modifiers and flags */
             break;
         }
-        --argc;
-        ++argv;
+        argc--;
+        argv++;
     }
 
     if ((server_host_str || server_port_str) && server_socket_str) {
@@ -1629,13 +1653,6 @@ int adb_commandline(int argc, const char** argv) {
         server_socket_str = temp;
     }
 
-    bool server_start =
-            is_daemon || is_server || (argc > 0 && strcmp(argv[0], "start-server") == 0);
-    if (one_device_str && !server_start) {
-        error_exit("--one-device is only allowed when starting a server.");
-    }
-
-    adb_set_one_device(one_device_str);
     adb_set_socket_spec(server_socket_str);
 
     // If none of -d, -e, or -s were specified, try $ANDROID_SERIAL.
@@ -1651,9 +1668,9 @@ int adb_commandline(int argc, const char** argv) {
                 fprintf(stderr, "reply fd for adb server to client communication not specified.\n");
                 return 1;
             }
-            r = adb_server_main(is_daemon, server_socket_str, one_device_str, ack_reply_fd);
+            r = adb_server_main(is_daemon, server_socket_str, ack_reply_fd);
         } else {
-            r = launch_server(server_socket_str, one_device_str);
+            r = launch_server(server_socket_str);
         }
         if (r) {
             fprintf(stderr,"* could not start server *\n");
@@ -1681,8 +1698,8 @@ int adb_commandline(int argc, const char** argv) {
         }
 
         /* Fall through */
-        --argc;
-        ++argv;
+        argc--;
+        argv++;
     }
 
     /* adb_connect() commands */
@@ -1817,11 +1834,32 @@ int adb_commandline(int argc, const char** argv) {
             error_exit("tcpip: invalid port: %s", argv[1]);
         }
         return adb_connect_command(android::base::StringPrintf("tcpip:%d", port));
-    } else if (!strcmp(argv[0], "remount") || !strcmp(argv[0], "disable-verity") ||
-               !strcmp(argv[0], "enable-verity")) {
-        return process_remount_or_verity_service(argc, argv);
-    } else if (!strcmp(argv[0], "reboot") || !strcmp(argv[0], "reboot-bootloader") ||
-               !strcmp(argv[0], "reboot-fastboot") || !strcmp(argv[0], "usb")) {
+    } else if (!strcmp(argv[0], "remount")) {
+        std::string error;
+        auto&& features = adb_get_feature_set(&error);
+        if (!features) {
+            error_exit("%s", error.c_str());
+        }
+
+        if (CanUseFeature(*features, kFeatureRemountShell)) {
+            std::vector<const char*> args = {"shell"};
+            args.insert(args.cend(), argv, argv + argc);
+            return adb_shell_noinput(args.size(), args.data());
+        } else if (argc > 1) {
+            auto command = android::base::StringPrintf("%s:%s", argv[0], argv[1]);
+            return adb_connect_command(command);
+        } else {
+            return adb_connect_command("remount:");
+        }
+    }
+    // clang-format off
+    else if (!strcmp(argv[0], "reboot") ||
+             !strcmp(argv[0], "reboot-bootloader") ||
+             !strcmp(argv[0], "reboot-fastboot") ||
+             !strcmp(argv[0], "usb") ||
+             !strcmp(argv[0], "disable-verity") ||
+             !strcmp(argv[0], "enable-verity")) {
+        // clang-format on
         std::string command;
         if (!strcmp(argv[0], "reboot-bootloader")) {
             command = "reboot:bootloader";
@@ -2019,6 +2057,8 @@ int adb_commandline(int argc, const char** argv) {
     else if (!strcmp(argv[0], "logcat") || !strcmp(argv[0], "lolcat") ||
              !strcmp(argv[0], "longcat")) {
         return logcat(argc, argv);
+    } else if (!strcmp(argv[0], "ppp")) {
+        return ppp(argc, argv);
     } else if (!strcmp(argv[0], "start-server")) {
         std::string error;
         const int result = adb_connect("host:start-server", &error);
@@ -2043,7 +2083,11 @@ int adb_commandline(int argc, const char** argv) {
     } else if (!strcmp(argv[0], "track-jdwp")) {
         return adb_connect_command("track-jdwp");
     } else if (!strcmp(argv[0], "track-app")) {
-        auto&& features = adb_get_feature_set_or_die();
+        std::string error;
+        auto&& features = adb_get_feature_set(&error);
+        if (!features) {
+            error_exit("%s", error.c_str());
+        }
         if (!CanUseFeature(*features, kFeatureTrackApp)) {
             error_exit("track-app is not supported by the device");
         }
@@ -2070,7 +2114,11 @@ int adb_commandline(int argc, const char** argv) {
         return 0;
     } else if (!strcmp(argv[0], "features")) {
         // Only list the features common to both the adb client and the device.
-        auto&& features = adb_get_feature_set_or_die();
+        std::string error;
+        auto&& features = adb_get_feature_set(&error);
+        if (!features) {
+            error_exit("%s", error.c_str());
+        }
 
         for (const std::string& name : *features) {
             if (CanUseFeature(*features, name)) {

@@ -103,9 +103,8 @@ enum {
      * bar) while this window is displayed.  This allows the window to
      * use the entire display space for itself -- the status bar will
      * be hidden when an app window with this flag set is on the top
-     * layer. A fullscreen window will ignore a value of
-     * <a href="/reference/android/view/WindowManager.LayoutParams#SOFT_INPUT_ADJUST_RESIZE">
-     * SOFT_INPUT_ADJUST_RESIZE</a>; the window will stay
+     * layer. A fullscreen window will ignore a value of {@link
+     * AWINDOW_SOFT_INPUT_ADJUST_RESIZE}; the window will stay
      * fullscreen and will not resize.
      */
     AWINDOW_FLAG_FULLSCREEN                 = 0x00000400,

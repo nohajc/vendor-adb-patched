@@ -96,15 +96,9 @@ static int process_line(struct selabel_handle *rec,
 	items = read_spec_entries(line_buf, &errbuf, 2, &prop, &context);
 	if (items < 0) {
 		items = errno;
-		if (errbuf) {
-			selinux_log(SELINUX_ERROR,
-				    "%s:  line %u error due to: %s\n", path,
-				    lineno, errbuf);
-		} else {
-			selinux_log(SELINUX_ERROR,
-				    "%s:  line %u error due to: %m\n", path,
-				    lineno);
-		}
+		selinux_log(SELINUX_ERROR,
+			"%s:  line %u error due to: %s\n", path,
+			lineno, errbuf ?: strerror(errno));
 		errno = items;
 		return -1;
 	}
@@ -283,12 +277,6 @@ static void closef(struct selabel_handle *rec)
 	struct saved_data *data = (struct saved_data *)rec->data;
 	struct spec *spec;
 	unsigned int i;
-
-	if (!data)
-		return;
-
-	/* make sure successive ->func_close() calls are harmless */
-	rec->data = NULL;
 
 	if (data->spec_arr) {
 		for (i = 0; i < data->nspec; i++) {

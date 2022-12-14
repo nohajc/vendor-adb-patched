@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <string>
 #include <vector>
 
@@ -53,7 +52,7 @@ public:
 };
 
 /*
- * class for transporting gpu app stats from GpuService to authorized recipients.
+ * class for transporting gpu app stats from GpuService to authorized recipents.
  * This class is intended to be a data container.
  */
 class GpuStatsAppInfo : public Parcelable {
@@ -73,9 +72,6 @@ public:
     bool cpuVulkanInUse = false;
     bool falsePrerotation = false;
     bool gles1InUse = false;
-    bool angleInUse = false;
-
-    std::chrono::time_point<std::chrono::system_clock> lastAccessTime;
 };
 
 /*

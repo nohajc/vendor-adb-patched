@@ -4,10 +4,8 @@ if(FIPS)
   add_executable(
     modulewrapper
 
-    main.cc
     modulewrapper.cc
   )
-  install(TARGETS modulewrapper)
 
   add_dependencies(modulewrapper global_target)
 

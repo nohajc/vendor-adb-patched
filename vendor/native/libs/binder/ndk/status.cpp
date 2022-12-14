@@ -20,7 +20,6 @@
 #include <android-base/logging.h>
 
 using ::android::status_t;
-using ::android::statusToString;
 using ::android::binder::Status;
 
 AStatus* AStatus_newOk() {
@@ -127,7 +126,7 @@ binder_status_t PruneStatusT(status_t status) {
             return STATUS_UNKNOWN_ERROR;
 
         default:
-            LOG(WARNING) << __func__ << ": Unknown status_t (" << statusToString(status)
+            LOG(WARNING) << __func__ << ": Unknown status_t (" << status
                          << ") pruned into STATUS_UNKNOWN_ERROR";
             return STATUS_UNKNOWN_ERROR;
     }

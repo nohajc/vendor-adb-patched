@@ -17,7 +17,6 @@
 #include <processgroup/sched_policy.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
-#include <utils/ThreadDefs.h>
 
 #include <functional>
 

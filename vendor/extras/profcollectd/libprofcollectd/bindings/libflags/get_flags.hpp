@@ -14,8 +14,5 @@
  * limitations under the License.
  */
 
-#pragma once
-
-#include "rust/cxx.h"
-
-rust::String GetServerConfigurableFlag(rust::Str, rust::Str, rust::Str);
+// C declaration for bindgen.
+const char* GetServerConfigurableFlag(const char*, const char*, const char*);

@@ -34,7 +34,6 @@
 #include <assert.h>
 
 #include "debug.h"
-#include "private.h"
 
 #undef min
 #define min(a,b) (((a) < (b)) ? (a) : (b))
@@ -79,7 +78,7 @@ typedef struct missing_requirement {
 	uint32_t perm_value;
 } missing_requirement_t;
 
-static const char * const symtab_names[SYM_NUM] = {
+static const char *symtab_names[SYM_NUM] = {
 	"common", "class", "role", "type/attribute", "user",
 	"bool", "level", "category"
 };
@@ -165,7 +164,7 @@ static int permission_copy_callback(hashtab_key_t key, hashtab_datum_t datum,
 					     (hashtab_datum_t) new_perm);
 			if (ret) {
 				ERR(state->handle,
-				    "could not insert permission into class");
+				    "could not insert permission into class\n");
 				goto err;
 			}
 			new_perm->s.value = dest_class->permissions.nprim + 1;
@@ -191,9 +190,8 @@ static int permission_copy_callback(hashtab_key_t key, hashtab_datum_t datum,
 			ERR(state->handle, "Out of memory!");
 			return -1;
 		}
-		if (mod->perm_map_len[sclassi] > 0) {
-			memcpy(newmap, mod->perm_map[sclassi], mod->perm_map_len[sclassi] * sizeof(*newmap));
-		}
+		memcpy(newmap, mod->perm_map[sclassi],
+		       mod->perm_map_len[sclassi] * sizeof(*newmap));
 		free(mod->perm_map[sclassi]);
 		mod->perm_map[sclassi] = newmap;
 		mod->perm_map_len[sclassi] = perm->s.value;
@@ -289,7 +287,7 @@ static int class_copy_callback(hashtab_key_t key, hashtab_datum_t datum,
 			new_class =
 			    (class_datum_t *) calloc(1, sizeof(class_datum_t));
 			if (new_class == NULL) {
-				ERR(state->handle, "Memory error");
+				ERR(state->handle, "Memory error\n");
 				ret = SEPOL_ERR;
 				goto err;
 			}
@@ -300,7 +298,7 @@ static int class_copy_callback(hashtab_key_t key, hashtab_datum_t datum,
 			}
 			new_id = strdup(id);
 			if (new_id == NULL) {
-				ERR(state->handle, "Memory error");
+				ERR(state->handle, "Memory error\n");
 				symtab_destroy(&new_class->permissions);
 				ret = SEPOL_ERR;
 				goto err;
@@ -696,7 +694,7 @@ static int sens_copy_callback(hashtab_key_t key, hashtab_datum_t datum,
 			return SEPOL_ENOTSUP;
 		} else {
 			ERR(state->handle,
-			    "%s: has an unknown scope: %d",
+			    "%s: has an unknown scope: %d\n",
 			    state->cur_mod_name, scope->scope);
 			return SEPOL_ENOTSUP;
 		}
@@ -738,7 +736,7 @@ static int cat_copy_callback(hashtab_key_t key, hashtab_datum_t datum,
 		} else {
 			/* unknown scope?  malformed policy? */
 			ERR(state->handle,
-			    "%s: has an unknown scope: %d",
+			    "%s: has an unknown scope: %d\n",
 			    state->cur_mod_name, scope->scope);
 			return SEPOL_ENOTSUP;
 		}
@@ -1293,10 +1291,10 @@ static int copy_avrule_list(avrule_t * list, avrule_t ** dst,
 				     i <
 				     module->perm_map_len[cur_perm->tclass - 1];
 				     i++) {
-					if (!(cur_perm->data & (UINT32_C(1) << i)))
+					if (!(cur_perm->data & (1U << i)))
 						continue;
 					new_perm->data |=
-					    (UINT32_C(1) <<
+					    (1U <<
 					     (module->
 					      perm_map[cur_perm->tclass - 1][i] -
 					      1));
@@ -1681,7 +1679,7 @@ static int copy_scope_index(scope_index_t * src, scope_index_t * dest,
 	}
 
 	/* next copy the enabled permissions data  */
-	if ((dest->class_perms_map = mallocarray(largest_mapped_class_value,
+	if ((dest->class_perms_map = malloc(largest_mapped_class_value *
 					    sizeof(*dest->class_perms_map))) ==
 	    NULL) {
 		goto cleanup;
@@ -1781,7 +1779,7 @@ static int copy_avrule_block(link_state_t * state, policy_module_t * module,
 		if (module->policy->name != NULL) {
 			new_decl->module_name = strdup(module->policy->name);
 			if (new_decl->module_name == NULL) {
-				ERR(state->handle, "Out of memory");
+				ERR(state->handle, "Out of memory\n");
 				avrule_decl_destroy(new_decl);
 				ret = -1;
 				goto cleanup;
@@ -2208,7 +2206,7 @@ static int enable_avrules(link_state_t * state, policydb_t * pol)
 			if (state->verbose) {
 				const char *mod_name = decl->module_name ?
 				    decl->module_name : "BASE";
-				INFO(state->handle, "check module %s decl %d",
+				INFO(state->handle, "check module %s decl %d\n",
 				     mod_name, decl->decl_id);
 			}
 			rc = is_decl_requires_met(state, decl, &req);
@@ -2554,7 +2552,7 @@ int link_modules(sepol_handle_t * handle,
 
 		if (mods[i]->policyvers > b->policyvers) {
 			WARN(state.handle,
-			     "Upgrading policy version from %u to %u", b->policyvers, mods[i]->policyvers);
+			     "Upgrading policy version from %u to %u\n", b->policyvers, mods[i]->policyvers);
 			b->policyvers = mods[i]->policyvers;
 		}
 
@@ -2572,6 +2570,36 @@ int link_modules(sepol_handle_t * handle,
 		num_mod_decls += modules[i]->num_decls;
 	}
 	if (prepare_base(&state, num_mod_decls) == -1) {
+		goto cleanup;
+	}
+
+	/* copy all types, declared and required */
+	for (i = 0; i < len; i++) {
+		state.cur = modules[i];
+		state.cur_mod_name = modules[i]->policy->name;
+		ret =
+		    hashtab_map(modules[i]->policy->p_types.table,
+				type_copy_callback, &state);
+		if (ret) {
+			retval = ret;
+			goto cleanup;
+		}
+	}
+
+	/* then copy everything else, including aliases, and fixup attributes */
+	for (i = 0; i < len; i++) {
+		state.cur = modules[i];
+		state.cur_mod_name = modules[i]->policy->name;
+		ret =
+		    copy_identifiers(&state, modules[i]->policy->symtab, NULL);
+		if (ret) {
+			retval = ret;
+			goto cleanup;
+		}
+	}
+
+	if (policydb_index_others(state.handle, state.base, 0)) {
+		ERR(state.handle, "Error while indexing others");
 		goto cleanup;
 	}
 

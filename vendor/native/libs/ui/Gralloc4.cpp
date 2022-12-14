@@ -36,7 +36,6 @@ using android::hardware::graphics::common::V1_2::BufferUsage;
 using android::hardware::graphics::mapper::V4_0::BufferDescriptor;
 using android::hardware::graphics::mapper::V4_0::Error;
 using android::hardware::graphics::mapper::V4_0::IMapper;
-using AidlDataspace = ::aidl::android::hardware::graphics::common::Dataspace;
 using BufferDump = android::hardware::graphics::mapper::V4_0::IMapper::BufferDump;
 using MetadataDump = android::hardware::graphics::mapper::V4_0::IMapper::MetadataDump;
 using MetadataType = android::hardware::graphics::mapper::V4_0::IMapper::MetadataType;
@@ -300,19 +299,20 @@ status_t Gralloc4Mapper::lock(buffer_handle_t bufferHandle, uint64_t usage, cons
             if (!gralloc4::isStandardPlaneLayoutComponentType(planeLayoutComponent.type)) {
                 continue;
             }
+            if (0 != planeLayoutComponent.offsetInBits % 8) {
+                unlock(bufferHandle);
+                return BAD_VALUE;
+            }
 
-            uint8_t* tmpData = static_cast<uint8_t*>(data) + planeLayout.offsetInBytes;
-
-            // Note that `offsetInBits` may not be a multiple of 8 for packed formats (e.g. P010)
-            // but we still want to point to the start of the first byte.
-            tmpData += (planeLayoutComponent.offsetInBits / 8);
-
+            uint8_t* tmpData = static_cast<uint8_t*>(data) + planeLayout.offsetInBytes +
+                    (planeLayoutComponent.offsetInBits / 8);
             uint64_t sampleIncrementInBytes;
 
             auto type = static_cast<PlaneLayoutComponentType>(planeLayoutComponent.type.value);
             switch (type) {
                 case PlaneLayoutComponentType::Y:
-                    if ((ycbcr.y != nullptr) || (planeLayout.sampleIncrementInBits % 8 != 0)) {
+                    if ((ycbcr.y != nullptr) || (planeLayoutComponent.sizeInBits != 8) ||
+                        (planeLayout.sampleIncrementInBits != 8)) {
                         unlock(bufferHandle);
                         return BAD_VALUE;
                     }
@@ -328,8 +328,7 @@ status_t Gralloc4Mapper::lock(buffer_handle_t bufferHandle, uint64_t usage, cons
                     }
 
                     sampleIncrementInBytes = planeLayout.sampleIncrementInBits / 8;
-                    if ((sampleIncrementInBytes != 1) && (sampleIncrementInBytes != 2) &&
-                        (sampleIncrementInBytes != 4)) {
+                    if ((sampleIncrementInBytes != 1) && (sampleIncrementInBytes != 2)) {
                         unlock(bufferHandle);
                         return BAD_VALUE;
                     }
@@ -598,7 +597,7 @@ status_t Gralloc4Mapper::getDataspace(buffer_handle_t bufferHandle,
     if (!outDataspace) {
         return BAD_VALUE;
     }
-    AidlDataspace dataspace;
+    aidl::android::hardware::graphics::common::Dataspace dataspace;
     status_t error = get(bufferHandle, gralloc4::MetadataType_Dataspace, gralloc4::decodeDataspace,
                          &dataspace);
     if (error) {
@@ -842,7 +841,6 @@ status_t Gralloc4Mapper::bufferDumpHelper(const BufferDump& bufferDump, std::ost
     uint32_t pixelFormatFourCC;
     uint64_t pixelFormatModifier;
     uint64_t usage;
-    AidlDataspace dataspace;
     uint64_t allocationSize;
     uint64_t protectedContent;
     ExtendableType compression;
@@ -894,11 +892,6 @@ status_t Gralloc4Mapper::bufferDumpHelper(const BufferDump& bufferDump, std::ost
     if (error != NO_ERROR) {
         return error;
     }
-    error = metadataDumpHelper(bufferDump, StandardMetadataType::DATASPACE,
-                               gralloc4::decodeDataspace, &dataspace);
-    if (error != NO_ERROR) {
-        return error;
-    }
     error = metadataDumpHelper(bufferDump, StandardMetadataType::ALLOCATION_SIZE,
                                gralloc4::decodeAllocationSize, &allocationSize);
     if (error != NO_ERROR) {
@@ -939,7 +932,6 @@ status_t Gralloc4Mapper::bufferDumpHelper(const BufferDump& bufferDump, std::ost
              << "KiB, w/h:" << width << "x" << height << ", usage: 0x" << std::hex << usage
              << std::dec << ", req fmt:" << static_cast<int32_t>(pixelFormatRequested)
              << ", fourcc/mod:" << pixelFormatFourCC << "/" << pixelFormatModifier
-             << ", dataspace: 0x" << std::hex << static_cast<uint32_t>(dataspace) << std::dec
              << ", compressed: ";
 
     if (less) {
@@ -1060,7 +1052,7 @@ std::string Gralloc4Mapper::dumpBuffers(bool less) const {
 Gralloc4Allocator::Gralloc4Allocator(const Gralloc4Mapper& mapper) : mMapper(mapper) {
     mAllocator = IAllocator::getService();
     if (mAllocator == nullptr) {
-        ALOGW("allocator 4.x is not supported");
+        ALOGW("allocator 3.x is not supported");
         return;
     }
 }

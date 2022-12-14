@@ -33,8 +33,6 @@
     <feature name="android.hardware.screen.landscape" />
     <feature name="android.hardware.location" />
     <feature name="android.hardware.location.network" />
-    <!-- Indicate support for the Android security model per the CDD. -->
-    <feature name="android.hardware.security.model.compatible" />
 
     <!-- basic system services -->
     <feature name="android.software.app_widgets" />

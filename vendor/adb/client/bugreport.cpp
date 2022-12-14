@@ -53,8 +53,8 @@ class BugreportStandardStreamsCallback : public StandardStreamsCallbackInterface
         SetLineMessage("generating");
     }
 
-    bool OnStdout(const char* buffer, size_t length) {
-        for (size_t i = 0; i < length; i++) {
+    void OnStdout(const char* buffer, int length) {
+        for (int i = 0; i < length; i++) {
             char c = buffer[i];
             if (c == '\n') {
                 ProcessLine(line_);
@@ -63,11 +63,10 @@ class BugreportStandardStreamsCallback : public StandardStreamsCallbackInterface
                 line_.append(1, c);
             }
         }
-        return true;
     }
 
-    bool OnStderr(const char* buffer, size_t length) {
-      return OnStream(nullptr, stderr, buffer, length, false);
+    void OnStderr(const char* buffer, int length) {
+        OnStream(nullptr, stderr, buffer, length);
     }
 
     int Done(int unused_) {

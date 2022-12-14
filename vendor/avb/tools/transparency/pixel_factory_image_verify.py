@@ -34,14 +34,10 @@ $ pixel_factory_image_verify.py image.zip
 The list of canonical Pixel factory images can be found here:
 https://developers.google.com/android/images
 
-Supported: all factory images of Pixel 6 and later devices.
+Supported are all factory images of Pixel 3 and later devices.
 
 In order for the tool to run correct the following utilities need to be
-pre-installed: grep, wget or curl, unzip.
-
-Additionally, make sure that the bootloader unpacker script is separately
-downloaded, made executable, and symlinked as 'fbpacktool', and made accessible
-via your shell $PATH.
+pre-installed: wget, unzip.
 
 The tool also runs outside of the repository location as long as the working
 directory is writable.
@@ -49,7 +45,6 @@ directory is writable.
 
 from __future__ import print_function
 
-import glob
 import os
 import shutil
 import subprocess
@@ -61,17 +56,12 @@ import distutils.spawn
 class PixelFactoryImageVerifier(object):
   """Object for the pixel_factory_image_verify command line tool."""
 
-  ERR_TOOL_UNAVAIL_FMT_STR = 'Necessary command line tool needs to be installed first: %s'
-
   def __init__(self):
     self.working_dir = os.getcwd()
     self.script_path = os.path.realpath(__file__)
     self.script_dir = os.path.split(self.script_path)[0]
     self.avbtool_path = os.path.abspath(os.path.join(self.script_path,
                                                      '../../../avbtool'))
-    self.fw_unpacker_path = distutils.spawn.find_executable('fbpacktool')
-    self.wget_path = distutils.spawn.find_executable('wget')
-    self.curl_path = distutils.spawn.find_executable('curl')
 
   def run(self, argv):
     """Command line processor.
@@ -86,20 +76,11 @@ class PixelFactoryImageVerifier(object):
       sys.exit(1)
 
     # Checks if necessary commands are available.
-    for cmd in ['grep', 'unzip']:
+    for cmd in ['grep', 'unzip', 'wget']:
       if not distutils.spawn.find_executable(cmd):
-        print(PixelFactoryImageVerifier.ERR_TOOL_UNAVAIL_FMT_STR % cmd)
+        print('Necessary command line tool needs to be installed first: %s'
+              % cmd)
         sys.exit(1)
-
-    # Checks if `fbpacktool` is available.
-    if not self.fw_unpacker_path:
-      print(PixelFactoryImageVerifier.ERR_TOOL_UNAVAIL_FMT_STR % 'fbpacktool')
-      sys.exit(1)
-
-    # Checks if either `wget` or `curl` is available.
-    if not self.wget_path and not self.curl_path:
-      print(PixelFactoryImageVerifier.ERR_TOOL_UNAVAIL_FMT_STR % 'wget or curl')
-      sys.exit(1)
 
     # Downloads factory image if URL is specified; otherwise treat it as file.
     if argv[1].lower().startswith('https://'):
@@ -112,11 +93,6 @@ class PixelFactoryImageVerifier(object):
     # Unpacks the factory image into partition images.
     partition_image_dir = self._unpack_factory_image(factory_image_zip)
     if not partition_image_dir:
-      sys.exit(1)
-
-    # Unpacks bootloader image into individual component images.
-    unpack_successful = self._unpack_bootloader(partition_image_dir)
-    if not unpack_successful:
       sys.exit(1)
 
     # Validates the VBMeta of the factory image.
@@ -135,11 +111,6 @@ class PixelFactoryImageVerifier(object):
 
     print('The build fingerprint for factory image is: %s' % fingerprint)
     print('The VBMeta Digest for factory image is: %s' % vbmeta_digest)
-
-    with open('payload.txt', 'w') as f_out:
-      f_out.write(fingerprint.strip() + '\n')
-      f_out.write(vbmeta_digest.strip() + '\n')
-    print('A corresponding "payload.txt" file has been created.')
     sys.exit(0)
 
   def _download_factory_image(self, url):
@@ -196,12 +167,7 @@ class PixelFactoryImageVerifier(object):
     """
     print('Fetching file from: %s' % url)
     os.chdir(download_dir)
-    args = []
-    if self.wget_path:
-      args = [self.wget_path, url]
-    else:
-      args = [self.curl_path, '-O', url]
-
+    args = ['wget', url]
     result, _ = self._run_command(args,
                                   'Successfully downloaded file.',
                                   'File download failed.')
@@ -216,27 +182,6 @@ class PixelFactoryImageVerifier(object):
       return files[0]
     else:
       return None
-
-  def _unpack_bootloader(self, factory_image_folder):
-    """Unpacks the bootloader to produce individual images.
-
-    Args:
-      factory_image_folder: path to the directory containing factory images.
-
-    Returns:
-      True if unpack is successful. False if otherwise.
-    """
-    os.chdir(factory_image_folder)
-    bootloader_path = os.path.join(factory_image_folder, 'bootloader*.img')
-    glob_result = glob.glob(bootloader_path)
-    if not glob_result:
-      return False
-
-    args = [self.fw_unpacker_path, 'unpack', glob_result[0]]
-    result, _ = self._run_command(args,
-                                  'Successfully unpacked bootloader image.',
-                                  'Failed to unpack bootloader image.')
-    return result
 
   def _unpack_factory_image(self, factory_image_file):
     """Unpacks the factory image zip file.
@@ -314,7 +259,7 @@ class PixelFactoryImageVerifier(object):
       which contains a vbmeta.img patition.
 
     Returns:
-      True if the VBMeta protected partitions verify.
+      True if the VBMeta protected parititions verify.
     """
     os.chdir(image_dir)
     args = [self.avbtool_path,
@@ -336,7 +281,7 @@ class PixelFactoryImageVerifier(object):
     Returns:
       The build fingerprint string, e.g.
       google/blueline/blueline:9/PQ2A.190305.002/5240760:user/release-keys
-    """
+    """ 
     os.chdir(image_dir)
     args = ['grep',
             '-a',
@@ -345,7 +290,7 @@ class PixelFactoryImageVerifier(object):
 
     result, output = self._run_command(
         args,
-        'Successfully extracted build fingerprint.',
+        'Successfully extracted build fingerpint.',
         'Build fingerprint extraction failed.')
     os.chdir(self.working_dir)
     if result:
@@ -355,7 +300,7 @@ class PixelFactoryImageVerifier(object):
       return None
 
   def _calculate_vbmeta_digest(self, image_dir):
-    """Calculates the VBMeta Digest for given partitions using avbtool.
+    """Calculates the VBMeta Digest for given parititions using avbtool.
 
     Args:
       image_dir: The folder containing the unpacked factory image partitions,
@@ -380,8 +325,7 @@ class PixelFactoryImageVerifier(object):
   def _run_command(self, args, success_msg, fail_msg):
     """Runs command line tools."""
     p = subprocess.Popen(args, stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         encoding='utf-8')
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pout, _ = p.communicate()
     if p.wait() == 0:
       print(success_msg)

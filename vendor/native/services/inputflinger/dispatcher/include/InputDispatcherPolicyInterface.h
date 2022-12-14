@@ -20,12 +20,12 @@
 #include "InputDispatcherConfiguration.h"
 
 #include <binder/IBinder.h>
-#include <gui/InputApplication.h>
 #include <input/Input.h>
 #include <utils/RefBase.h>
 
 namespace android {
 
+class InputApplicationHandle;
 
 /*
  * Input dispatcher policy interface.
@@ -45,49 +45,14 @@ public:
     /* Notifies the system that a configuration change has occurred. */
     virtual void notifyConfigurationChanged(nsecs_t when) = 0;
 
-    /* Notifies the system that an application does not have a focused window.
-     */
-    virtual void notifyNoFocusedWindowAnr(
-            const std::shared_ptr<InputApplicationHandle>& inputApplicationHandle) = 0;
-
-    /* Notifies the system that a window just became unresponsive. This indicates that ANR
-     * should be raised for this window. The window is identified via token.
-     * The string reason contains information about the input event that we haven't received
-     * a response for.
-     */
-    virtual void notifyWindowUnresponsive(const sp<IBinder>& token, const std::string& reason) = 0;
-    /* Notifies the system that a monitor just became unresponsive. This indicates that ANR
-     * should be raised for this monitor. The monitor is identified via its pid.
-     * The string reason contains information about the input event that we haven't received
-     * a response for.
-     */
-    virtual void notifyMonitorUnresponsive(int32_t pid, const std::string& reason) = 0;
-
-    /* Notifies the system that a window just became responsive. This is only called after the
-     * window was first marked "unresponsive". This indicates that ANR dialog (if any) should
-     * no longer should be shown to the user. The window is eligible to cause a new ANR in the
-     * future.
-     */
-    virtual void notifyWindowResponsive(const sp<IBinder>& token) = 0;
-    /* Notifies the system that a monitor just became responsive. This is only called after the
-     * monitor was first marked "unresponsive". This indicates that ANR dialog (if any) should
-     * no longer should be shown to the user. The monitor is eligible to cause a new ANR in the
-     * future.
-     */
-    virtual void notifyMonitorResponsive(int32_t pid) = 0;
+    /* Notifies the system that an application is not responding.
+     * Returns a new timeout to continue waiting, or 0 to abort dispatch. */
+    virtual nsecs_t notifyAnr(const sp<InputApplicationHandle>& inputApplicationHandle,
+                              const sp<IBinder>& token, const std::string& reason) = 0;
 
     /* Notifies the system that an input channel is unrecoverably broken. */
     virtual void notifyInputChannelBroken(const sp<IBinder>& token) = 0;
     virtual void notifyFocusChanged(const sp<IBinder>& oldToken, const sp<IBinder>& newToken) = 0;
-    virtual void notifySensorEvent(int32_t deviceId, InputDeviceSensorType sensorType,
-                                   InputDeviceSensorAccuracy accuracy, nsecs_t timestamp,
-                                   const std::vector<float>& values) = 0;
-    virtual void notifySensorAccuracy(int32_t deviceId, InputDeviceSensorType sensorType,
-                                      InputDeviceSensorAccuracy accuracy) = 0;
-    virtual void notifyVibratorState(int32_t deviceId, bool isOn) = 0;
-
-    /* Notifies the system that an untrusted touch occurred. */
-    virtual void notifyUntrustedTouch(const std::string& obscuringPackage) = 0;
 
     /* Gets the input dispatcher configuration. */
     virtual void getDispatcherConfiguration(InputDispatcherConfiguration* outConfig) = 0;
@@ -134,7 +99,7 @@ public:
                               uint32_t policyFlags) = 0;
 
     /* Poke user activity for an event dispatched to a window. */
-    virtual void pokeUserActivity(nsecs_t eventTime, int32_t eventType, int32_t displayId) = 0;
+    virtual void pokeUserActivity(nsecs_t eventTime, int32_t eventType) = 0;
 
     /* Checks whether a given application pid/uid has permission to inject input events
      * into other applications.
@@ -151,15 +116,6 @@ public:
      * The touchedToken passed as an argument is the window that received the input event.
      */
     virtual void onPointerDownOutsideFocus(const sp<IBinder>& touchedToken) = 0;
-
-    /* Change the Pointer Capture state in InputReader.
-     *
-     * InputDispatcher is solely responsible for updating the Pointer Capture state.
-     */
-    virtual void setPointerCapture(const PointerCaptureRequest&) = 0;
-
-    /* Notifies the policy that the drag window has moved over to another window */
-    virtual void notifyDropWindow(const sp<IBinder>& token, float x, float y) = 0;
 };
 
 } // namespace android

@@ -35,8 +35,6 @@ int mapPublicFormatToHalFormat(PublicFormat f) {
         case PublicFormat::RAW_SENSOR:
         case PublicFormat::RAW_DEPTH:
             return HAL_PIXEL_FORMAT_RAW16;
-        case PublicFormat::RAW_DEPTH10:
-            return HAL_PIXEL_FORMAT_RAW10;
         default:
             // Most formats map 1:1
             return static_cast<int>(f);
@@ -52,7 +50,6 @@ android_dataspace mapPublicFormatToHalDataspace(PublicFormat f) {
         case PublicFormat::DEPTH_POINT_CLOUD:
         case PublicFormat::DEPTH16:
         case PublicFormat::RAW_DEPTH:
-        case PublicFormat::RAW_DEPTH10:
             dataspace = Dataspace::DEPTH;
             break;
         case PublicFormat::RAW_SENSOR:
@@ -83,13 +80,6 @@ android_dataspace mapPublicFormatToHalDataspace(PublicFormat f) {
 PublicFormat mapHalFormatDataspaceToPublicFormat(int format, android_dataspace dataSpace) {
     Dataspace ds = static_cast<Dataspace>(dataSpace);
     switch (format) {
-        case HAL_PIXEL_FORMAT_RAW10:
-            switch (ds) {
-                case Dataspace::DEPTH:
-                    return PublicFormat::RAW_DEPTH10;
-                default:
-                    return PublicFormat::RAW10;
-            }
         case HAL_PIXEL_FORMAT_RGBA_8888:
         case HAL_PIXEL_FORMAT_RGBX_8888:
         case HAL_PIXEL_FORMAT_RGBA_FP16:
@@ -97,10 +87,10 @@ PublicFormat mapHalFormatDataspaceToPublicFormat(int format, android_dataspace d
         case HAL_PIXEL_FORMAT_RGB_888:
         case HAL_PIXEL_FORMAT_RGB_565:
         case HAL_PIXEL_FORMAT_Y8:
+        case HAL_PIXEL_FORMAT_RAW10:
         case HAL_PIXEL_FORMAT_RAW12:
         case HAL_PIXEL_FORMAT_YCbCr_420_888:
         case HAL_PIXEL_FORMAT_YV12:
-        case HAL_PIXEL_FORMAT_YCBCR_P010:
             // Enums overlap in both name and value
             return static_cast<PublicFormat>(format);
         case HAL_PIXEL_FORMAT_RAW16:

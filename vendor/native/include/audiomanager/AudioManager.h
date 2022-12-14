@@ -37,7 +37,6 @@ typedef enum {
     PLAYER_STATE_STARTED  = 2,
     PLAYER_STATE_PAUSED   = 3,
     PLAYER_STATE_STOPPED  = 4,
-    PLAYER_UPDATE_DEVICE_ID = 5,
 } player_state_t;
 
 // must be kept in sync with definitions in AudioManager.java

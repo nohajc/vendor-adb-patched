@@ -32,31 +32,25 @@ using namespace android::surfaceflinger;
 namespace android {
 
 class SurfaceFlinger;
+
 constexpr auto operator""_MB(unsigned long long const num) {
     return num * 1024 * 1024;
 }
 /*
- * SurfaceTracing records layer states during surface flinging. Manages tracing state and
- * configuration.
+ * SurfaceTracing records layer states during surface flinging.
  */
 class SurfaceTracing {
 public:
-    SurfaceTracing(SurfaceFlinger& flinger);
+    explicit SurfaceTracing(SurfaceFlinger& flinger);
     bool enable();
     bool disable();
     status_t writeToFile();
     bool isEnabled() const;
-    /*
-     * Adds a trace entry, must be called from the drawing thread or while holding the
-     * SurfaceFlinger tracing lock.
-     */
     void notify(const char* where);
-    /*
-     * Adds a trace entry, called while holding the SurfaceFlinger tracing lock.
-     */
-    void notifyLocked(const char* where) /* REQUIRES(mSfLock) */;
+    void notifyLocked(const char* where) NO_THREAD_SAFETY_ANALYSIS /* REQUIRES(mSfLock) */;
 
-    void setBufferSize(size_t bufferSizeInBytes) { mConfig.bufferSize = bufferSizeInBytes; }
+    void setBufferSize(size_t bufferSizeInByte);
+    void writeToFileAsync();
     void dump(std::string& result) const;
 
     enum : uint32_t {
@@ -65,35 +59,18 @@ public:
         TRACE_COMPOSITION = 1 << 2,
         TRACE_EXTRA = 1 << 3,
         TRACE_HWC = 1 << 4,
-        // Add non-geometry composition changes to the trace.
-        TRACE_BUFFERS = 1 << 5,
-        // Add entries from the drawing thread post composition.
-        TRACE_SYNC = 1 << 6,
-        TRACE_ALL = TRACE_CRITICAL | TRACE_INPUT | TRACE_COMPOSITION | TRACE_EXTRA,
+        TRACE_ALL = 0xffffffff
     };
-    void setTraceFlags(uint32_t flags) { mConfig.flags = flags; }
-    bool flagIsSet(uint32_t flags) { return (mConfig.flags & flags) == flags; }
-    static LayersTraceFileProto createLayersTraceFileProto();
+    void setTraceFlags(uint32_t flags);
+    bool flagIsSetLocked(uint32_t flags) NO_THREAD_SAFETY_ANALYSIS /* REQUIRES(mSfLock) */ {
+        return (mTraceFlags & flags) == flags;
+    }
 
 private:
-    class Runner;
-    static constexpr auto DEFAULT_BUFFER_SIZE = 5_MB;
-    static constexpr auto DEFAULT_FILE_NAME = "/data/misc/wmtrace/layers_trace.winscope";
+    static constexpr auto kDefaultBufferCapInByte = 5_MB;
+    static constexpr auto kDefaultFileName = "/data/misc/wmtrace/layers_trace.pb";
 
-    SurfaceFlinger& mFlinger;
-    mutable std::mutex mTraceLock;
-    bool mEnabled GUARDED_BY(mTraceLock) = false;
-    std::unique_ptr<Runner> runner GUARDED_BY(mTraceLock);
-
-    struct Config {
-        uint32_t flags = TRACE_CRITICAL | TRACE_INPUT | TRACE_SYNC;
-        size_t bufferSize = DEFAULT_BUFFER_SIZE;
-    } mConfig;
-
-    /*
-     * ring buffer.
-     */
-    class LayersTraceBuffer {
+    class LayersTraceBuffer { // ring buffer
     public:
         size_t size() const { return mSizeInBytes; }
         size_t used() const { return mUsedInBytes; }
@@ -106,59 +83,35 @@ private:
 
     private:
         size_t mUsedInBytes = 0U;
-        size_t mSizeInBytes = DEFAULT_BUFFER_SIZE;
+        size_t mSizeInBytes = 0U;
         std::queue<LayersTraceProto> mStorage;
     };
 
-    /*
-     * Implements a synchronous way of adding trace entries. This must be called
-     * from the drawing thread.
-     */
-    class Runner {
-    public:
-        Runner(SurfaceFlinger& flinger, SurfaceTracing::Config& config);
-        virtual ~Runner() = default;
-        virtual status_t stop();
-        virtual status_t writeToFile();
-        virtual void notify(const char* where);
-        /* Cannot be called with a synchronous runner. */
-        virtual void notifyLocked(const char* /* where */) {}
-        void dump(std::string& result) const;
+    void mainLoop();
+    bool addFirstEntry();
+    LayersTraceProto traceWhenNotified();
+    LayersTraceProto traceLayersLocked(const char* where) REQUIRES(mSfLock);
 
-    protected:
-        bool flagIsSet(uint32_t flags) { return (mConfig.flags & flags) == flags; }
-        SurfaceFlinger& mFlinger;
-        SurfaceTracing::Config mConfig;
-        SurfaceTracing::LayersTraceBuffer mBuffer;
-        uint32_t mMissedTraceEntries = 0;
-        LayersTraceProto traceLayers(const char* where);
-    };
+    // Returns true if trace is enabled.
+    bool addTraceToBuffer(LayersTraceProto& entry);
+    void writeProtoFileLocked() REQUIRES(mTraceLock);
 
-    /*
-     * Implements asynchronous way to add trace entries called from a separate thread while holding
-     * the SurfaceFlinger tracing lock. Trace entries may be missed if the tracing thread is not
-     * scheduled in time.
-     */
-    class AsyncRunner : public Runner {
-    public:
-        AsyncRunner(SurfaceFlinger& flinger, SurfaceTracing::Config& config, std::mutex& sfLock);
-        virtual ~AsyncRunner() = default;
-        status_t stop() override;
-        status_t writeToFile() override;
-        void notify(const char* where) override;
-        void notifyLocked(const char* where);
+    SurfaceFlinger& mFlinger;
+    status_t mLastErr = NO_ERROR;
+    std::thread mThread;
+    std::condition_variable mCanStartTrace;
 
-    private:
-        std::mutex& mSfLock;
-        std::condition_variable mCanStartTrace;
-        std::thread mThread;
-        const char* mWhere = "";
-        bool mWriteToFile = false;
-        bool mEnabled = false;
-        bool mAddEntry = false;
-        void loop();
-        bool traceWhenNotified(LayersTraceProto* outProto);
-    };
+    std::mutex& mSfLock;
+    uint32_t mTraceFlags GUARDED_BY(mSfLock) = TRACE_CRITICAL | TRACE_INPUT;
+    const char* mWhere GUARDED_BY(mSfLock) = "";
+    uint32_t mMissedTraceEntries GUARDED_BY(mSfLock) = 0;
+    bool mTracingInProgress GUARDED_BY(mSfLock) = false;
+
+    mutable std::mutex mTraceLock;
+    LayersTraceBuffer mBuffer GUARDED_BY(mTraceLock);
+    size_t mBufferSize GUARDED_BY(mTraceLock) = kDefaultBufferCapInByte;
+    bool mEnabled GUARDED_BY(mTraceLock) = false;
+    bool mWriteToFile GUARDED_BY(mTraceLock) = false;
 };
 
 } // namespace android

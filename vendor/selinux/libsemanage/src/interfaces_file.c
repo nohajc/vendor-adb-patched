@@ -14,6 +14,7 @@ typedef struct dbase_file dbase_t;
 #include <stdio.h>
 #include <semanage/handle.h>
 #include "iface_internal.h"
+#include "context_internal.h"
 #include "database_file.h"
 #include "parse_utils.h"
 #include "debug.h"
@@ -72,7 +73,7 @@ static int iface_parse(semanage_handle_t * handle,
 		goto err;
 
 	/* Name */
-	if (parse_fetch_string(handle, info, &str, ' ', 0) < 0)
+	if (parse_fetch_string(handle, info, &str, ' ') < 0)
 		goto err;
 	if (semanage_iface_set_name(handle, iface, str) < 0)
 		goto err;
@@ -82,7 +83,7 @@ static int iface_parse(semanage_handle_t * handle,
 	/* Interface context */
 	if (parse_assert_space(handle, info) < 0)
 		goto err;
-	if (parse_fetch_string(handle, info, &str, ' ', 0) < 0)
+	if (parse_fetch_string(handle, info, &str, ' ') < 0)
 		goto err;
 	if (semanage_context_from_string(handle, str, &con) < 0) {
 		ERR(handle, "invalid security context \"%s\" (%s: %u)\n%s",
@@ -106,7 +107,7 @@ static int iface_parse(semanage_handle_t * handle,
 	/* Message context */
 	if (parse_assert_space(handle, info) < 0)
 		goto err;
-	if (parse_fetch_string(handle, info, &str, ' ', 0) < 0)
+	if (parse_fetch_string(handle, info, &str, ' ') < 0)
 		goto err;
 	if (semanage_context_from_string(handle, str, &con) < 0) {
 		ERR(handle, "invalid security context \"%s\" (%s: %u)\n%s",

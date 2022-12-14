@@ -59,19 +59,11 @@
 #include <openssl/obj.h>
 #include <openssl/x509.h>
 
-#include "internal.h"
-
-
 int X509_REQ_set_version(X509_REQ *x, long version)
 {
-    if (x == NULL) {
-        return 0;
-    }
-    if (version != X509_REQ_VERSION_1) {
-        OPENSSL_PUT_ERROR(X509, X509_R_INVALID_VERSION);
-        return 0;
-    }
-    return ASN1_INTEGER_set(x->req_info->version, version);
+    if (x == NULL)
+        return (0);
+    return (ASN1_INTEGER_set(x->req_info->version, version));
 }
 
 int X509_REQ_set_subject_name(X509_REQ *x, X509_NAME *name)

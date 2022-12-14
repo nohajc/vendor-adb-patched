@@ -32,7 +32,6 @@
 #include "action.h"
 #include "capabilities.h"
 #include "keyword_map.h"
-#include "mount_namespace.h"
 #include "parser.h"
 #include "service_utils.h"
 #include "subcontext.h"
@@ -55,6 +54,7 @@
                                      // should not be killed during shutdown
 #define SVC_TEMPORARY 0x1000  // This service was started by 'exec' and should be removed from the
                               // service list once it is reaped.
+#define SVC_STOPPING 0x2000  // service is being stopped by init
 
 #define NR_SVC_SUPP_GIDS 12    // twelve supplementary groups
 
@@ -66,12 +66,12 @@ class Service {
 
   public:
     Service(const std::string& name, Subcontext* subcontext_for_restart_commands,
-            const std::string& filename, const std::vector<std::string>& args);
+            const std::vector<std::string>& args, bool from_apex = false);
 
     Service(const std::string& name, unsigned flags, uid_t uid, gid_t gid,
             const std::vector<gid_t>& supp_gids, int namespace_flags, const std::string& seclabel,
-            Subcontext* subcontext_for_restart_commands, const std::string& filename,
-            const std::vector<std::string>& args);
+            Subcontext* subcontext_for_restart_commands, const std::vector<std::string>& args,
+            bool from_apex = false);
 
     static Result<std::unique_ptr<Service>> MakeTemporaryOneshotService(
             const std::vector<std::string>& args);
@@ -81,8 +81,10 @@ class Service {
     Result<void> ExecStart();
     Result<void> Start();
     Result<void> StartIfNotDisabled();
+    Result<void> StartIfPostData();
     Result<void> Enable();
     void Reset();
+    void ResetIfPostData();
     void Stop();
     void Terminate();
     void Timeout();
@@ -98,14 +100,9 @@ class Service {
     void AddReapCallback(std::function<void(const siginfo_t& siginfo)> callback) {
         reap_callbacks_.emplace_back(std::move(callback));
     }
-    void SetStartedInFirstStage(pid_t pid);
-    bool MarkSocketPersistent(const std::string& socket_name);
     size_t CheckAllCommands() const { return onrestart_.CheckAllCommands(); }
 
     static bool is_exec_service_running() { return is_exec_service_running_; }
-    static std::chrono::time_point<std::chrono::steady_clock> exec_service_started() {
-        return exec_service_started_;
-    }
 
     const std::string& name() const { return name_; }
     const std::set<std::string>& classnames() const { return classnames_; }
@@ -133,7 +130,7 @@ class Service {
     const std::vector<std::string>& args() const { return args_; }
     bool is_updatable() const { return updatable_; }
     bool is_post_data() const { return post_data_; }
-    bool is_from_apex() const { return base::StartsWith(filename_, "/apex/"); }
+    bool is_from_apex() const { return from_apex_; }
     void set_oneshot(bool value) {
         if (value) {
             flags_ |= SVC_ONESHOT;
@@ -148,17 +145,9 @@ class Service {
     void StopOrReset(int how);
     void KillProcessGroup(int signal, bool report_oneshot = false);
     void SetProcessAttributesAndCaps();
-    void ResetFlagsForStart();
-    Result<void> CheckConsole();
-    void ConfigureMemcg();
-    void RunService(
-            const std::vector<Descriptor>& descriptors,
-            std::unique_ptr<std::array<int, 2>, void (*)(const std::array<int, 2>* pipe)> pipefd);
-    void SetMountNamespace();
+
     static unsigned long next_start_order_;
     static bool is_exec_service_running_;
-    static std::chrono::time_point<std::chrono::steady_clock> exec_service_started_;
-    static pid_t exec_service_pid_;
 
     std::string name_;
     std::set<std::string> classnames_;
@@ -219,13 +208,15 @@ class Service {
 
     std::vector<std::function<void(const siginfo_t& siginfo)>> reap_callbacks_;
 
-    std::optional<MountNamespace> mount_namespace_;
+    bool use_bootstrap_ns_ = false;
 
     bool post_data_ = false;
 
+    bool running_at_post_data_reset_ = false;
+
     std::optional<std::string> on_failure_reboot_target_;
 
-    std::string filename_;
+    bool from_apex_ = false;
 };
 
 }  // namespace init

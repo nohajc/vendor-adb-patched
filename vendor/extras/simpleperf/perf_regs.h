@@ -45,7 +45,7 @@ enum ArchType {
   ARCH_UNSUPPORTED,
 };
 
-constexpr ArchType GetTargetArch() {
+constexpr ArchType GetBuildArch() {
 #if defined(__i386__)
   return ARCH_X86_32;
 #elif defined(__x86_64__)

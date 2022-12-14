@@ -18,11 +18,11 @@
 
 #include "BlobCache.h"
 
-#include <android-base/properties.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <log/log.h>
 
+#include <android-base/properties.h>
+#include <log/log.h>
 #include <chrono>
 
 namespace android {
@@ -36,8 +36,8 @@ static const uint32_t blobCacheVersion = 3;
 // BlobCache::Header::mDeviceVersion value
 static const uint32_t blobCacheDeviceVersion = 1;
 
-BlobCache::BlobCache(size_t maxKeySize, size_t maxValueSize, size_t maxTotalSize)
-      : mMaxTotalSize(maxTotalSize),
+BlobCache::BlobCache(size_t maxKeySize, size_t maxValueSize, size_t maxTotalSize):
+        mMaxTotalSize(maxTotalSize),
         mMaxKeySize(maxKeySize),
         mMaxValueSize(maxValueSize),
         mTotalSize(0) {
@@ -52,21 +52,21 @@ BlobCache::BlobCache(size_t maxKeySize, size_t maxValueSize, size_t maxTotalSize
     ALOGV("initializing random seed using %lld", (unsigned long long)now);
 }
 
-void BlobCache::set(const void* key, size_t keySize, const void* value, size_t valueSize) {
+void BlobCache::set(const void* key, size_t keySize, const void* value,
+        size_t valueSize) {
     if (mMaxKeySize < keySize) {
-        ALOGV("set: not caching because the key is too large: %zu (limit: %zu)", keySize,
-              mMaxKeySize);
+        ALOGV("set: not caching because the key is too large: %zu (limit: %zu)",
+                keySize, mMaxKeySize);
         return;
     }
     if (mMaxValueSize < valueSize) {
-        ALOGV("set: not caching because the value is too large: %zu (limit: %zu)", valueSize,
-              mMaxValueSize);
+        ALOGV("set: not caching because the value is too large: %zu (limit: %zu)",
+                valueSize, mMaxValueSize);
         return;
     }
     if (mMaxTotalSize < keySize + valueSize) {
         ALOGV("set: not caching because the combined key/value size is too "
-              "large: %zu (limit: %zu)",
-              keySize + valueSize, mMaxTotalSize);
+                "large: %zu (limit: %zu)", keySize + valueSize, mMaxTotalSize);
         return;
     }
     if (keySize == 0) {
@@ -95,16 +95,16 @@ void BlobCache::set(const void* key, size_t keySize, const void* value, size_t v
                     continue;
                 } else {
                     ALOGV("set: not caching new key/value pair because the "
-                          "total cache size limit would be exceeded: %zu "
-                          "(limit: %zu)",
-                          keySize + valueSize, mMaxTotalSize);
+                            "total cache size limit would be exceeded: %zu "
+                            "(limit: %zu)",
+                            keySize + valueSize, mMaxTotalSize);
                     break;
                 }
             }
             mCacheEntries.insert(index, CacheEntry(keyBlob, valueBlob));
             mTotalSize = newTotalSize;
-            ALOGV("set: created new cache entry with %zu byte key and %zu byte value", keySize,
-                  valueSize);
+            ALOGV("set: created new cache entry with %zu byte key and %zu byte value",
+                    keySize, valueSize);
         } else {
             // Update the existing cache entry.
             std::shared_ptr<Blob> valueBlob(new Blob(value, valueSize, true));
@@ -117,25 +117,25 @@ void BlobCache::set(const void* key, size_t keySize, const void* value, size_t v
                     continue;
                 } else {
                     ALOGV("set: not caching new value because the total cache "
-                          "size limit would be exceeded: %zu (limit: %zu)",
-                          keySize + valueSize, mMaxTotalSize);
+                            "size limit would be exceeded: %zu (limit: %zu)",
+                            keySize + valueSize, mMaxTotalSize);
                     break;
                 }
             }
             index->setValue(valueBlob);
             mTotalSize = newTotalSize;
             ALOGV("set: updated existing cache entry with %zu byte key and %zu byte "
-                  "value",
-                  keySize, valueSize);
+                    "value", keySize, valueSize);
         }
         break;
     }
 }
 
-size_t BlobCache::get(const void* key, size_t keySize, void* value, size_t valueSize) {
+size_t BlobCache::get(const void* key, size_t keySize, void* value,
+        size_t valueSize) {
     if (mMaxKeySize < keySize) {
-        ALOGV("get: not searching because the key is too large: %zu (limit %zu)", keySize,
-              mMaxKeySize);
+        ALOGV("get: not searching because the key is too large: %zu (limit %zu)",
+                keySize, mMaxKeySize);
         return 0;
     }
     std::shared_ptr<Blob> cacheKey(new Blob(key, keySize, false));
@@ -154,8 +154,8 @@ size_t BlobCache::get(const void* key, size_t keySize, void* value, size_t value
         ALOGV("get: copying %zu bytes to caller's buffer", valueBlobSize);
         memcpy(value, valueBlob->getData(), valueBlobSize);
     } else {
-        ALOGV("get: caller's buffer is too small for value: %zu (needs %zu)", valueSize,
-              valueBlobSize);
+        ALOGV("get: caller's buffer is too small for value: %zu (needs %zu)",
+                valueSize, valueBlobSize);
     }
     return valueBlobSize;
 }
@@ -167,7 +167,7 @@ static inline size_t align4(size_t size) {
 size_t BlobCache::getFlattenedSize() const {
     auto buildId = base::GetProperty("ro.build.id", "");
     size_t size = align4(sizeof(Header) + buildId.size());
-    for (const CacheEntry& e : mCacheEntries) {
+    for (const CacheEntry& e :  mCacheEntries) {
         std::shared_ptr<Blob> const& keyBlob = e.getKey();
         std::shared_ptr<Blob> const& valueBlob = e.getValue();
         size += align4(sizeof(EntryHeader) + keyBlob->getSize() + valueBlob->getSize());
@@ -193,7 +193,7 @@ int BlobCache::flatten(void* buffer, size_t size) const {
     // Write cache entries
     uint8_t* byteBuffer = reinterpret_cast<uint8_t*>(buffer);
     off_t byteOffset = align4(sizeof(Header) + header->mBuildIdLength);
-    for (const CacheEntry& e : mCacheEntries) {
+    for (const CacheEntry& e :  mCacheEntries) {
         std::shared_ptr<Blob> const& keyBlob = e.getKey();
         std::shared_ptr<Blob> const& valueBlob = e.getValue();
         size_t keySize = keyBlob->getSize();
@@ -259,7 +259,8 @@ int BlobCache::unflatten(void const* buffer, size_t size) {
             return -EINVAL;
         }
 
-        const EntryHeader* eheader = reinterpret_cast<const EntryHeader*>(&byteBuffer[byteOffset]);
+        const EntryHeader* eheader = reinterpret_cast<const EntryHeader*>(
+                &byteBuffer[byteOffset]);
         size_t keySize = eheader->mKeySize;
         size_t valueSize = eheader->mValueSize;
         size_t entrySize = sizeof(EntryHeader) + keySize + valueSize;
@@ -303,8 +304,10 @@ bool BlobCache::isCleanable() const {
     return mTotalSize > mMaxTotalSize / 2;
 }
 
-BlobCache::Blob::Blob(const void* data, size_t size, bool copyData)
-      : mData(copyData ? malloc(size) : data), mSize(size), mOwnsData(copyData) {
+BlobCache::Blob::Blob(const void* data, size_t size, bool copyData) :
+        mData(copyData ? malloc(size) : data),
+        mSize(size),
+        mOwnsData(copyData) {
     if (data != nullptr && copyData) {
         memcpy(const_cast<void*>(mData), data, size);
     }
@@ -332,13 +335,19 @@ size_t BlobCache::Blob::getSize() const {
     return mSize;
 }
 
-BlobCache::CacheEntry::CacheEntry() {}
+BlobCache::CacheEntry::CacheEntry() {
+}
 
-BlobCache::CacheEntry::CacheEntry(const std::shared_ptr<Blob>& key,
-                                  const std::shared_ptr<Blob>& value)
-      : mKey(key), mValue(value) {}
+BlobCache::CacheEntry::CacheEntry(
+        const std::shared_ptr<Blob>& key, const std::shared_ptr<Blob>& value):
+        mKey(key),
+        mValue(value) {
+}
 
-BlobCache::CacheEntry::CacheEntry(const CacheEntry& ce) : mKey(ce.mKey), mValue(ce.mValue) {}
+BlobCache::CacheEntry::CacheEntry(const CacheEntry& ce):
+        mKey(ce.mKey),
+        mValue(ce.mValue) {
+}
 
 bool BlobCache::CacheEntry::operator<(const CacheEntry& rhs) const {
     return *mKey < *rhs.mKey;

@@ -35,6 +35,7 @@ license {
     visibility: [":__subpackages__"],
     license_kinds: [
         "SPDX-license-identifier-Apache-2.0",
+        "SPDX-license-identifier-GPL-2.0",
     ],
     license_text: [
         "NOTICE",
@@ -44,7 +45,7 @@ license {
 cc_defaults {
     name: "libincfs_defaults_common",
     cpp_std: "c++2a",
-    cflags: ["-Werror", "-Wall", "-Wextra", "-Wno-deprecated-enum-enum-conversion"],
+    cflags: ["-Werror", "-Wall", "-Wextra"],
     tidy: true,
     tidy_checks: [
         "android-*",
@@ -160,21 +161,6 @@ cc_test {
         "tests/MountRegistry_test.cpp",
     ],
     require_root: true,
-}
-
-cc_benchmark {
-    name: "hardening-benchmark",
-    defaults: ["libincfs_defaults"],
-
-    srcs: [
-        "tests/hardening_benchmark.cpp",
-    ],
-    static_libs: [
-        "libziparchive_for_incfs",
-        "libutils",
-        "libincfs",
-        "libincfs-utils",
-    ],
 }
 
 cc_binary {

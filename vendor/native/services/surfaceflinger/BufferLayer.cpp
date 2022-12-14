@@ -58,9 +58,8 @@
 
 namespace android {
 
-using gui::WindowInfo;
-
-static constexpr float defaultMaxLuminance = 1000.0;
+static constexpr float defaultMaxMasteringLuminance = 1000.0;
+static constexpr float defaultMaxContentLuminance = 1000.0;
 
 BufferLayer::BufferLayer(const LayerCreationArgs& args)
       : Layer(args),
@@ -186,14 +185,10 @@ std::optional<compositionengine::LayerFE::LayerSettings> BufferLayer::prepareCli
             return std::nullopt;
         }
     }
-    const bool blackOutLayer = (isProtected() && !targetSettings.supportsProtectedContent) ||
+    bool blackOutLayer = (isProtected() && !targetSettings.supportsProtectedContent) ||
             ((isSecure() || isProtected()) && !targetSettings.isSecure);
-    const bool bufferCanBeUsedAsHwTexture =
-            mBufferInfo.mBuffer->getBuffer()->getUsage() & GraphicBuffer::USAGE_HW_TEXTURE;
     compositionengine::LayerFE::LayerSettings& layer = *result;
-    if (blackOutLayer || !bufferCanBeUsedAsHwTexture) {
-        ALOGE_IF(!bufferCanBeUsedAsHwTexture, "%s is blacked out as buffer is not gpu readable",
-                 mName.c_str());
+    if (blackOutLayer) {
         prepareClearClientComposition(layer, true /* blackout */);
         return layer;
     }
@@ -207,26 +202,14 @@ std::optional<compositionengine::LayerFE::LayerSettings> BufferLayer::prepareCli
     layer.source.buffer.isY410BT2020 = isHdrY410();
     bool hasSmpte2086 = mBufferInfo.mHdrMetadata.validTypes & HdrMetadata::SMPTE2086;
     bool hasCta861_3 = mBufferInfo.mHdrMetadata.validTypes & HdrMetadata::CTA861_3;
-    float maxLuminance = 0.f;
-    if (hasSmpte2086 && hasCta861_3) {
-        maxLuminance = std::min(mBufferInfo.mHdrMetadata.smpte2086.maxLuminance,
-                                mBufferInfo.mHdrMetadata.cta8613.maxContentLightLevel);
-    } else if (hasSmpte2086) {
-        maxLuminance = mBufferInfo.mHdrMetadata.smpte2086.maxLuminance;
-    } else if (hasCta861_3) {
-        maxLuminance = mBufferInfo.mHdrMetadata.cta8613.maxContentLightLevel;
-    } else {
-        switch (layer.sourceDataspace & HAL_DATASPACE_TRANSFER_MASK) {
-            case HAL_DATASPACE_TRANSFER_ST2084:
-            case HAL_DATASPACE_TRANSFER_HLG:
-                // Behavior-match previous releases for HDR content
-                maxLuminance = defaultMaxLuminance;
-                break;
-        }
-    }
-    layer.source.buffer.maxLuminanceNits = maxLuminance;
+    layer.source.buffer.maxMasteringLuminance = hasSmpte2086
+            ? mBufferInfo.mHdrMetadata.smpte2086.maxLuminance
+            : defaultMaxMasteringLuminance;
+    layer.source.buffer.maxContentLuminance = hasCta861_3
+            ? mBufferInfo.mHdrMetadata.cta8613.maxContentLightLevel
+            : defaultMaxContentLuminance;
     layer.frameNumber = mCurrentFrameNumber;
-    layer.bufferId = mBufferInfo.mBuffer ? mBufferInfo.mBuffer->getBuffer()->getId() : 0;
+    layer.bufferId = mBufferInfo.mBuffer ? mBufferInfo.mBuffer->getId() : 0;
 
     const bool useFiltering =
             targetSettings.needsFiltering || mNeedsFiltering || bufferNeedsFiltering();
@@ -327,7 +310,7 @@ void BufferLayer::preparePerFrameCompositionState() {
                 : Hwc2::IComposerClient::Composition::DEVICE;
     }
 
-    compositionState->buffer = getBuffer();
+    compositionState->buffer = mBufferInfo.mBuffer;
     compositionState->bufferSlot = (mBufferInfo.mBufferSlot == BufferQueue::INVALID_BUFFER_SLOT)
             ? 0
             : mBufferInfo.mBufferSlot;
@@ -342,37 +325,6 @@ bool BufferLayer::onPreComposition(nsecs_t refreshStartTime) {
     mRefreshPending = false;
     return hasReadyFrame();
 }
-namespace {
-TimeStats::SetFrameRateVote frameRateToSetFrameRateVotePayload(Layer::FrameRate frameRate) {
-    using FrameRateCompatibility = TimeStats::SetFrameRateVote::FrameRateCompatibility;
-    using Seamlessness = TimeStats::SetFrameRateVote::Seamlessness;
-    const auto frameRateCompatibility = [frameRate] {
-        switch (frameRate.type) {
-            case Layer::FrameRateCompatibility::Default:
-                return FrameRateCompatibility::Default;
-            case Layer::FrameRateCompatibility::ExactOrMultiple:
-                return FrameRateCompatibility::ExactOrMultiple;
-            default:
-                return FrameRateCompatibility::Undefined;
-        }
-    }();
-
-    const auto seamlessness = [frameRate] {
-        switch (frameRate.seamlessness) {
-            case scheduler::Seamlessness::OnlySeamless:
-                return Seamlessness::ShouldBeSeamless;
-            case scheduler::Seamlessness::SeamedAndSeamless:
-                return Seamlessness::NotRequired;
-            default:
-                return Seamlessness::Undefined;
-        }
-    }();
-
-    return TimeStats::SetFrameRateVote{.frameRate = frameRate.rate.getValue(),
-                                       .frameRateCompatibility = frameRateCompatibility,
-                                       .seamlessness = seamlessness};
-}
-} // namespace
 
 bool BufferLayer::onPostComposition(const DisplayDevice* display,
                                     const std::shared_ptr<FenceTime>& glDoneFence,
@@ -403,13 +355,6 @@ bool BufferLayer::onPostComposition(const DisplayDevice* display,
         mFlinger->mFrameTracer->traceTimestamp(layerId, getCurrentBufferId(), mCurrentFrameNumber,
                                                clientCompositionTimestamp,
                                                FrameTracer::FrameEvent::FALLBACK_COMPOSITION);
-        // Update the SurfaceFrames in the drawing state
-        if (mDrawingState.bufferSurfaceFrameTX) {
-            mDrawingState.bufferSurfaceFrameTX->setGpuComposition();
-        }
-        for (auto& [token, surfaceFrame] : mDrawingState.bufferlessSurfaceFramesTX) {
-            surfaceFrame->setGpuComposition();
-        }
     }
 
     std::shared_ptr<FenceTime> frameReadyFence = mBufferInfo.mFenceTime;
@@ -421,35 +366,23 @@ bool BufferLayer::onPostComposition(const DisplayDevice* display,
         mFrameTracker.setFrameReadyTime(desiredPresentTime);
     }
 
-    if (display) {
-        const Fps refreshRate = display->refreshRateConfigs().getCurrentRefreshRate().getFps();
-        const std::optional<Fps> renderRate =
-                mFlinger->mScheduler->getFrameRateOverride(getOwnerUid());
-        if (presentFence->isValid()) {
-            mFlinger->mTimeStats->setPresentFence(layerId, mCurrentFrameNumber, presentFence,
-                                                  refreshRate, renderRate,
-                                                  frameRateToSetFrameRateVotePayload(
-                                                          mDrawingState.frameRate),
-                                                  getGameMode());
-            mFlinger->mFrameTracer->traceFence(layerId, getCurrentBufferId(), mCurrentFrameNumber,
-                                               presentFence,
+    if (presentFence->isValid()) {
+        mFlinger->mTimeStats->setPresentFence(layerId, mCurrentFrameNumber, presentFence);
+        mFlinger->mFrameTracer->traceFence(layerId, getCurrentBufferId(), mCurrentFrameNumber,
+                                           presentFence, FrameTracer::FrameEvent::PRESENT_FENCE);
+        mFrameTracker.setActualPresentFence(std::shared_ptr<FenceTime>(presentFence));
+    } else if (!display) {
+        // Do nothing.
+    } else if (const auto displayId = display->getId();
+               displayId && mFlinger->getHwComposer().isConnected(*displayId)) {
+        // The HWC doesn't support present fences, so use the refresh
+        // timestamp instead.
+        const nsecs_t actualPresentTime = mFlinger->getHwComposer().getRefreshTimestamp(*displayId);
+        mFlinger->mTimeStats->setPresentTime(layerId, mCurrentFrameNumber, actualPresentTime);
+        mFlinger->mFrameTracer->traceTimestamp(layerId, getCurrentBufferId(), mCurrentFrameNumber,
+                                               actualPresentTime,
                                                FrameTracer::FrameEvent::PRESENT_FENCE);
-            mFrameTracker.setActualPresentFence(std::shared_ptr<FenceTime>(presentFence));
-        } else if (const auto displayId = PhysicalDisplayId::tryCast(display->getId());
-                   displayId && mFlinger->getHwComposer().isConnected(*displayId)) {
-            // The HWC doesn't support present fences, so use the refresh
-            // timestamp instead.
-            const nsecs_t actualPresentTime = display->getRefreshTimestamp();
-            mFlinger->mTimeStats->setPresentTime(layerId, mCurrentFrameNumber, actualPresentTime,
-                                                 refreshRate, renderRate,
-                                                 frameRateToSetFrameRateVotePayload(
-                                                         mDrawingState.frameRate),
-                                                 getGameMode());
-            mFlinger->mFrameTracer->traceTimestamp(layerId, getCurrentBufferId(),
-                                                   mCurrentFrameNumber, actualPresentTime,
-                                                   FrameTracer::FrameEvent::PRESENT_FENCE);
-            mFrameTracker.setActualPresentTime(actualPresentTime);
-        }
+        mFrameTracker.setActualPresentTime(actualPresentTime);
     }
 
     mFrameTracker.advanceFrame();
@@ -459,32 +392,8 @@ bool BufferLayer::onPostComposition(const DisplayDevice* display,
 
 void BufferLayer::gatherBufferInfo() {
     mBufferInfo.mPixelFormat =
-            !mBufferInfo.mBuffer ? PIXEL_FORMAT_NONE : mBufferInfo.mBuffer->getBuffer()->format;
+            !mBufferInfo.mBuffer ? PIXEL_FORMAT_NONE : mBufferInfo.mBuffer->format;
     mBufferInfo.mFrameLatencyNeeded = true;
-}
-
-bool BufferLayer::shouldPresentNow(nsecs_t expectedPresentTime) const {
-    // If this is not a valid vsync for the layer's uid, return and try again later
-    const bool isVsyncValidForUid =
-            mFlinger->mScheduler->isVsyncValid(expectedPresentTime, mOwnerUid);
-    if (!isVsyncValidForUid) {
-        ATRACE_NAME("!isVsyncValidForUid");
-        return false;
-    }
-
-    // AutoRefresh layers and sideband streams should always be presented
-    if (getSidebandStreamChanged() || getAutoRefresh()) {
-        return true;
-    }
-
-    // If this layer doesn't have a frame is shouldn't be presented
-    if (!hasFrameUpdate()) {
-        return false;
-    }
-
-    // Defer to the derived class to decide whether the next buffer is due for
-    // presentation.
-    return isBufferDue(expectedPresentTime);
 }
 
 bool BufferLayer::latchBuffer(bool& recomputeVisibleRegions, nsecs_t latchTime,
@@ -524,6 +433,11 @@ bool BufferLayer::latchBuffer(bool& recomputeVisibleRegions, nsecs_t latchTime,
 
     BufferInfo oldBufferInfo = mBufferInfo;
 
+    if (!allTransactionsSignaled(expectedPresentTime)) {
+        mFlinger->setTransactionFlags(eTraversalNeeded);
+        return false;
+    }
+
     status_t err = updateTexImage(recomputeVisibleRegions, latchTime, expectedPresentTime);
     if (err != NO_ERROR) {
         return false;
@@ -556,10 +470,10 @@ bool BufferLayer::latchBuffer(bool& recomputeVisibleRegions, nsecs_t latchTime,
     }
 
     if (oldBufferInfo.mBuffer != nullptr) {
-        uint32_t bufWidth = mBufferInfo.mBuffer->getBuffer()->getWidth();
-        uint32_t bufHeight = mBufferInfo.mBuffer->getBuffer()->getHeight();
-        if (bufWidth != uint32_t(oldBufferInfo.mBuffer->getBuffer()->width) ||
-            bufHeight != uint32_t(oldBufferInfo.mBuffer->getBuffer()->height)) {
+        uint32_t bufWidth = mBufferInfo.mBuffer->getWidth();
+        uint32_t bufHeight = mBufferInfo.mBuffer->getHeight();
+        if (bufWidth != uint32_t(oldBufferInfo.mBuffer->width) ||
+            bufHeight != uint32_t(oldBufferInfo.mBuffer->height)) {
             recomputeVisibleRegions = true;
         }
     }
@@ -568,7 +482,51 @@ bool BufferLayer::latchBuffer(bool& recomputeVisibleRegions, nsecs_t latchTime,
         recomputeVisibleRegions = true;
     }
 
+    // Remove any sync points corresponding to the buffer which was just
+    // latched
+    {
+        Mutex::Autolock lock(mLocalSyncPointMutex);
+        auto point = mLocalSyncPoints.begin();
+        while (point != mLocalSyncPoints.end()) {
+            if (!(*point)->frameIsAvailable() || !(*point)->transactionIsApplied()) {
+                // This sync point must have been added since we started
+                // latching. Don't drop it yet.
+                ++point;
+                continue;
+            }
+
+            if ((*point)->getFrameNumber() <= mCurrentFrameNumber) {
+                std::stringstream ss;
+                ss << "Dropping sync point " << (*point)->getFrameNumber();
+                ATRACE_NAME(ss.str().c_str());
+                point = mLocalSyncPoints.erase(point);
+            } else {
+                ++point;
+            }
+        }
+    }
+
     return true;
+}
+
+// transaction
+void BufferLayer::notifyAvailableFrames(nsecs_t expectedPresentTime) {
+    const auto headFrameNumber = getHeadFrameNumber(expectedPresentTime);
+    const bool headFenceSignaled = fenceHasSignaled();
+    const bool presentTimeIsCurrent = framePresentTimeIsCurrent(expectedPresentTime);
+    Mutex::Autolock lock(mLocalSyncPointMutex);
+    for (auto& point : mLocalSyncPoints) {
+        if (headFrameNumber >= point->getFrameNumber() && headFenceSignaled &&
+            presentTimeIsCurrent) {
+            point->setFrameAvailable();
+            sp<Layer> requestedSyncLayer = point->getRequestedSyncLayer();
+            if (requestedSyncLayer) {
+                // Need to update the transaction flag to ensure the layer's pending transaction
+                // gets applied.
+                requestedSyncLayer->setTransactionFlags(eTransactionNeeded);
+            }
+        }
+    }
 }
 
 bool BufferLayer::hasReadyFrame() const {
@@ -576,12 +534,57 @@ bool BufferLayer::hasReadyFrame() const {
 }
 
 uint32_t BufferLayer::getEffectiveScalingMode() const {
+    if (mOverrideScalingMode >= 0) {
+        return mOverrideScalingMode;
+    }
+
     return mBufferInfo.mScaleMode;
 }
 
 bool BufferLayer::isProtected() const {
-    return (mBufferInfo.mBuffer != nullptr) &&
-            (mBufferInfo.mBuffer->getBuffer()->getUsage() & GRALLOC_USAGE_PROTECTED);
+    const sp<GraphicBuffer>& buffer(mBufferInfo.mBuffer);
+    return (buffer != 0) && (buffer->getUsage() & GRALLOC_USAGE_PROTECTED);
+}
+
+bool BufferLayer::latchUnsignaledBuffers() {
+    static bool propertyLoaded = false;
+    static bool latch = false;
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!propertyLoaded) {
+        char value[PROPERTY_VALUE_MAX] = {};
+        property_get("debug.sf.latch_unsignaled", value, "0");
+        latch = atoi(value);
+        propertyLoaded = true;
+    }
+    return latch;
+}
+
+// h/w composer set-up
+bool BufferLayer::allTransactionsSignaled(nsecs_t expectedPresentTime) {
+    const auto headFrameNumber = getHeadFrameNumber(expectedPresentTime);
+    bool matchingFramesFound = false;
+    bool allTransactionsApplied = true;
+    Mutex::Autolock lock(mLocalSyncPointMutex);
+
+    for (auto& point : mLocalSyncPoints) {
+        if (point->getFrameNumber() > headFrameNumber) {
+            break;
+        }
+        matchingFramesFound = true;
+
+        if (!point->frameIsAvailable()) {
+            // We haven't notified the remote layer that the frame for
+            // this point is available yet. Notify it now, and then
+            // abort this attempt to latch.
+            point->setFrameAvailable();
+            allTransactionsApplied = false;
+            break;
+        }
+
+        allTransactionsApplied = allTransactionsApplied && point->transactionIsApplied();
+    }
+    return !matchingFramesFound || allTransactionsApplied;
 }
 
 // As documented in libhardware header, formats in the range
@@ -668,8 +671,8 @@ Rect BufferLayer::getBufferSize(const State& s) const {
         return Rect::INVALID_RECT;
     }
 
-    uint32_t bufWidth = mBufferInfo.mBuffer->getBuffer()->getWidth();
-    uint32_t bufHeight = mBufferInfo.mBuffer->getBuffer()->getHeight();
+    uint32_t bufWidth = mBufferInfo.mBuffer->getWidth();
+    uint32_t bufHeight = mBufferInfo.mBuffer->getHeight();
 
     // Undo any transformations on the buffer and return the result.
     if (mBufferInfo.mTransform & ui::Transform::ROT_90) {
@@ -700,8 +703,8 @@ FloatRect BufferLayer::computeSourceBounds(const FloatRect& parentBounds) const 
         return parentBounds;
     }
 
-    uint32_t bufWidth = mBufferInfo.mBuffer->getBuffer()->getWidth();
-    uint32_t bufHeight = mBufferInfo.mBuffer->getBuffer()->getHeight();
+    uint32_t bufWidth = mBufferInfo.mBuffer->getWidth();
+    uint32_t bufHeight = mBufferInfo.mBuffer->getHeight();
 
     // Undo any transformations on the buffer and return the result.
     if (mBufferInfo.mTransform & ui::Transform::ROT_90) {
@@ -743,7 +746,7 @@ Rect BufferLayer::getBufferCrop() const {
         return mBufferInfo.mCrop;
     } else if (mBufferInfo.mBuffer != nullptr) {
         // otherwise we use the whole buffer
-        return mBufferInfo.mBuffer->getBuffer()->getBounds();
+        return mBufferInfo.mBuffer->getBounds();
     } else {
         // if we don't have a buffer yet, we use an empty/invalid crop
         return Rect();
@@ -788,14 +791,12 @@ ui::Dataspace BufferLayer::translateDataspace(ui::Dataspace dataspace) {
 }
 
 sp<GraphicBuffer> BufferLayer::getBuffer() const {
-    return mBufferInfo.mBuffer ? mBufferInfo.mBuffer->getBuffer() : nullptr;
+    return mBufferInfo.mBuffer;
 }
 
 void BufferLayer::getDrawingTransformMatrix(bool filteringEnabled, float outMatrix[16]) {
-    GLConsumer::computeTransformMatrix(outMatrix,
-                                       mBufferInfo.mBuffer ? mBufferInfo.mBuffer->getBuffer()
-                                                           : nullptr,
-                                       mBufferInfo.mCrop, mBufferInfo.mTransform, filteringEnabled);
+    GLConsumer::computeTransformMatrix(outMatrix, mBufferInfo.mBuffer, mBufferInfo.mCrop,
+                                       mBufferInfo.mTransform, filteringEnabled);
 }
 
 void BufferLayer::setInitialValuesForClone(const sp<Layer>& clonedFrom) {
@@ -829,9 +830,9 @@ void BufferLayer::updateCloneBufferInfo() {
     wp<Layer> tmpZOrderRelativeOf = mDrawingState.zOrderRelativeOf;
     SortedVector<wp<Layer>> tmpZOrderRelatives = mDrawingState.zOrderRelatives;
     wp<Layer> tmpTouchableRegionCrop = mDrawingState.touchableRegionCrop;
-    WindowInfo tmpInputInfo = mDrawingState.inputInfo;
+    InputWindowInfo tmpInputInfo = mDrawingState.inputInfo;
 
-    cloneDrawingState(clonedFrom.get());
+    mDrawingState = clonedFrom->mDrawingState;
 
     mDrawingState.touchableRegionCrop = tmpTouchableRegionCrop;
     mDrawingState.zOrderRelativeOf = tmpZOrderRelativeOf;
@@ -847,7 +848,33 @@ void BufferLayer::setTransformHint(ui::Transform::RotationFlags displayTransform
 }
 
 bool BufferLayer::bufferNeedsFiltering() const {
-    return isFixedSize();
+    // Layers that don't resize along with their buffer, don't need filtering.
+    if (!isFixedSize()) {
+        return false;
+    }
+
+    if (!mBufferInfo.mBuffer) {
+        return false;
+    }
+
+    uint32_t bufferWidth = mBufferInfo.mBuffer->width;
+    uint32_t bufferHeight = mBufferInfo.mBuffer->height;
+
+    // Undo any transformations on the buffer and return the result.
+    const State& s(getDrawingState());
+    if (s.transform & ui::Transform::ROT_90) {
+        std::swap(bufferWidth, bufferHeight);
+    }
+
+    if (s.transformToDisplayInverse) {
+        uint32_t invTransform = DisplayDevice::getPrimaryDisplayRotationFlags();
+        if (invTransform & ui::Transform::ROT_90) {
+            std::swap(bufferWidth, bufferHeight);
+        }
+    }
+
+    const Rect layerSize{getBounds()};
+    return layerSize.width() != bufferWidth || layerSize.height() != bufferHeight;
 }
 
 } // namespace android

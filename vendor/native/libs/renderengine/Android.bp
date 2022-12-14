@@ -48,7 +48,6 @@ filegroup {
     name: "librenderengine_sources",
     srcs: [
         "Description.cpp",
-        "ExternalTexture.cpp",
         "Mesh.cpp",
         "RenderEngine.cpp",
         "Texture.cpp",
@@ -74,50 +73,23 @@ filegroup {
     ],
 }
 
-filegroup {
-    name: "librenderengine_threaded_sources",
-    srcs: [
-        "threaded/RenderEngineThreaded.cpp",
-    ],
-}
-
-filegroup {
-    name: "librenderengine_skia_sources",
-    srcs: [
-        "skia/AutoBackendTexture.cpp",
-        "skia/Cache.cpp",
-        "skia/ColorSpaces.cpp",
-        "skia/SkiaRenderEngine.cpp",
-        "skia/SkiaGLRenderEngine.cpp",
-        "skia/debug/CaptureTimer.cpp",
-        "skia/debug/CommonPool.cpp",
-        "skia/debug/SkiaCapture.cpp",
-        "skia/debug/SkiaMemoryReporter.cpp",
-        "skia/filters/BlurFilter.cpp",
-        "skia/filters/LinearEffect.cpp",
-        "skia/filters/StretchShaderFactory.cpp",
-    ],
-}
-
 cc_library_static {
     name: "librenderengine",
     defaults: ["librenderengine_defaults"],
+    vendor_available: true,
+    vndk: {
+        enabled: true,
+    },
     double_loadable: true,
+    clang: true,
     cflags: [
         "-fvisibility=hidden",
         "-Werror=format",
-        "-Wno-unused-parameter",
     ],
     srcs: [
         ":librenderengine_sources",
         ":librenderengine_gl_sources",
-        ":librenderengine_threaded_sources",
-        ":librenderengine_skia_sources",
     ],
-    include_dirs: [
-        "external/skia/src/gpu",
-    ],
-    whole_static_libs: ["libskia_renderengine"],
     lto: {
         thin: true,
     },

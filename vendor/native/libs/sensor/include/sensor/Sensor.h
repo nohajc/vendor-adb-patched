@@ -104,9 +104,6 @@ public:
     int32_t getId() const;
     void setId(int32_t id);
 
-    void capMinDelayMicros(int32_t cappedMinDelay);
-    void capHighestDirectReportRateLevel(int32_t cappedRateLevel);
-
     // LightFlattenable protocol
     inline bool isFixedSize() const { return false; }
     size_t getFlattenedSize() const;

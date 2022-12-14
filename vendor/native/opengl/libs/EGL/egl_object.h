@@ -17,25 +17,30 @@
 #ifndef ANDROID_EGL_OBJECT_H
 #define ANDROID_EGL_OBJECT_H
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <log/log.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <system/window.h>
-
 #include <atomic>
+#include <stdint.h>
+#include <stddef.h>
+
 #include <string>
 #include <vector>
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+
+#include <system/window.h>
+
+#include <log/log.h>
+
 #include "egl_display.h"
 
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
 class egl_display_t;
 
 class egl_object_t {
-    egl_display_t* display;
+    egl_display_t *display;
     mutable std::atomic_size_t count;
 
 protected:
@@ -59,7 +64,6 @@ public:
         egl_object_t* ref;
         LocalRef() = delete;
         LocalRef(const LocalRef* rhs) = delete;
-
     public:
         ~LocalRef();
         explicit LocalRef(egl_object_t* rhs);
@@ -69,7 +73,9 @@ public:
                 ref = native;
             }
         }
-        inline N* get() { return static_cast<N*>(ref); }
+        inline N* get() {
+            return static_cast<N*>(ref);
+        }
         void acquire() const;
         void release() const;
         void terminate();
@@ -78,7 +84,7 @@ public:
     friend class LocalRef;
 };
 
-template <typename N, typename T>
+template<typename N, typename T>
 egl_object_t::LocalRef<N, T>::LocalRef(egl_object_t* rhs) : ref(rhs) {
     if (ref) {
         ref->incRef();
@@ -86,21 +92,21 @@ egl_object_t::LocalRef<N, T>::LocalRef(egl_object_t* rhs) : ref(rhs) {
 }
 
 template <typename N, typename T>
-egl_object_t::LocalRef<N, T>::~LocalRef() {
+egl_object_t::LocalRef<N,T>::~LocalRef() {
     if (ref) {
         ref->destroy();
     }
 }
 
 template <typename N, typename T>
-void egl_object_t::LocalRef<N, T>::acquire() const {
+void egl_object_t::LocalRef<N,T>::acquire() const {
     if (ref) {
         ref->incRef();
     }
 }
 
 template <typename N, typename T>
-void egl_object_t::LocalRef<N, T>::release() const {
+void egl_object_t::LocalRef<N,T>::release() const {
     if (ref) {
         if (ref->decRef() == 1) {
             // shouldn't happen because this is called from LocalRef
@@ -110,7 +116,7 @@ void egl_object_t::LocalRef<N, T>::release() const {
 }
 
 template <typename N, typename T>
-void egl_object_t::LocalRef<N, T>::terminate() {
+void egl_object_t::LocalRef<N,T>::terminate() {
     if (ref) {
         ref->terminate();
     }
@@ -122,7 +128,6 @@ class egl_surface_t : public egl_object_t {
 protected:
     ~egl_surface_t();
     void terminate() override;
-
 public:
     typedef egl_object_t::LocalRef<egl_surface_t, EGLSurface> Ref;
 
@@ -146,13 +151,10 @@ public:
     // it's not hard to imagine native games accessing them.
     EGLSurface surface;
     EGLConfig config;
-
 private:
     ANativeWindow* win;
-
 public:
     egl_connection_t const* cnx;
-
 private:
     bool connected;
     void disconnect();
@@ -184,15 +186,14 @@ private:
     egl_cta861_3_metadata egl_cta861_3_metadata;
 };
 
-class egl_context_t : public egl_object_t {
+class egl_context_t: public egl_object_t {
 protected:
     ~egl_context_t() {}
-
 public:
     typedef egl_object_t::LocalRef<egl_context_t, EGLContext> Ref;
 
-    egl_context_t(EGLDisplay dpy, EGLContext context, EGLConfig config, egl_connection_t const* cnx,
-                  int version);
+    egl_context_t(EGLDisplay dpy, EGLContext context, EGLConfig config,
+            egl_connection_t const* cnx, int version);
 
     void onLooseCurrent();
     void onMakeCurrent(EGLSurface draw, EGLSurface read);
@@ -208,22 +209,30 @@ public:
     std::vector<std::string> tokenized_gl_extensions;
 };
 
-typedef egl_surface_t::Ref SurfaceRef;
-typedef egl_context_t::Ref ContextRef;
+// ----------------------------------------------------------------------------
 
-template <typename NATIVE, typename EGL>
+typedef egl_surface_t::Ref  SurfaceRef;
+typedef egl_context_t::Ref  ContextRef;
+
+// ----------------------------------------------------------------------------
+
+template<typename NATIVE, typename EGL>
 static inline NATIVE* egl_to_native_cast(EGL arg) {
     return reinterpret_cast<NATIVE*>(arg);
 }
 
-static inline egl_surface_t* get_surface(EGLSurface surface) {
+static inline
+egl_surface_t* get_surface(EGLSurface surface) {
     return egl_to_native_cast<egl_surface_t>(surface);
 }
 
-static inline egl_context_t* get_context(EGLContext context) {
+static inline
+egl_context_t* get_context(EGLContext context) {
     return egl_to_native_cast<egl_context_t>(context);
 }
 
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------
 
 #endif // ANDROID_EGL_OBJECT_H

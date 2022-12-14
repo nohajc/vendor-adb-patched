@@ -37,7 +37,7 @@
 extern "C" {
 #endif
 
-#include "../avb_sysdeps.h"
+#include <libavb/avb_sysdeps.h>
 
 /* Block size in bytes of a SHA-256 digest. */
 #define AVB_SHA256_BLOCK_SIZE 64

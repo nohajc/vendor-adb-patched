@@ -27,13 +27,11 @@ _INTERCEPTED_EXTENSIONS = [
     'VK_EXT_hdr_metadata',
     'VK_EXT_swapchain_colorspace',
     'VK_GOOGLE_display_timing',
-    'VK_GOOGLE_surfaceless_query',
     'VK_KHR_android_surface',
     'VK_KHR_get_surface_capabilities2',
     'VK_KHR_incremental_present',
     'VK_KHR_shared_presentable_image',
     'VK_KHR_surface',
-    'VK_KHR_surface_protected_capabilities',
     'VK_KHR_swapchain',
 ]
 
@@ -42,10 +40,6 @@ _KNOWN_EXTENSIONS = _INTERCEPTED_EXTENSIONS + [
     'VK_ANDROID_external_memory_android_hardware_buffer',
     'VK_KHR_bind_memory2',
     'VK_KHR_get_physical_device_properties2',
-    'VK_KHR_device_group_creation',
-    'VK_KHR_external_memory_capabilities',
-    'VK_KHR_external_semaphore_capabilities',
-    'VK_KHR_external_fence_capabilities',
 ]
 
 # Functions needed at vulkan::driver level.
@@ -77,41 +71,12 @@ _NEEDED_COMMANDS = [
     'vkDestroyImage',
 
     'vkGetPhysicalDeviceProperties',
+    'vkGetPhysicalDeviceProperties2',
+    'vkGetPhysicalDeviceProperties2KHR',
 
     # VK_KHR_swapchain v69 requirement
     'vkBindImageMemory2',
     'vkBindImageMemory2KHR',
-
-    # For promoted VK_KHR_device_group_creation
-    'vkEnumeratePhysicalDeviceGroupsKHR',
-
-    # For promoted VK_KHR_get_physical_device_properties2
-    'vkGetPhysicalDeviceFeatures2',
-    'vkGetPhysicalDeviceFeatures2KHR',
-    'vkGetPhysicalDeviceProperties2',
-    'vkGetPhysicalDeviceProperties2KHR',
-    'vkGetPhysicalDeviceFormatProperties2',
-    'vkGetPhysicalDeviceFormatProperties2KHR',
-    'vkGetPhysicalDeviceImageFormatProperties2',
-    'vkGetPhysicalDeviceImageFormatProperties2KHR',
-    'vkGetPhysicalDeviceQueueFamilyProperties2',
-    'vkGetPhysicalDeviceQueueFamilyProperties2KHR',
-    'vkGetPhysicalDeviceMemoryProperties2',
-    'vkGetPhysicalDeviceMemoryProperties2KHR',
-    'vkGetPhysicalDeviceSparseImageFormatProperties2',
-    'vkGetPhysicalDeviceSparseImageFormatProperties2KHR',
-
-    # For promoted VK_KHR_external_memory_capabilities
-    'vkGetPhysicalDeviceExternalBufferProperties',
-    'vkGetPhysicalDeviceExternalBufferPropertiesKHR',
-
-    # For promoted VK_KHR_external_semaphore_capabilities
-    'vkGetPhysicalDeviceExternalSemaphoreProperties',
-    'vkGetPhysicalDeviceExternalSemaphorePropertiesKHR',
-
-    # For promoted VK_KHR_external_fence_capabilities
-    'vkGetPhysicalDeviceExternalFenceProperties',
-    'vkGetPhysicalDeviceExternalFencePropertiesKHR',
 ]
 
 # Functions intercepted at vulkan::driver level.
@@ -141,24 +106,6 @@ _INTERCEPTED_COMMANDS = [
     # VK_KHR_swapchain v69 requirement
     'vkBindImageMemory2',
     'vkBindImageMemory2KHR',
-
-    # For promoted VK_KHR_get_physical_device_properties2
-    'vkGetPhysicalDeviceFeatures2',
-    'vkGetPhysicalDeviceProperties2',
-    'vkGetPhysicalDeviceFormatProperties2',
-    'vkGetPhysicalDeviceImageFormatProperties2',
-    'vkGetPhysicalDeviceQueueFamilyProperties2',
-    'vkGetPhysicalDeviceMemoryProperties2',
-    'vkGetPhysicalDeviceSparseImageFormatProperties2',
-
-    # For promoted VK_KHR_external_memory_capabilities
-    'vkGetPhysicalDeviceExternalBufferProperties',
-
-    # For promoted VK_KHR_external_semaphore_capabilities
-    'vkGetPhysicalDeviceExternalSemaphoreProperties',
-
-    # For promoted VK_KHR_external_fence_capabilities
-    'vkGetPhysicalDeviceExternalFenceProperties',
 ]
 
 
@@ -215,8 +162,6 @@ def gen_h():
 #include <vulkan/vulkan.h>
 
 #include <bitset>
-#include <optional>
-#include <vector>
 
 namespace vulkan {
 namespace driver {
@@ -283,12 +228,6 @@ bool InitDriverTable(VkInstance instance,
 bool InitDriverTable(VkDevice dev,
                      PFN_vkGetDeviceProcAddr get_proc,
                      const std::bitset<ProcHook::EXTENSION_COUNT>& extensions);
-
-std::optional<uint32_t> GetInstanceExtensionPromotedVersion(const char* name);
-uint32_t CountPromotedInstanceExtensions(uint32_t begin_version,
-                                         uint32_t end_version);
-std::vector<const char*> GetPromotedInstanceExtensions(uint32_t begin_version,
-                                                       uint32_t end_version);
 
 }  // namespace driver
 }  // namespace vulkan
@@ -525,9 +464,10 @@ const ProcHook g_proc_hooks[] = {
 }  // namespace
 
 const ProcHook* GetProcHook(const char* name) {
-    auto begin = std::cbegin(g_proc_hooks);
-    auto end = std::cend(g_proc_hooks);
-    auto hook = std::lower_bound(
+    const auto& begin = g_proc_hooks;
+    const auto& end =
+        g_proc_hooks + sizeof(g_proc_hooks) / sizeof(g_proc_hooks[0]);
+    const auto hook = std::lower_bound(
         begin, end, name,
         [](const ProcHook& e, const char* n) { return strcmp(e.name, n) < 0; });
     return (hook < end && strcmp(hook->name, name) == 0) ? hook : nullptr;
@@ -597,54 +537,6 @@ bool InitDriverTable(VkDevice dev,
     // clang-format on
 
     return success;
-}
-
-const std::pair<const char*, uint32_t> g_promoted_instance_extensions[] = {
-    // clang-format off\n""")
-
-    for key, value in sorted(gencom.promoted_inst_ext_dict.items()):
-      f.write(gencom.indent(1) + 'std::make_pair("' + key + '", ' + value + '),\n')
-
-    f.write("""\
-    // clang-format on
-};
-
-std::optional<uint32_t> GetInstanceExtensionPromotedVersion(const char* name) {
-    auto begin = std::cbegin(g_promoted_instance_extensions);
-    auto end = std::cend(g_promoted_instance_extensions);
-    auto iter =
-        std::lower_bound(begin, end, name,
-                         [](const std::pair<const char*, uint32_t>& e,
-                            const char* n) { return strcmp(e.first, n) < 0; });
-    return (iter < end && strcmp(iter->first, name) == 0)
-               ? std::optional<uint32_t>(iter->second)
-               : std::nullopt;
-}
-
-uint32_t CountPromotedInstanceExtensions(uint32_t begin_version,
-                                         uint32_t end_version) {
-    auto begin = std::cbegin(g_promoted_instance_extensions);
-    auto end = std::cend(g_promoted_instance_extensions);
-    uint32_t count = 0;
-
-    for (auto iter = begin; iter != end; iter++)
-        if (iter->second > begin_version && iter->second <= end_version)
-            count++;
-
-    return count;
-}
-
-std::vector<const char*> GetPromotedInstanceExtensions(uint32_t begin_version,
-                                                       uint32_t end_version) {
-    auto begin = std::cbegin(g_promoted_instance_extensions);
-    auto end = std::cend(g_promoted_instance_extensions);
-    std::vector<const char*> extensions;
-
-    for (auto iter = begin; iter != end; iter++)
-        if (iter->second > begin_version && iter->second <= end_version)
-            extensions.emplace_back(iter->first);
-
-    return extensions;
 }
 
 }  // namespace driver

@@ -34,10 +34,6 @@ impl TraceProvider for SimpleperfEtmTraceProvider {
         "simpleperf_etm"
     }
 
-    fn is_ready(&self) -> bool {
-        simpleperf_profcollect::has_device_support()
-    }
-
     fn trace(&self, trace_dir: &Path, tag: &str, sampling_period: &Duration) {
         let trace_file = trace_provider::get_path(trace_dir, tag, ETM_TRACEFILE_EXTENSION);
 
@@ -48,38 +44,34 @@ impl TraceProvider for SimpleperfEtmTraceProvider {
         );
     }
 
-    fn process(&self, trace_dir: &Path, profile_dir: &Path, binary_filter: &str) -> Result<()> {
-        let is_etm_extension = |file: &PathBuf| {
-            file.extension()
-                .and_then(|f| f.to_str())
-                .filter(|ext| ext == &ETM_TRACEFILE_EXTENSION)
-                .is_some()
-        };
-
-        let process_trace_file = |trace_file: PathBuf| {
-            let mut profile_file = PathBuf::from(profile_dir);
-            profile_file.push(
-                trace_file
-                    .file_name()
-                    .ok_or_else(|| anyhow!("Malformed trace path: {}", trace_file.display()))?,
-            );
-            profile_file.set_extension(ETM_PROFILE_EXTENSION);
-            simpleperf_profcollect::process(&trace_file, &profile_file, binary_filter);
-            remove_file(&trace_file)?;
-            Ok(())
-        };
-
+    fn process(&self, trace_dir: &Path, profile_dir: &Path) -> Result<()> {
         read_dir(trace_dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|e| e.is_file())
-            .filter(is_etm_extension)
-            .try_for_each(process_trace_file)
+            .filter(|e| {
+                e.is_file()
+                    && e.extension()
+                        .and_then(|f| f.to_str())
+                        .filter(|ext| ext == &ETM_TRACEFILE_EXTENSION)
+                        .is_some()
+            })
+            .try_for_each(|trace_file| -> Result<()> {
+                let mut profile_file = PathBuf::from(profile_dir);
+                profile_file.push(
+                    trace_file
+                        .file_name()
+                        .ok_or_else(|| anyhow!("Malformed trace path: {}", trace_file.display()))?,
+                );
+                profile_file.set_extension(ETM_PROFILE_EXTENSION);
+                simpleperf_profcollect::process(&trace_file, &profile_file);
+                remove_file(&trace_file)?;
+                Ok(())
+            })
     }
 }
 
 impl SimpleperfEtmTraceProvider {
     pub fn supported() -> bool {
-        simpleperf_profcollect::has_driver_support()
+        simpleperf_profcollect::has_support()
     }
 }

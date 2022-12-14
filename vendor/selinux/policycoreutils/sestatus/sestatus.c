@@ -35,7 +35,7 @@ static unsigned int COL = 32;
 
 extern char *selinux_mnt;
 
-static int cmp_cmdline(const char *command, int pid)
+int cmp_cmdline(const char *command, int pid)
 {
 
 	char buf[BUFSIZE];
@@ -59,7 +59,7 @@ static int cmp_cmdline(const char *command, int pid)
 		return 0;
 }
 
-static int pidof(const char *command)
+int pidof(const char *command)
 {
 /* inspired by killall5.c from psmisc */
 	char stackpath[PATH_MAX + 1], *p;
@@ -92,7 +92,7 @@ static int pidof(const char *command)
 	return ret;
 }
 
-static void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
+void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
 {
 
 	FILE *fp = fopen(CONF, "r");
@@ -168,9 +168,11 @@ static void load_checks(char *pc[], int *npc, char *fc[], int *nfc)
 	return;
 }
 
-static void printf_tab(const char *outp)
+void printf_tab(const char *outp)
 {
-	printf("%-*s", COL, outp);
+	char buf[20];
+	snprintf(buf, sizeof(buf), "%%-%us", COL);
+	printf(buf, outp);
 
 }
 
@@ -459,7 +461,6 @@ int main(int argc, char **argv)
 				    ("%s (could not check link status (%s)!)\n",
 				     context, strerror(errno));
 				freecon(context);
-				free(fc[i]);
 				continue;
 			}
 			if (S_ISLNK(m.st_mode)) {

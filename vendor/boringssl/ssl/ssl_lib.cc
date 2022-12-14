@@ -140,8 +140,6 @@
 
 #include <openssl/ssl.h>
 
-#include <algorithm>
-
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -272,6 +270,57 @@ ssl_open_record_t ssl_open_app_data(SSL *ssl, Span<uint8_t> *out,
     ssl_set_read_error(ssl);
   }
   return ret;
+}
+
+void ssl_update_cache(SSL_HANDSHAKE *hs, int mode) {
+  SSL *const ssl = hs->ssl;
+  SSL_CTX *ctx = ssl->session_ctx.get();
+  // Never cache sessions with empty session IDs.
+  if (ssl->s3->established_session->session_id_length == 0 ||
+      ssl->s3->established_session->not_resumable ||
+      (ctx->session_cache_mode & mode) != mode) {
+    return;
+  }
+
+  // Clients never use the internal session cache.
+  int use_internal_cache = ssl->server && !(ctx->session_cache_mode &
+                                            SSL_SESS_CACHE_NO_INTERNAL_STORE);
+
+  // A client may see new sessions on abbreviated handshakes if the server
+  // decides to renew the ticket. Once the handshake is completed, it should be
+  // inserted into the cache.
+  if (ssl->s3->established_session.get() != ssl->session.get() ||
+      (!ssl->server && hs->ticket_expected)) {
+    if (use_internal_cache) {
+      SSL_CTX_add_session(ctx, ssl->s3->established_session.get());
+    }
+    if (ctx->new_session_cb != NULL) {
+      UniquePtr<SSL_SESSION> ref = UpRef(ssl->s3->established_session);
+      if (ctx->new_session_cb(ssl, ref.get())) {
+        // |new_session_cb|'s return value signals whether it took ownership.
+        ref.release();
+      }
+    }
+  }
+
+  if (use_internal_cache &&
+      !(ctx->session_cache_mode & SSL_SESS_CACHE_NO_AUTO_CLEAR)) {
+    // Automatically flush the internal session cache every 255 connections.
+    int flush_cache = 0;
+    CRYPTO_MUTEX_lock_write(&ctx->lock);
+    ctx->handshakes_since_cache_flush++;
+    if (ctx->handshakes_since_cache_flush >= 255) {
+      flush_cache = 1;
+      ctx->handshakes_since_cache_flush = 0;
+    }
+    CRYPTO_MUTEX_unlock_write(&ctx->lock);
+
+    if (flush_cache) {
+      struct OPENSSL_timeval now;
+      ssl_get_current_time(ssl, &now);
+      SSL_CTX_flush_sessions(ctx, now.tv_sec);
+    }
+  }
 }
 
 static bool cbb_add_hex(CBB *cbb, Span<const uint8_t> in) {
@@ -414,8 +463,7 @@ static bool ssl_can_renegotiate(const SSL *ssl) {
     return false;
   }
 
-  if (ssl->s3->have_version &&
-      ssl_protocol_version(ssl) >= TLS1_3_VERSION) {
+  if (ssl_protocol_version(ssl) >= TLS1_3_VERSION) {
     return false;
   }
 
@@ -515,7 +563,6 @@ ssl_ctx_st::ssl_ctx_st(const SSL_METHOD *ssl_method)
       signed_cert_timestamps_enabled(false),
       channel_id_enabled(false),
       grease_enabled(false),
-      permute_extensions(false),
       allow_unknown_alpn_protos(false),
       false_start_allowed_without_alpn(false),
       handoff(false),
@@ -638,7 +685,6 @@ SSL *SSL_new(SSL_CTX *ctx) {
   ssl->config->custom_verify_callback = ctx->custom_verify_callback;
   ssl->config->retain_only_sha256_of_client_certs =
       ctx->retain_only_sha256_of_client_certs;
-  ssl->config->permute_extensions = ctx->permute_extensions;
 
   if (!ssl->config->supported_group_list.CopyFrom(ctx->supported_group_list) ||
       !ssl->config->alpn_client_proto_list.CopyFrom(
@@ -685,8 +731,7 @@ SSL_CONFIG::SSL_CONFIG(SSL *ssl_arg)
       handoff(false),
       shed_handshake_config(false),
       jdk11_workaround(false),
-      quic_use_legacy_codepoint(false),
-      permute_extensions(false) {
+      quic_use_legacy_codepoint(true) {
   assert(ssl);
 }
 
@@ -1025,7 +1070,7 @@ int SSL_read(SSL *ssl, void *buf, int num) {
 int SSL_peek(SSL *ssl, void *buf, int num) {
   if (ssl->quic_method != nullptr) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-    return -1;
+    return 0;
   }
 
   int ret = ssl_read_impl(ssl);
@@ -1046,11 +1091,16 @@ int SSL_write(SSL *ssl, const void *buf, int num) {
 
   if (ssl->quic_method != nullptr) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-    return -1;
+    return 0;
   }
 
   if (ssl->do_handshake == NULL) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNINITIALIZED);
+    return -1;
+  }
+
+  if (ssl->s3->write_shutdown != ssl_shutdown_none) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_PROTOCOL_IS_SHUTDOWN);
     return -1;
   }
 
@@ -1267,6 +1317,8 @@ const char *SSL_early_data_reason_string(enum ssl_early_data_reason_t reason) {
       return "alpn_mismatch";
     case ssl_early_data_channel_id:
       return "channel_id";
+    case ssl_early_data_token_binding:
+      return "token_binding";
     case ssl_early_data_ticket_age_skew:
       return "ticket_age_skew";
     case ssl_early_data_quic_parameter_mismatch:
@@ -1320,12 +1372,12 @@ int SSL_get_error(const SSL *ssl, int ret_code) {
     case SSL_ERROR_HANDOFF:
     case SSL_ERROR_HANDBACK:
     case SSL_ERROR_WANT_X509_LOOKUP:
+    case SSL_ERROR_WANT_CHANNEL_ID_LOOKUP:
     case SSL_ERROR_WANT_PRIVATE_KEY_OPERATION:
     case SSL_ERROR_PENDING_TICKET:
     case SSL_ERROR_EARLY_DATA_REJECTED:
     case SSL_ERROR_WANT_CERTIFICATE_VERIFY:
     case SSL_ERROR_WANT_RENEGOTIATE:
-    case SSL_ERROR_HANDSHAKE_HINTS_READY:
       return ssl->s3->rwstate;
 
     case SSL_ERROR_WANT_READ: {
@@ -1393,6 +1445,8 @@ const char *SSL_error_description(int err) {
       return "WANT_CONNECT";
     case SSL_ERROR_WANT_ACCEPT:
       return "WANT_ACCEPT";
+    case SSL_ERROR_WANT_CHANNEL_ID_LOOKUP:
+      return "WANT_CHANNEL_ID_LOOKUP";
     case SSL_ERROR_PENDING_SESSION:
       return "PENDING_SESSION";
     case SSL_ERROR_PENDING_CERTIFICATE:
@@ -1409,13 +1463,16 @@ const char *SSL_error_description(int err) {
       return "HANDOFF";
     case SSL_ERROR_HANDBACK:
       return "HANDBACK";
-    case SSL_ERROR_WANT_RENEGOTIATE:
-      return "WANT_RENEGOTIATE";
-    case SSL_ERROR_HANDSHAKE_HINTS_READY:
-      return "HANDSHAKE_HINTS_READY";
     default:
       return nullptr;
   }
+}
+
+void SSL_set_enable_ech_grease(SSL *ssl, int enable) {
+  if (!ssl->config) {
+    return;
+  }
+  ssl->config->ech_grease_enabled = !!enable;
 }
 
 uint32_t SSL_CTX_set_options(SSL_CTX *ctx, uint32_t options) {
@@ -1699,10 +1756,6 @@ int SSL_pending(const SSL *ssl) {
   return static_cast<int>(ssl->s3->pending_app_data.size());
 }
 
-int SSL_has_pending(const SSL *ssl) {
-  return SSL_pending(ssl) != 0 || !ssl->s3->read_buffer.empty();
-}
-
 int SSL_CTX_check_private_key(const SSL_CTX *ctx) {
   return ssl_cert_check_private_key(ctx->cert.get(),
                                     ctx->cert->privatekey.get());
@@ -1731,9 +1784,6 @@ int SSL_renegotiate(SSL *ssl) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_NO_RENEGOTIATION);
     return 0;
   }
-
-  // We should not have told the caller to release the private key.
-  assert(!SSL_can_release_private_key(ssl));
 
   // Renegotiation is only supported at quiescent points in the application
   // protocol, namely in HTTPS, just before reading the HTTP response.
@@ -2193,26 +2243,21 @@ void SSL_CTX_set_next_proto_select_cb(
 
 int SSL_CTX_set_alpn_protos(SSL_CTX *ctx, const uint8_t *protos,
                             unsigned protos_len) {
-  // Note this function's return value is backwards.
-  auto span = MakeConstSpan(protos, protos_len);
-  if (!span.empty() && !ssl_is_valid_alpn_list(span)) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_ALPN_PROTOCOL_LIST);
-    return 1;
-  }
-  return ctx->alpn_client_proto_list.CopyFrom(span) ? 0 : 1;
+  // Note this function's calling convention is backwards.
+  return ctx->alpn_client_proto_list.CopyFrom(MakeConstSpan(protos, protos_len))
+             ? 0
+             : 1;
 }
 
 int SSL_set_alpn_protos(SSL *ssl, const uint8_t *protos, unsigned protos_len) {
-  // Note this function's return value is backwards.
+  // Note this function's calling convention is backwards.
   if (!ssl->config) {
     return 1;
   }
-  auto span = MakeConstSpan(protos, protos_len);
-  if (!span.empty() && !ssl_is_valid_alpn_list(span)) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_ALPN_PROTOCOL_LIST);
-    return 1;
-  }
-  return ssl->config->alpn_client_proto_list.CopyFrom(span) ? 0 : 1;
+  return ssl->config->alpn_client_proto_list.CopyFrom(
+             MakeConstSpan(protos, protos_len))
+             ? 0
+             : 1;
 }
 
 void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx,
@@ -2322,6 +2367,8 @@ int SSL_CTX_set1_tls_channel_id(SSL_CTX *ctx, EVP_PKEY *private_key) {
   }
 
   ctx->channel_id_private = UpRef(private_key);
+  ctx->channel_id_enabled = true;
+
   return 1;
 }
 
@@ -2335,6 +2382,8 @@ int SSL_set1_tls_channel_id(SSL *ssl, EVP_PKEY *private_key) {
   }
 
   ssl->config->channel_id_private = UpRef(private_key);
+  ssl->config->channel_id_enabled = true;
+
   return 1;
 }
 
@@ -2344,6 +2393,25 @@ size_t SSL_get_tls_channel_id(SSL *ssl, uint8_t *out, size_t max_out) {
   }
   OPENSSL_memcpy(out, ssl->s3->channel_id, (max_out < 64) ? max_out : 64);
   return 64;
+}
+
+int SSL_set_token_binding_params(SSL *ssl, const uint8_t *params, size_t len) {
+  if (!ssl->config) {
+    return 0;
+  }
+  if (len > 256) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
+    return 0;
+  }
+  return ssl->config->token_binding_params.CopyFrom(MakeConstSpan(params, len));
+}
+
+int SSL_is_token_binding_negotiated(const SSL *ssl) {
+  return ssl->s3->token_binding_negotiated;
+}
+
+uint8_t SSL_get_negotiated_token_binding_param(const SSL *ssl) {
+  return ssl->s3->negotiated_token_binding_param;
 }
 
 size_t SSL_get0_certificate_types(const SSL *ssl, const uint8_t **out_types) {
@@ -2707,17 +2775,6 @@ void SSL_CTX_set_current_time_cb(SSL_CTX *ctx,
   ctx->current_time_cb = cb;
 }
 
-int SSL_can_release_private_key(const SSL *ssl) {
-  if (ssl_can_renegotiate(ssl)) {
-    // If the connection can renegotiate (client only), the private key may be
-    // used in a future handshake.
-    return 0;
-  }
-
-  // Otherwise, this is determined by the current handshake.
-  return !ssl->s3->hs || ssl->s3->hs->can_release_private_key;
-}
-
 int SSL_is_init_finished(const SSL *ssl) {
   return !SSL_in_init(ssl);
 }
@@ -2870,17 +2927,6 @@ void SSL_CTX_set_grease_enabled(SSL_CTX *ctx, int enabled) {
   ctx->grease_enabled = !!enabled;
 }
 
-void SSL_CTX_set_permute_extensions(SSL_CTX *ctx, int enabled) {
-  ctx->permute_extensions = !!enabled;
-}
-
-void SSL_set_permute_extensions(SSL *ssl, int enabled) {
-  if (!ssl->config) {
-    return;
-  }
-  ssl->config->permute_extensions = !!enabled;
-}
-
 int32_t SSL_get_ticket_age_skew(const SSL *ssl) {
   return ssl->s3->ticket_age_skew;
 }
@@ -2889,9 +2935,15 @@ void SSL_CTX_set_false_start_allowed_without_alpn(SSL_CTX *ctx, int allowed) {
   ctx->false_start_allowed_without_alpn = !!allowed;
 }
 
+int SSL_is_tls13_downgrade(const SSL *ssl) { return 0; }
+
 int SSL_used_hello_retry_request(const SSL *ssl) {
   return ssl->s3->used_hello_retry_request;
 }
+
+void SSL_CTX_set_ignore_tls13_downgrade(SSL_CTX *ctx, int ignore) {}
+
+void SSL_set_ignore_tls13_downgrade(SSL *ssl, int ignore) {}
 
 void SSL_set_shed_handshake_config(SSL *ssl, int enable) {
   if (!ssl->config) {
@@ -3025,13 +3077,6 @@ SSL_SESSION *SSL_process_tls13_new_session_ticket(SSL *ssl, const uint8_t *buf,
     return nullptr;
   }
   return session.release();
-}
-
-int SSL_CTX_set_num_tickets(SSL_CTX *ctx, size_t num_tickets) {
-  num_tickets = std::min(num_tickets, kMaxTickets);
-  static_assert(kMaxTickets <= 0xff, "Too many tickets.");
-  ctx->num_tickets = static_cast<uint8_t>(num_tickets);
-  return 1;
 }
 
 int SSL_set_tlsext_status_type(SSL *ssl, int type) {

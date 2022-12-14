@@ -27,6 +27,13 @@
 
 #include "ParcelValTypes.h"
 
+using android::BAD_TYPE;
+using android::BAD_VALUE;
+using android::NO_ERROR;
+using android::Parcel;
+using android::status_t;
+using android::UNEXPECTED_NULL;
+
 using android::binder::VAL_BOOLEAN;
 using android::binder::VAL_INTEGER;
 using android::binder::VAL_LONG;

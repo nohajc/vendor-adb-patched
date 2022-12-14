@@ -18,7 +18,6 @@
 
 #include <compositionengine/DisplaySurface.h>
 #include <gmock/gmock.h>
-#include <ui/Size.h>
 #include <utils/String8.h>
 
 namespace android::compositionengine::mock {
@@ -33,7 +32,7 @@ public:
     MOCK_METHOD0(advanceFrame, status_t());
     MOCK_METHOD0(onFrameCommitted, void());
     MOCK_CONST_METHOD1(dumpAsString, void(String8& result));
-    MOCK_METHOD1(resizeBuffers, void(const ui::Size&));
+    MOCK_METHOD2(resizeBuffers, void(uint32_t, uint32_t));
     MOCK_CONST_METHOD0(getClientTargetAcquireFence, const sp<Fence>&());
 };
 

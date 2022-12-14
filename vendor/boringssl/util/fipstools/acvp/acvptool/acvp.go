@@ -178,22 +178,6 @@ func trimLeadingSlash(s string) string {
 	return s
 }
 
-// looksLikeHeaderElement returns true iff element looks like it's a header, not
-// a test. Some ACVP files contain a header as the first element that should be
-// duplicated into the response, and some don't. If the element contains
-// a "url" field, or if it's missing an "algorithm" field, then we guess that
-// it's a header.
-func looksLikeHeaderElement(element json.RawMessage) bool {
-	var headerFields struct {
-		URL       string `json:"url"`
-		Algorithm string `json:"algorithm"`
-	}
-	if err := json.Unmarshal(element, &headerFields); err != nil {
-		return false
-	}
-	return len(headerFields.URL) > 0 || len(headerFields.Algorithm) == 0
-}
-
 // processFile reads a file containing vector sets, at least in the format
 // preferred by our lab, and writes the results to stdout.
 func processFile(filename string, supportedAlgos []map[string]interface{}, middle Middle) error {
@@ -207,18 +191,11 @@ func processFile(filename string, supportedAlgos []map[string]interface{}, middl
 		return err
 	}
 
-	// There must be at least one element in the file.
-	if len(elements) < 1 {
-		return errors.New("JSON input is empty")
+	// There must be at least a header and one vector set in the file.
+	if len(elements) < 2 {
+		return fmt.Errorf("only %d elements in JSON array", len(elements))
 	}
-
-	var header json.RawMessage
-	if looksLikeHeaderElement(elements[0]) {
-		header, elements = elements[0], elements[1:]
-		if len(elements) == 0 {
-			return errors.New("JSON input is empty")
-		}
-	}
+	header := elements[0]
 
 	// Build a map of which algorithms our Middle supports.
 	algos := make(map[string]struct{})
@@ -236,17 +213,13 @@ func processFile(filename string, supportedAlgos []map[string]interface{}, middl
 
 	var result bytes.Buffer
 	result.WriteString("[")
-
-	if header != nil {
-		headerBytes, err := json.MarshalIndent(header, "", "    ")
-		if err != nil {
-			return err
-		}
-		result.Write(headerBytes)
-		result.WriteString(",")
+	headerBytes, err := json.MarshalIndent(header, "", "    ")
+	if err != nil {
+		return err
 	}
+	result.Write(headerBytes)
 
-	for i, element := range elements {
+	for i, element := range elements[1:] {
 		var commonFields struct {
 			Algo string `json:"algorithm"`
 			ID   uint64 `json:"vsId"`
@@ -274,9 +247,7 @@ func processFile(filename string, supportedAlgos []map[string]interface{}, middl
 			return err
 		}
 
-		if i != 0 {
-			result.WriteString(",")
-		}
+		result.WriteString(",")
 		result.Write(replyBytes)
 	}
 
@@ -308,23 +279,9 @@ func main() {
 	}
 
 	if *dumpRegcap {
-		nonTestAlgos := make([]map[string]interface{}, 0, len(supportedAlgos))
-		for _, algo := range supportedAlgos {
-			if value, ok := algo["acvptoolTestOnly"]; ok {
-				testOnly, ok := value.(bool)
-				if !ok {
-					log.Fatalf("modulewrapper config contains acvptoolTestOnly field with non-boolean value %#v", value)
-				}
-				if testOnly {
-					continue
-				}
-			}
-			nonTestAlgos = append(nonTestAlgos, algo)
-		}
-
 		regcap := []map[string]interface{}{
 			map[string]interface{}{"acvVersion": "1.0"},
-			map[string]interface{}{"algorithms": nonTestAlgos},
+			map[string]interface{}{"algorithms": supportedAlgos},
 		}
 		regcapBytes, err := json.MarshalIndent(regcap, "", "    ")
 		if err != nil {

@@ -20,12 +20,12 @@ package android.os;
 interface IInstalld {
     void createUserData(@nullable @utf8InCpp String uuid, int userId, int userSerial, int flags);
     void destroyUserData(@nullable @utf8InCpp String uuid, int userId, int flags);
-    void setFirstBoot();
-    android.os.CreateAppDataResult createAppData(in android.os.CreateAppDataArgs args);
-    android.os.CreateAppDataResult[] createAppDataBatched(in android.os.CreateAppDataArgs[] args);
 
-    void reconcileSdkData(in android.os.ReconcileSdkDataArgs args);
-
+    long createAppData(@nullable @utf8InCpp String uuid, in @utf8InCpp String packageName,
+            int userId, int flags, int appId, in @utf8InCpp String seInfo, int targetSdkVersion);
+    long createAppDataBatched(in @nullable @utf8InCpp String[] uuids,
+        in @nullable @utf8InCpp String[] packageNames, in int userId, int flags, in int[] appIds,
+        in @utf8InCpp String[] seInfos, in int[] targetSdkVersions);
     void restoreconAppData(@nullable @utf8InCpp String uuid, @utf8InCpp String packageName,
             int userId, int flags, int appId, @utf8InCpp String seInfo);
     void migrateAppData(@nullable @utf8InCpp String uuid, @utf8InCpp String packageName,
@@ -57,8 +57,7 @@ interface IInstalld {
             @utf8InCpp String packageName, int appId,
             @utf8InCpp String seInfo, int targetSdkVersion, @utf8InCpp String fromCodePath);
 
-    // Returns false if it is cancelled. Returns true if it is completed or have other errors.
-    boolean dexopt(@utf8InCpp String apkPath, int uid, @nullable @utf8InCpp String packageName,
+    void dexopt(@utf8InCpp String apkPath, int uid, @nullable @utf8InCpp String packageName,
             @utf8InCpp String instructionSet, int dexoptNeeded,
             @nullable @utf8InCpp String outputPath, int dexFlags,
             @utf8InCpp String compilerFilter, @nullable @utf8InCpp String uuid,
@@ -67,9 +66,6 @@ interface IInstalld {
             @nullable @utf8InCpp String profileName,
             @nullable @utf8InCpp String dexMetadataPath,
             @nullable @utf8InCpp String compilationReason);
-    // Blocks (when block is true) or unblock (when block is false) dexopt.
-    // Blocking also invloves cancelling the currently running dexopt.
-    void controlDexOptBlocking(boolean block);
     boolean compileLayouts(@utf8InCpp String apkPath, @utf8InCpp String packageName,
             @utf8InCpp String outDexFile, int uid);
 
@@ -99,6 +95,9 @@ interface IInstalld {
             @utf8InCpp String outputPath);
     long deleteOdex(@utf8InCpp String apkPath, @utf8InCpp String instructionSet,
             @nullable @utf8InCpp String outputPath);
+    void installApkVerity(@utf8InCpp String filePath, in FileDescriptor verityInput,
+            int contentSize);
+    void assertFsverityRootHashMatches(@utf8InCpp String filePath, in byte[] expectedHash);
 
     boolean reconcileSecondaryDexFile(@utf8InCpp String dexPath, @utf8InCpp String pkgName,
         int uid, in @utf8InCpp String[] isas, @nullable @utf8InCpp String volume_uuid,
@@ -118,22 +117,18 @@ interface IInstalld {
             int userId, int snapshotId, int storageFlags);
     void restoreAppDataSnapshot(@nullable @utf8InCpp String uuid, in @utf8InCpp String packageName,
             int appId, @utf8InCpp String seInfo, int user, int snapshotId, int storageflags);
-    void destroyAppDataSnapshot(@nullable @utf8InCpp String uuid, @utf8InCpp String packageName,
-            int userId, long ceSnapshotInode, int snapshotId, int storageFlags);
     void destroyCeSnapshotsNotSpecified(@nullable @utf8InCpp String uuid, int userId,
             in int[] retainSnapshotIds);
-
+    void destroyAppDataSnapshot(@nullable @utf8InCpp String uuid, @utf8InCpp String packageName,
+            int userId, long ceSnapshotInode, int snapshotId, int storageFlags);
     void tryMountDataMirror(@nullable @utf8InCpp String volumeUuid);
     void onPrivateVolumeRemoved(@nullable @utf8InCpp String volumeUuid);
 
     void migrateLegacyObbData();
 
-    void cleanupInvalidPackageDirs(@nullable @utf8InCpp String uuid, int userId, int flags);
-
     const int FLAG_STORAGE_DE = 0x1;
     const int FLAG_STORAGE_CE = 0x2;
     const int FLAG_STORAGE_EXTERNAL = 0x4;
-    const int FLAG_STORAGE_SDK = 0x8;
 
     const int FLAG_CLEAR_CACHE_ONLY = 0x10;
     const int FLAG_CLEAR_CODE_CACHE_ONLY = 0x20;

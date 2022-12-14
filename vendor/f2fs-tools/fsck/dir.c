@@ -400,7 +400,7 @@ static void page_symlink(struct f2fs_sb_info *sbi, struct f2fs_node *inode,
 	memcpy(data_blk, symname, symlen);
 
 	set_summary(&sum, ino, 0, ni.version);
-	ret = reserve_new_block(sbi, &blkaddr, &sum, CURSEG_WARM_DATA, 0);
+	ret = reserve_new_block(sbi, &blkaddr, &sum, CURSEG_WARM_DATA, 1);
 	ASSERT(!ret);
 
 	ret = dev_write_block(data_blk, blkaddr);
@@ -474,19 +474,11 @@ static void init_inode_block(struct f2fs_sb_info *sbi,
 		links++;
 		blocks++;
 	} else if (de->file_type == F2FS_FT_REG_FILE) {
-#ifdef S_IFREG
 		mode |= S_IFREG;
-#else
-		ASSERT(0);
-#endif
 		size = 0;
 	} else if (de->file_type == F2FS_FT_SYMLINK) {
 		ASSERT(de->link);
-#ifdef S_IFLNK
 		mode |= S_IFLNK;
-#else
-		ASSERT(0);
-#endif
 		size = strlen(de->link);
 		if (size + 1 > MAX_INLINE_DATA(node_blk))
 			blocks++;

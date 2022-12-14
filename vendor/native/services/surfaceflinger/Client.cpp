@@ -79,18 +79,17 @@ sp<Layer> Client::getLayerUser(const sp<IBinder>& handle) const
 status_t Client::createSurface(const String8& name, uint32_t w, uint32_t h, PixelFormat format,
                                uint32_t flags, const sp<IBinder>& parentHandle,
                                LayerMetadata metadata, sp<IBinder>* handle,
-                               sp<IGraphicBufferProducer>* gbp, int32_t* outLayerId,
-                               uint32_t* outTransformHint) {
+                               sp<IGraphicBufferProducer>* gbp, uint32_t* outTransformHint) {
     // We rely on createLayer to check permissions.
     return mFlinger->createLayer(name, this, w, h, format, flags, std::move(metadata), handle, gbp,
-                                 parentHandle, outLayerId, nullptr, outTransformHint);
+                                 parentHandle, nullptr, outTransformHint);
 }
 
 status_t Client::createWithSurfaceParent(const String8& name, uint32_t w, uint32_t h,
                                          PixelFormat format, uint32_t flags,
                                          const sp<IGraphicBufferProducer>& parent,
                                          LayerMetadata metadata, sp<IBinder>* handle,
-                                         sp<IGraphicBufferProducer>* gbp, int32_t* outLayerId,
+                                         sp<IGraphicBufferProducer>* gbp,
                                          uint32_t* outTransformHint) {
     if (mFlinger->authenticateSurfaceTexture(parent) == false) {
         ALOGE("failed to authenticate surface texture");
@@ -104,12 +103,11 @@ status_t Client::createWithSurfaceParent(const String8& name, uint32_t w, uint32
     }
 
     return mFlinger->createLayer(name, this, w, h, format, flags, std::move(metadata), handle, gbp,
-                                 nullptr, outLayerId, layer, outTransformHint);
+                                 nullptr, layer, outTransformHint);
 }
 
-status_t Client::mirrorSurface(const sp<IBinder>& mirrorFromHandle, sp<IBinder>* outHandle,
-                               int32_t* outLayerId) {
-    return mFlinger->mirrorLayer(this, mirrorFromHandle, outHandle, outLayerId);
+status_t Client::mirrorSurface(const sp<IBinder>& mirrorFromHandle, sp<IBinder>* outHandle) {
+    return mFlinger->mirrorLayer(this, mirrorFromHandle, outHandle);
 }
 
 status_t Client::clearLayerFrameStats(const sp<IBinder>& handle) const {

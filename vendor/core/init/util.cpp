@@ -61,8 +61,6 @@ namespace init {
 
 const std::string kDefaultAndroidDtDir("/proc/device-tree/firmware/android/");
 
-const std::string kDataDirPrefix("/data/");
-
 void (*trigger_shutdown)(const std::string& command) = nullptr;
 
 // DecodeUid() - decodes and returns the given string, which can be either the
@@ -460,34 +458,58 @@ Result<void> IsLegalPropertyValue(const std::string& name, const std::string& va
     return {};
 }
 
-// Remove unnecessary slashes so that any later checks (e.g., the check for
-// whether the path is a top-level directory in /data) don't get confused.
-std::string CleanDirPath(const std::string& path) {
-    std::string result;
-    result.reserve(path.length());
-    // Collapse duplicate slashes, e.g. //data//foo// => /data/foo/
-    for (char c : path) {
-        if (c != '/' || result.empty() || result.back() != '/') {
-            result += c;
+static FscryptAction FscryptInferAction(const std::string& dir) {
+    const std::string prefix = "/data/";
+
+    if (!android::base::StartsWith(dir, prefix)) {
+        return FscryptAction::kNone;
+    }
+
+    // Special-case /data/media/obb per b/64566063
+    if (dir == "/data/media/obb") {
+        // Try to set policy on this directory, but if it is non-empty this may fail.
+        return FscryptAction::kAttempt;
+    }
+
+    // Only set policy on first level /data directories
+    // To make this less restrictive, consider using a policy file.
+    // However this is overkill for as long as the policy is simply
+    // to apply a global policy to all /data folders created via makedir
+    if (dir.find_first_of('/', prefix.size()) != std::string::npos) {
+        return FscryptAction::kNone;
+    }
+
+    // Special case various directories that must not be encrypted,
+    // often because their subdirectories must be encrypted.
+    // This isn't a nice way to do this, see b/26641735
+    std::vector<std::string> directories_to_exclude = {
+            "lost+found", "system_ce", "system_de", "misc_ce",     "misc_de",
+            "vendor_ce",  "vendor_de", "media",     "data",        "user",
+            "user_de",    "apex",      "preloads",  "app-staging", "gsi",
+    };
+    for (const auto& d : directories_to_exclude) {
+        if ((prefix + d) == dir) {
+            return FscryptAction::kNone;
         }
     }
-    // Remove trailing slash, e.g. /data/foo/ => /data/foo
-    if (result.length() > 1 && result.back() == '/') {
-        result.pop_back();
+    // Empty these directories if policy setting fails.
+    std::vector<std::string> wipe_on_failure = {
+            "rollback", "rollback-observer",  // b/139193659
+    };
+    for (const auto& d : wipe_on_failure) {
+        if ((prefix + d) == dir) {
+            return FscryptAction::kDeleteIfNecessary;
+        }
     }
-    return result;
+    return FscryptAction::kRequire;
 }
 
 Result<MkdirOptions> ParseMkdir(const std::vector<std::string>& args) {
-    std::string path = CleanDirPath(args[1]);
-    const bool is_toplevel_data_dir =
-            StartsWith(path, kDataDirPrefix) &&
-            path.find_first_of('/', kDataDirPrefix.size()) == std::string::npos;
-    FscryptAction fscrypt_action =
-            is_toplevel_data_dir ? FscryptAction::kRequire : FscryptAction::kNone;
     mode_t mode = 0755;
     Result<uid_t> uid = -1;
     Result<gid_t> gid = -1;
+    FscryptAction fscrypt_inferred_action = FscryptInferAction(args[1]);
+    FscryptAction fscrypt_action = fscrypt_inferred_action;
     std::string ref_option = "ref";
     bool set_option_encryption = false;
     bool set_option_key = false;
@@ -552,17 +574,24 @@ Result<MkdirOptions> ParseMkdir(const std::vector<std::string>& args) {
     if (set_option_key && fscrypt_action == FscryptAction::kNone) {
         return Error() << "Key option set but encryption action is none";
     }
-    if (is_toplevel_data_dir) {
+    const std::string prefix = "/data/";
+    if (StartsWith(args[1], prefix) &&
+        args[1].find_first_of('/', prefix.size()) == std::string::npos) {
         if (!set_option_encryption) {
-            LOG(WARNING) << "Top-level directory needs encryption action, eg mkdir " << path
+            LOG(WARNING) << "Top-level directory needs encryption action, eg mkdir " << args[1]
                          << " <mode> <uid> <gid> encryption=Require";
         }
         if (fscrypt_action == FscryptAction::kNone) {
-            LOG(INFO) << "Not setting encryption policy on: " << path;
+            LOG(INFO) << "Not setting encryption policy on: " << args[1];
         }
     }
+    if (fscrypt_action != fscrypt_inferred_action) {
+        LOG(WARNING) << "Inferred action different from explicit one, expected "
+                     << static_cast<int>(fscrypt_inferred_action) << " but got "
+                     << static_cast<int>(fscrypt_action);
+    }
 
-    return MkdirOptions{path, mode, *uid, *gid, fscrypt_action, ref_option};
+    return MkdirOptions{args[1], mode, *uid, *gid, fscrypt_action, ref_option};
 }
 
 Result<MountAllOptions> ParseMountAll(const std::vector<std::string>& args) {
@@ -726,26 +755,6 @@ bool IsDefaultMountNamespaceReady() {
 
 void SetDefaultMountNamespaceReady() {
     is_default_mount_namespace_ready = true;
-}
-
-bool IsMicrodroid() {
-    static bool is_microdroid = android::base::GetProperty("ro.hardware", "") == "microdroid";
-    return is_microdroid;
-}
-
-bool Has32BitAbi() {
-    static bool has = !android::base::GetProperty("ro.product.cpu.abilist32", "").empty();
-    return has;
-}
-
-std::string GetApexNameFromFileName(const std::string& path) {
-    static const std::string kApexDir = "/apex/";
-    if (StartsWith(path, kApexDir)) {
-        auto begin = kApexDir.size();
-        auto end = path.find('/', begin);
-        return path.substr(begin, end - begin);
-    }
-    return "";
 }
 
 }  // namespace init

@@ -75,13 +75,10 @@
 #include <openssl/sha.h>
 
 #include "../ec/internal.h"
-#include "../../internal.h"
 
 
 int ECDH_compute_key_fips(uint8_t *out, size_t out_len, const EC_POINT *pub_key,
                           const EC_KEY *priv_key) {
-  boringssl_ensure_ecc_self_test();
-
   if (priv_key->priv_key == NULL) {
     OPENSSL_PUT_ERROR(ECDH, ECDH_R_NO_PRIVATE_VALUE);
     return 0;
@@ -103,7 +100,6 @@ int ECDH_compute_key_fips(uint8_t *out, size_t out_len, const EC_POINT *pub_key,
     return 0;
   }
 
-  FIPS_service_indicator_lock_state();
   switch (out_len) {
     case SHA224_DIGEST_LENGTH:
       SHA224(buf, buflen, out);
@@ -119,11 +115,8 @@ int ECDH_compute_key_fips(uint8_t *out, size_t out_len, const EC_POINT *pub_key,
       break;
     default:
       OPENSSL_PUT_ERROR(ECDH, ECDH_R_UNKNOWN_DIGEST_LENGTH);
-      FIPS_service_indicator_unlock_state();
       return 0;
   }
-  FIPS_service_indicator_unlock_state();
 
-  ECDH_verify_service_indicator(priv_key);
   return 1;
 }

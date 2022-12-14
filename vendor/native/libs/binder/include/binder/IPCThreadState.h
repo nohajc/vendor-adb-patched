@@ -28,10 +28,6 @@ typedef  int  uid_t;
 // ---------------------------------------------------------------------------
 namespace android {
 
-/**
- * Kernel binder thread state. All operations here refer to kernel binder. This
- * object is allocated per-thread.
- */
 class IPCThreadState
 {
 public:
@@ -55,9 +51,10 @@ public:
     static  status_t            freeze(pid_t pid, bool enabled, uint32_t timeout_ms);
 
     // Provide information about the state of a frozen process
-    static  status_t            getProcessFreezeInfo(pid_t pid, uint32_t *sync_received,
-                                                    uint32_t *async_received);
-
+    static  status_t            getProcessFreezeInfo(pid_t pid, bool *sync_received,
+                                                    bool *async_received);
+            sp<ProcessState>    process();
+            
             status_t            clearLastError();
 
             /**
@@ -217,9 +214,9 @@ private:
             void                clearCaller();
 
     static  void                threadDestructor(void *st);
-    static void freeBuffer(const uint8_t* data, size_t dataSize, const binder_size_t* objects,
-                           size_t objectsSize);
-    static  void                logExtendedError();
+    static  void                freeBuffer(Parcel* parcel,
+                                           const uint8_t* data, size_t dataSize,
+                                           const binder_size_t* objects, size_t objectsSize);
 
     const   sp<ProcessState>    mProcess;
             Vector<BBinder*>    mPendingStrongDerefs;

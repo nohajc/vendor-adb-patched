@@ -162,6 +162,7 @@ static void* realloc_or_free(void* ptr, size_t new_size) {
 ssize_t __android_log_pmsg_file_read(log_id_t logId, char prio, const char* prefix,
                                      __android_log_pmsg_file_read_fn fn, void* arg) {
   ssize_t ret;
+  struct logger_list logger_list;
   struct content {
     struct listnode node;
     struct logger_entry entry;
@@ -182,9 +183,10 @@ ssize_t __android_log_pmsg_file_read(log_id_t logId, char prio, const char* pref
   }
 
   /* Add just enough clues in logger_list and transp to make API function */
-  struct logger_list logger_list = {
-      .mode = static_cast<int>(ANDROID_LOG_PSTORE | ANDROID_LOG_NONBLOCK),
-      .log_mask = (unsigned)-1};
+  memset(&logger_list, 0, sizeof(logger_list));
+
+  logger_list.mode = ANDROID_LOG_PSTORE | ANDROID_LOG_NONBLOCK;
+  logger_list.log_mask = (unsigned)-1;
   if (logId != LOG_ID_ANY) {
     logger_list.log_mask = (1 << logId);
   }

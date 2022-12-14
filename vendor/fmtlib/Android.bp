@@ -55,33 +55,6 @@ cc_defaults {
     min_sdk_version: "29",
 }
 
-cc_library_headers {
-    name: "fmtlib_headers",
-    export_include_dirs: ["include"],
-
-    vendor_available: true,
-    product_available: true,
-    ramdisk_available: true,
-    vendor_ramdisk_available: true,
-    recovery_available: true,
-    host_supported: true,
-    native_bridge_supported: true,
-    target: {
-        linux_bionic: {
-            enabled: true,
-        },
-        windows: {
-            enabled: true,
-        },
-    },
-    visibility: ["//system/libbase"],
-    min_sdk_version: "29",
-    apex_available: [
-        "//apex_available:anyapex",
-        "//apex_available:platform",
-    ],
-}
-
 // This is built into libbase.  If you want to use this library, link to libbase instead.
 cc_library_static {
     name: "fmtlib",
@@ -106,7 +79,6 @@ cc_library_static {
         "//apex_available:anyapex",
         "//apex_available:platform",
     ],
-    min_sdk_version: "29",
 }
 
 cc_library_static {

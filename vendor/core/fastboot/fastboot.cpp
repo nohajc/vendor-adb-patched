@@ -59,10 +59,8 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
-#include <build/version.h>
 #include <libavb/libavb.h>
 #include <liblp/liblp.h>
-#include <platform_tools_version.h>
 #include <sparse/sparse.h>
 #include <ziparchive/zip_archive.h>
 
@@ -141,10 +139,6 @@ struct Image {
 static Image images[] = {
         // clang-format off
     { "boot",     "boot.img",         "boot.sig",     "boot",     false, ImageType::BootCritical },
-    { "init_boot",
-                  "init_boot.img",    "init_boot.sig",
-                                                      "init_boot",
-                                                                  true,  ImageType::BootCritical },
     { nullptr,    "boot_other.img",   "boot.sig",     "boot",     true,  ImageType::Normal },
     { "cache",    "cache.img",        "cache.sig",    "cache",    true,  ImageType::Extra },
     { "dtbo",     "dtbo.img",         "dtbo.sig",     "dtbo",     true,  ImageType::BootCritical },
@@ -156,10 +150,6 @@ static Image images[] = {
     { "recovery", "recovery.img",     "recovery.sig", "recovery", true,  ImageType::BootCritical },
     { "super",    "super.img",        "super.sig",    "super",    true,  ImageType::Extra },
     { "system",   "system.img",       "system.sig",   "system",   false, ImageType::Normal },
-    { "system_dlkm",
-                  "system_dlkm.img",  "system_dlkm.sig",
-                                                      "system_dlkm",
-                                                                  true,  ImageType::Normal },
     { "system_ext",
                   "system_ext.img",   "system_ext.sig",
                                                       "system_ext",
@@ -186,11 +176,6 @@ static Image images[] = {
                   "vendor_dlkm.img",  "vendor_dlkm.sig",
                                                       "vendor_dlkm",
                                                                   true,  ImageType::Normal },
-    { "vendor_kernel_boot",
-                  "vendor_kernel_boot.img",
-                                      "vendor_kernel_boot.sig",
-                                                      "vendor_kernel_boot",
-                                                                  true,  ImageType::BootCritical },
     { nullptr,    "vendor_other.img", "vendor.sig",   "vendor",   true,  ImageType::Normal },
         // clang-format on
 };
@@ -954,8 +939,7 @@ static void rewrite_vbmeta_buffer(struct fastboot_buffer* buf, bool vbmeta_in_bo
         // Tries to locate top-level vbmeta from boot.img footer.
         uint64_t footer_offset = buf->sz - AVB_FOOTER_SIZE;
         if (0 != data.compare(footer_offset, AVB_FOOTER_MAGIC_LEN, AVB_FOOTER_MAGIC)) {
-            die("Failed to find AVB_FOOTER at offset: %" PRId64 ", is BOARD_AVB_ENABLE true?",
-                footer_offset);
+            die("Failed to find AVB_FOOTER at offset: %" PRId64, footer_offset);
         }
         const AvbFooter* footer = reinterpret_cast<const AvbFooter*>(data.c_str() + footer_offset);
         vbmeta_offset = be64toh(footer->vbmeta_offset);
@@ -1030,48 +1014,37 @@ static uint64_t get_partition_size(const std::string& partition) {
     return partition_size;
 }
 
-static void copy_avb_footer(const std::string& partition, struct fastboot_buffer* buf) {
+static void copy_boot_avb_footer(const std::string& partition, struct fastboot_buffer* buf) {
     if (buf->sz < AVB_FOOTER_SIZE) {
         return;
     }
 
+    std::string data;
+    if (!android::base::ReadFdToString(buf->fd, &data)) {
+        die("Failed reading from boot");
+    }
+
+    uint64_t footer_offset = buf->sz - AVB_FOOTER_SIZE;
+    if (0 != data.compare(footer_offset, AVB_FOOTER_MAGIC_LEN, AVB_FOOTER_MAGIC)) {
+        return;
+    }
     // If overflows and negative, it should be < buf->sz.
     int64_t partition_size = static_cast<int64_t>(get_partition_size(partition));
 
     if (partition_size == buf->sz) {
         return;
     }
-    // Some device bootloaders might not implement `fastboot getvar partition-size:boot[_a|_b]`.
-    // In this case, partition_size will be zero.
     if (partition_size < buf->sz) {
-        fprintf(stderr,
-                "Warning: skip copying %s image avb footer"
-                " (%s partition size: %" PRId64 ", %s image size: %" PRId64 ").\n",
-                partition.c_str(), partition.c_str(), partition_size, partition.c_str(), buf->sz);
-        return;
+        die("boot partition is smaller than boot image");
     }
 
-    // IMPORTANT: after the following read, we need to reset buf->fd before return (if not die).
-    // Because buf->fd will still be used afterwards.
-    std::string data;
-    if (!android::base::ReadFdToString(buf->fd, &data)) {
-        die("Failed reading from %s", partition.c_str());
-    }
-
-    uint64_t footer_offset = buf->sz - AVB_FOOTER_SIZE;
-    if (0 != data.compare(footer_offset, AVB_FOOTER_MAGIC_LEN, AVB_FOOTER_MAGIC)) {
-        lseek(buf->fd.get(), 0, SEEK_SET);  // IMPORTANT: resets buf->fd before return.
-        return;
-    }
-
-    const std::string tmp_fd_template = partition + " rewriting";
-    unique_fd fd(make_temporary_fd(tmp_fd_template.c_str()));
+    unique_fd fd(make_temporary_fd("boot rewriting"));
     if (!android::base::WriteStringToFd(data, fd)) {
-        die("Failed writing to modified %s", partition.c_str());
+        die("Failed writing to modified boot");
     }
     lseek(fd.get(), partition_size - AVB_FOOTER_SIZE, SEEK_SET);
     if (!android::base::WriteStringToFd(data.substr(footer_offset), fd)) {
-        die("Failed copying AVB footer in %s", partition.c_str());
+        die("Failed copying AVB footer in boot");
     }
     buf->fd = std::move(fd);
     buf->sz = partition_size;
@@ -1082,18 +1055,13 @@ static void flash_buf(const std::string& partition, struct fastboot_buffer *buf)
 {
     sparse_file** s;
 
-    if (partition == "boot" || partition == "boot_a" || partition == "boot_b" ||
-        partition == "init_boot" || partition == "init_boot_a" || partition == "init_boot_b") {
-        copy_avb_footer(partition, buf);
+    if (partition == "boot" || partition == "boot_a" || partition == "boot_b") {
+        copy_boot_avb_footer(partition, buf);
     }
 
     // Rewrite vbmeta if that's what we're flashing and modification has been requested.
     if (g_disable_verity || g_disable_verification) {
-        // The vbmeta partition might have additional prefix if running in virtual machine
-        // e.g., guest_vbmeta_a.
-        if (android::base::EndsWith(partition, "vbmeta") ||
-            android::base::EndsWith(partition, "vbmeta_a") ||
-            android::base::EndsWith(partition, "vbmeta_b")) {
+        if (partition == "vbmeta" || partition == "vbmeta_a" || partition == "vbmeta_b") {
             rewrite_vbmeta_buffer(buf, false /* vbmeta_in_boot */);
         } else if (!has_vbmeta_partition() &&
                    (partition == "boot" || partition == "boot_a" || partition == "boot_b")) {
@@ -1683,9 +1651,10 @@ static unsigned fb_get_flash_block_size(std::string name) {
     return size;
 }
 
-static void fb_perform_format(const std::string& partition, int skip_if_not_supported,
+static void fb_perform_format(
+                              const std::string& partition, int skip_if_not_supported,
                               const std::string& type_override, const std::string& size_override,
-                              const unsigned fs_options) {
+                              const std::string& initial_dir, const unsigned fs_options) {
     std::string partition_type, partition_size;
 
     struct fastboot_buffer buf;
@@ -1747,7 +1716,8 @@ static void fb_perform_format(const std::string& partition, int skip_if_not_supp
     eraseBlkSize = fb_get_flash_block_size("erase-block-size");
     logicalBlkSize = fb_get_flash_block_size("logical-block-size");
 
-    if (fs_generator_generate(gen, output.path, size, eraseBlkSize, logicalBlkSize, fs_options)) {
+    if (fs_generator_generate(gen, output.path, size, initial_dir,
+            eraseBlkSize, logicalBlkSize, fs_options)) {
         die("Cannot generate image for %s", partition.c_str());
     }
 
@@ -1966,7 +1936,7 @@ int FastBootTool::Main(int argc, char* argv[]) {
                 setvbuf(stdout, nullptr, _IONBF, 0);
                 setvbuf(stderr, nullptr, _IONBF, 0);
             } else if (name == "version") {
-                fprintf(stdout, "fastboot version %s-%s\n", PLATFORM_TOOLS_VERSION, android::build::GetBuildNumber().c_str());
+                fprintf(stdout, "fastboot version %s-%s\n", PLATFORM_TOOLS_VERSION, PLATFORM_TOOLS_VENDOR);
                 fprintf(stdout, "Installed as %s\n", android::base::GetExecutablePath().c_str());
                 return 0;
             } else {
@@ -2089,7 +2059,7 @@ int FastBootTool::Main(int argc, char* argv[]) {
             std::string partition = next_arg(&args);
 
             auto format = [&](const std::string& partition) {
-                fb_perform_format(partition, 0, type_override, size_override, fs_options);
+                fb_perform_format(partition, 0, type_override, size_override, "", fs_options);
             };
             do_for_partitions(partition, slot_override, format, true);
         } else if (command == "signature") {
@@ -2280,7 +2250,7 @@ int FastBootTool::Main(int argc, char* argv[]) {
             }
             if (partition_type.empty()) continue;
             fb->Erase(partition);
-            fb_perform_format(partition, 1, partition_type, "", fs_options);
+            fb_perform_format(partition, 1, partition_type, "", "", fs_options);
         }
     }
     if (wants_set_active) {

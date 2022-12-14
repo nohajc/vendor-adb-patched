@@ -34,8 +34,6 @@ using android::hardware::graphics::common::V1_2::Dataspace;
 using android::hardware::graphics::common::V1_2::PixelFormat;
 using android::ui::DisplayPrimaries;
 
-// Keep logic in sync with WindowManagerService functions that query SurfaceFlinger properties.
-// Consider exposing properties via ISurfaceComposer instead.
 int64_t vsync_event_phase_offset_ns(int64_t defaultValue) {
     auto temp = SurfaceFlingerProperties::vsync_event_phase_offset_ns();
     if (temp.has_value()) {
@@ -323,10 +321,6 @@ bool use_frame_rate_api(bool defaultValue) {
     return defaultValue;
 }
 
-bool enable_sdr_dimming(bool defaultValue) {
-    return SurfaceFlingerProperties::enable_sdr_dimming().value_or(defaultValue);
-}
-
 int32_t display_update_imminent_timeout_ms(int32_t defaultValue) {
     auto temp = SurfaceFlingerProperties::display_update_imminent_timeout_ms();
     if (temp.has_value()) {
@@ -375,19 +369,6 @@ DisplayPrimaries getDisplayNativePrimaries() {
               static_cast<float>(mDisplay_primary_white[2].value_or(kSrgbWhiteZ))}};
 
     return primaries;
-}
-
-bool update_device_product_info_on_hotplug_reconnect(bool defaultValue) {
-    return SurfaceFlingerProperties::update_device_product_info_on_hotplug_reconnect().value_or(
-            defaultValue);
-}
-
-bool enable_frame_rate_override(bool defaultValue) {
-    return SurfaceFlingerProperties::enable_frame_rate_override().value_or(defaultValue);
-}
-
-bool enable_layer_caching(bool defaultValue) {
-    return SurfaceFlingerProperties::enable_layer_caching().value_or(defaultValue);
 }
 
 } // namespace sysprop

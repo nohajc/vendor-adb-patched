@@ -66,8 +66,6 @@ struct Symbol {
 
   const char* DemangledName() const;
   void SetDemangledName(std::string_view name) const;
-  // Return function name without signature.
-  std::string_view FunctionName() const;
 
   bool HasDumpId() const { return dump_id_ != UINT_MAX; }
 
@@ -145,13 +143,7 @@ class Dso {
   // Return the path recorded in perf.data.
   const std::string& Path() const { return path_; }
   // Return the path containing symbol table and debug information.
-  const std::string& GetDebugFilePath() const {
-    if (!debug_file_path_.has_value()) {
-      debug_file_path_ = FindDebugFilePath();
-    }
-    return debug_file_path_.value();
-  }
-
+  const std::string& GetDebugFilePath() const { return debug_file_path_; }
   // Return the path beautified for reporting.
   virtual std::string_view GetReportPath() const { return Path(); }
   // Return the file name without directory info.
@@ -201,10 +193,9 @@ class Dso {
   static uint32_t g_dump_id_;
   static simpleperf_dso_impl::DebugElfFileFinder debug_elf_file_finder_;
 
-  Dso(DsoType type, const std::string& path);
-  BuildId GetExpectedBuildId() const;
+  Dso(DsoType type, const std::string& path, const std::string& debug_file_path);
+  BuildId GetExpectedBuildId();
 
-  virtual std::string FindDebugFilePath() const { return path_; }
   virtual std::vector<Symbol> LoadSymbolsImpl() = 0;
 
   DsoType type_;
@@ -212,7 +203,7 @@ class Dso {
   const std::string path_;
   // path of the shared library having symbol table and debug information
   // It is the same as path_, or has the same build id as path_.
-  mutable std::optional<std::string> debug_file_path_;
+  std::string debug_file_path_;
   // File name of the shared library, got by removing directories in path_.
   std::string file_name_;
   std::vector<Symbol> symbols_;

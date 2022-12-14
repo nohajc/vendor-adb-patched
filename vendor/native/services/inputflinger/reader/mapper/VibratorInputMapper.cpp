@@ -21,7 +21,7 @@
 namespace android {
 
 VibratorInputMapper::VibratorInputMapper(InputDeviceContext& deviceContext)
-      : InputMapper(deviceContext), mVibrating(false), mSequence(0) {}
+      : InputMapper(deviceContext), mVibrating(false) {}
 
 VibratorInputMapper::~VibratorInputMapper() {}
 
@@ -39,22 +39,27 @@ void VibratorInputMapper::process(const RawEvent* rawEvent) {
     // TODO: Handle FF_STATUS, although it does not seem to be widely supported.
 }
 
-void VibratorInputMapper::vibrate(const VibrationSequence& sequence, ssize_t repeat,
+void VibratorInputMapper::vibrate(const nsecs_t* pattern, size_t patternSize, ssize_t repeat,
                                   int32_t token) {
 #if DEBUG_VIBRATOR
+    std::string patternStr;
+    for (size_t i = 0; i < patternSize; i++) {
+        if (i != 0) {
+            patternStr += ", ";
+        }
+        patternStr += StringPrintf("%" PRId64, pattern[i]);
+    }
     ALOGD("vibrate: deviceId=%d, pattern=[%s], repeat=%zd, token=%d", getDeviceId(),
-          sequence.toString().c_str(), repeat, token);
+          patternStr.c_str(), repeat, token);
 #endif
 
     mVibrating = true;
-    mSequence = sequence;
+    memcpy(mPattern, pattern, patternSize * sizeof(nsecs_t));
+    mPatternSize = patternSize;
     mRepeat = repeat;
     mToken = token;
     mIndex = -1;
 
-    // Request InputReader to notify InputManagerService for vibration started.
-    NotifyVibratorStateArgs args(getContext()->getNextId(), systemTime(), getDeviceId(), true);
-    getListener()->notifyVibratorState(&args);
     nextStep();
 }
 
@@ -68,14 +73,6 @@ void VibratorInputMapper::cancelVibrate(int32_t token) {
     }
 }
 
-bool VibratorInputMapper::isVibrating() {
-    return mVibrating;
-}
-
-std::vector<int32_t> VibratorInputMapper::getVibratorIds() {
-    return getDeviceContext().getVibratorIds();
-}
-
 void VibratorInputMapper::timeoutExpired(nsecs_t when) {
     if (mVibrating) {
         if (when >= mNextStepTime) {
@@ -87,11 +84,8 @@ void VibratorInputMapper::timeoutExpired(nsecs_t when) {
 }
 
 void VibratorInputMapper::nextStep() {
-#if DEBUG_VIBRATOR
-    ALOGD("nextStep: index=%d, vibrate deviceId=%d", (int)mIndex, getDeviceId());
-#endif
     mIndex += 1;
-    if (size_t(mIndex) >= mSequence.pattern.size()) {
+    if (size_t(mIndex) >= mPatternSize) {
         if (mRepeat < 0) {
             // We are done.
             stopVibrating();
@@ -100,14 +94,13 @@ void VibratorInputMapper::nextStep() {
         mIndex = mRepeat;
     }
 
-    const VibrationElement& element = mSequence.pattern[mIndex];
-    if (element.isOn()) {
+    bool vibratorOn = mIndex & 1;
+    nsecs_t duration = mPattern[mIndex];
+    if (vibratorOn) {
 #if DEBUG_VIBRATOR
-        std::string description = element.toString();
-        ALOGD("nextStep: sending vibrate deviceId=%d, element=%s", getDeviceId(),
-              description.c_str());
+        ALOGD("nextStep: sending vibrate deviceId=%d, duration=%" PRId64, getDeviceId(), duration);
 #endif
-        getDeviceContext().vibrate(element);
+        getDeviceContext().vibrate(duration);
     } else {
 #if DEBUG_VIBRATOR
         ALOGD("nextStep: sending cancel vibrate deviceId=%d", getDeviceId());
@@ -115,12 +108,10 @@ void VibratorInputMapper::nextStep() {
         getDeviceContext().cancelVibrate();
     }
     nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
-    std::chrono::nanoseconds duration =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(element.duration);
-    mNextStepTime = now + duration.count();
+    mNextStepTime = now + duration;
     getContext()->requestTimeoutAtTime(mNextStepTime);
 #if DEBUG_VIBRATOR
-    ALOGD("nextStep: scheduled timeout in %lldms", element.duration.count());
+    ALOGD("nextStep: scheduled timeout in %0.3fms", duration * 0.000001f);
 #endif
 }
 
@@ -130,21 +121,11 @@ void VibratorInputMapper::stopVibrating() {
     ALOGD("stopVibrating: sending cancel vibrate deviceId=%d", getDeviceId());
 #endif
     getDeviceContext().cancelVibrate();
-
-    // Request InputReader to notify InputManagerService for vibration complete.
-    NotifyVibratorStateArgs args(getContext()->getNextId(), systemTime(), getDeviceId(), false);
-    getListener()->notifyVibratorState(&args);
 }
 
 void VibratorInputMapper::dump(std::string& dump) {
     dump += INDENT2 "Vibrator Input Mapper:\n";
     dump += StringPrintf(INDENT3 "Vibrating: %s\n", toString(mVibrating));
-    if (mVibrating) {
-        dump += INDENT3 "Pattern: ";
-        dump += mSequence.toString();
-        dump += "\n";
-        dump += StringPrintf(INDENT3 "Repeat Index: %zd\n", mRepeat);
-    }
 }
 
 } // namespace android

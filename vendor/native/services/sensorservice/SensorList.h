@@ -36,15 +36,6 @@ namespace SensorServiceUtil {
 
 class SensorList : public Dumpable {
 public:
-    struct Entry {
-        sp<SensorInterface> si;
-        const bool isForDebug;
-        const bool isVirtual;
-        Entry(SensorInterface* si_, bool debug_, bool virtual_) :
-            si(si_), isForDebug(debug_), isVirtual(virtual_) {
-        }
-    };
-
     // After SensorInterface * is added into SensorList, it can be assumed that SensorList own the
     // object it pointed to and the object should not be released elsewhere.
     bool add(int handle, SensorInterface* si, bool isForDebug = false, bool isVirtual = false);
@@ -62,8 +53,6 @@ public:
     const Vector<Sensor> getVirtualSensors() const;
 
     String8 getName(int handle) const;
-    String8 getStringType(int handle) const;
-
     sp<SensorInterface> getInterface(int handle) const;
     bool isNewHandle(int handle) const;
 
@@ -78,6 +67,25 @@ public:
     template <typename TF>
     void forEachSensor(const TF& f) const;
 
+    const Sensor& getNonSensor() const { return mNonSensor;}
+
+    // Dumpable interface
+    virtual std::string dump() const override;
+    virtual void dump(util::ProtoOutputStream* proto) const override;
+
+    virtual ~SensorList();
+private:
+    struct Entry {
+        sp<SensorInterface> si;
+        const bool isForDebug;
+        const bool isVirtual;
+        Entry(SensorInterface* si_, bool debug_, bool virtual_) :
+            si(si_), isForDebug(debug_), isVirtual(virtual_) {
+        }
+    };
+
+    const static Sensor mNonSensor; //.getName() == "unknown",
+
     // Iterate through Entry in sensor list and perform operation f on each Entry.
     //
     // TF is a function with the signature:
@@ -88,16 +96,6 @@ public:
     // same SensorList object on which forEachSensor is invoked.
     template <typename TF>
     void forEachEntry(const TF& f) const;
-
-    const Sensor& getNonSensor() const { return mNonSensor;}
-
-    // Dumpable interface
-    virtual std::string dump() const override;
-    virtual void dump(util::ProtoOutputStream* proto) const override;
-
-    virtual ~SensorList();
-private:
-    const static Sensor mNonSensor; //.getName() == "unknown",
 
     template <typename T, typename TF>
     T getOne(int handle, const TF& accessor, T def = T()) const;

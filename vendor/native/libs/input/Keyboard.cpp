@@ -20,22 +20,15 @@
 #include <unistd.h>
 #include <limits.h>
 
-#include <input/InputDevice.h>
-#include <input/InputEventLabels.h>
-#include <input/KeyCharacterMap.h>
-#include <input/KeyLayoutMap.h>
 #include <input/Keyboard.h>
-#include <log/log.h>
+#include <input/InputEventLabels.h>
+#include <input/KeyLayoutMap.h>
+#include <input/KeyCharacterMap.h>
+#include <input/InputDevice.h>
 #include <utils/Errors.h>
+#include <utils/Log.h>
 
 namespace android {
-
-static std::string getPath(const InputDeviceIdentifier& deviceIdentifier, const std::string& name,
-                           InputDeviceConfigurationFileType type) {
-    return name.empty()
-            ? getInputDeviceConfigurationFilePathByDeviceIdentifier(deviceIdentifier, type)
-            : getInputDeviceConfigurationFilePathByName(name, type);
-}
 
 // --- KeyMap ---
 
@@ -112,51 +105,46 @@ bool KeyMap::probeKeyMap(const InputDeviceIdentifier& deviceIdentifier,
 
 status_t KeyMap::loadKeyLayout(const InputDeviceIdentifier& deviceIdentifier,
         const std::string& name) {
-    std::string path(getPath(deviceIdentifier, name, InputDeviceConfigurationFileType::KEY_LAYOUT));
+    std::string path(getPath(deviceIdentifier, name,
+            INPUT_DEVICE_CONFIGURATION_FILE_TYPE_KEY_LAYOUT));
     if (path.empty()) {
         return NAME_NOT_FOUND;
     }
 
-    base::Result<std::shared_ptr<KeyLayoutMap>> ret = KeyLayoutMap::load(path);
-    if (ret.ok()) {
-        keyLayoutMap = *ret;
-        keyLayoutFile = path;
-        return OK;
+    status_t status = KeyLayoutMap::load(path, &keyLayoutMap);
+    if (status) {
+        return status;
     }
 
-    // Try to load fallback layout if the regular layout could not be loaded due to missing
-    // kernel modules
-    std::string fallbackPath(
-            getInputDeviceConfigurationFilePathByDeviceIdentifier(deviceIdentifier,
-                                                                  InputDeviceConfigurationFileType::
-                                                                          KEY_LAYOUT,
-                                                                  "_fallback"));
-    ret = KeyLayoutMap::load(fallbackPath);
-    if (!ret.ok()) {
-        return ret.error().code();
-    }
-    keyLayoutMap = *ret;
-    keyLayoutFile = fallbackPath;
+    keyLayoutFile = path;
     return OK;
 }
 
 status_t KeyMap::loadKeyCharacterMap(const InputDeviceIdentifier& deviceIdentifier,
         const std::string& name) {
-    std::string path =
-            getPath(deviceIdentifier, name, InputDeviceConfigurationFileType::KEY_CHARACTER_MAP);
+    std::string path = getPath(deviceIdentifier, name,
+            INPUT_DEVICE_CONFIGURATION_FILE_TYPE_KEY_CHARACTER_MAP);
     if (path.empty()) {
         return NAME_NOT_FOUND;
     }
 
-    base::Result<std::shared_ptr<KeyCharacterMap>> ret =
-            KeyCharacterMap::load(path, KeyCharacterMap::Format::BASE);
-    if (!ret.ok()) {
-        return ret.error().code();
+    status_t status = KeyCharacterMap::load(path,
+            KeyCharacterMap::FORMAT_BASE, &keyCharacterMap);
+    if (status) {
+        return status;
     }
-    keyCharacterMap = *ret;
+
     keyCharacterMapFile = path;
     return OK;
 }
+
+std::string KeyMap::getPath(const InputDeviceIdentifier& deviceIdentifier,
+        const std::string& name, InputDeviceConfigurationFileType type) {
+    return name.empty()
+            ? getInputDeviceConfigurationFilePathByDeviceIdentifier(deviceIdentifier, type)
+            : getInputDeviceConfigurationFilePathByName(name, type);
+}
+
 
 // --- Global functions ---
 
@@ -172,9 +160,9 @@ bool isKeyboardSpecialFunction(const PropertyMap* config) {
 bool isEligibleBuiltInKeyboard(const InputDeviceIdentifier& deviceIdentifier,
         const PropertyMap* deviceConfiguration, const KeyMap* keyMap) {
     // TODO: remove the third OR statement (SPECIAL_FUNCTION) in Q
-    if (!keyMap->haveKeyCharacterMap() || isKeyboardSpecialFunction(deviceConfiguration) ||
-        keyMap->keyCharacterMap->getKeyboardType() ==
-                KeyCharacterMap::KeyboardType::SPECIAL_FUNCTION) {
+    if (!keyMap->haveKeyCharacterMap() || isKeyboardSpecialFunction(deviceConfiguration)
+            || keyMap->keyCharacterMap->getKeyboardType()
+                    == KeyCharacterMap::KEYBOARD_TYPE_SPECIAL_FUNCTION) {
         return false;
     }
 

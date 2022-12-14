@@ -44,9 +44,7 @@ cc_defaults {
         "liblog",
         "libutils",
     ],
-    static_libs: [
-        "libnativehelper_lazy",
-    ],
+    static_libs: ["libnativehelper_lazy"],
     tidy: true,
     tidy_checks: [
         "android-*",

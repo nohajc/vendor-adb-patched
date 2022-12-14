@@ -16,11 +16,18 @@
 
 #pragma once
 
-#include <cstdint>
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
 
-#include <../Fps.h>
 #include <android/hardware/graphics/composer/2.4/IComposerClient.h>
-#include <gui/JankInfo.h>
+
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic pop // ignored "-Wconversion"
+
+#include <stats_event.h>
+#include <stats_pull_atom_callback.h>
+#include <statslog.h>
 #include <timestatsproto/TimeStatsHelper.h>
 #include <timestatsproto/TimeStatsProtoHeader.h>
 #include <ui/FenceTime.h>
@@ -39,12 +46,11 @@ namespace android {
 
 class TimeStats {
 public:
-    using SetFrameRateVote = TimeStatsHelper::SetFrameRateVote;
-
     virtual ~TimeStats() = default;
 
-    // Process a pull request from statsd.
-    virtual bool onPullAtom(const int atomId, std::string* pulledData);
+    // Called once boot has been finished to perform additional capabilities,
+    // e.g. registration to statsd.
+    virtual void onBootFinished() = 0;
 
     virtual void parseArgs(bool asProto, const Vector<String16>& args, std::string& result) = 0;
     virtual bool isEnabled() = 0;
@@ -79,7 +85,7 @@ public:
                                             const std::shared_ptr<FenceTime>& readyFence) = 0;
 
     virtual void setPostTime(int32_t layerId, uint64_t frameNumber, const std::string& layerName,
-                             uid_t uid, nsecs_t postTime, int32_t gameMode) = 0;
+                             nsecs_t postTime) = 0;
     virtual void setLatchTime(int32_t layerId, uint64_t frameNumber, nsecs_t latchTime) = 0;
     // Reasons why latching a particular buffer may be skipped
     enum class LatchSkipReason {
@@ -99,63 +105,9 @@ public:
                                  const std::shared_ptr<FenceTime>& acquireFence) = 0;
     // SetPresent{Time, Fence} are not expected to be called in the critical
     // rendering path, as they flush prior fences if those fences have fired.
-    virtual void setPresentTime(int32_t layerId, uint64_t frameNumber, nsecs_t presentTime,
-                                Fps displayRefreshRate, std::optional<Fps> renderRate,
-                                SetFrameRateVote frameRateVote, int32_t gameMode) = 0;
+    virtual void setPresentTime(int32_t layerId, uint64_t frameNumber, nsecs_t presentTime) = 0;
     virtual void setPresentFence(int32_t layerId, uint64_t frameNumber,
-                                 const std::shared_ptr<FenceTime>& presentFence,
-                                 Fps displayRefreshRate, std::optional<Fps> renderRate,
-                                 SetFrameRateVote frameRateVote, int32_t gameMode) = 0;
-
-    // Increments janky frames, blamed to the provided {refreshRate, renderRate, uid, layerName}
-    // key, with JankMetadata as supplementary reasons for the jank. Because FrameTimeline is the
-    // infrastructure responsible for computing jank in the system, this is expected to be called
-    // from FrameTimeline, rather than directly from SurfaceFlinger or individual layers. If there
-    // are no jank reasons, then total frames are incremented but jank is not, for accurate
-    // accounting of janky frames.
-    // displayDeadlineDelta, displayPresentJitter, and appDeadlineDelta are also provided in order
-    // to provide contextual information about a janky frame. These values may only be uploaded if
-    // there was an associated valid jank reason, and they must be positive. When these frame counts
-    // are incremented, these are also aggregated into a global reporting packet to help with data
-    // validation and assessing of overall device health.
-    struct JankyFramesInfo {
-        Fps refreshRate;
-        std::optional<Fps> renderRate;
-        uid_t uid = 0;
-        std::string layerName;
-        int32_t gameMode = 0;
-        int32_t reasons = 0;
-        nsecs_t displayDeadlineDelta = 0;
-        nsecs_t displayPresentJitter = 0;
-        nsecs_t appDeadlineDelta = 0;
-
-        bool operator==(const JankyFramesInfo& o) const {
-            return Fps::EqualsInBuckets{}(refreshRate, o.refreshRate) &&
-                    ((renderRate == std::nullopt && o.renderRate == std::nullopt) ||
-                     (renderRate != std::nullopt && o.renderRate != std::nullopt &&
-                      Fps::EqualsInBuckets{}(*renderRate, *o.renderRate))) &&
-                    uid == o.uid && layerName == o.layerName && gameMode == o.gameMode &&
-                    reasons == o.reasons && displayDeadlineDelta == o.displayDeadlineDelta &&
-                    displayPresentJitter == o.displayPresentJitter &&
-                    appDeadlineDelta == o.appDeadlineDelta;
-        }
-
-        friend std::ostream& operator<<(std::ostream& os, const JankyFramesInfo& info) {
-            os << "JankyFramesInfo {";
-            os << "\n    .refreshRate = " << info.refreshRate;
-            os << "\n    .renderRate = "
-               << (info.renderRate ? to_string(*info.renderRate) : "nullopt");
-            os << "\n    .uid = " << info.uid;
-            os << "\n    .layerName = " << info.layerName;
-            os << "\n    .reasons = " << info.reasons;
-            os << "\n    .displayDeadlineDelta = " << info.displayDeadlineDelta;
-            os << "\n    .displayPresentJitter = " << info.displayPresentJitter;
-            os << "\n    .appDeadlineDelta = " << info.appDeadlineDelta;
-            return os << "\n}";
-        }
-    };
-
-    virtual void incrementJankyFrames(const JankyFramesInfo& info) = 0;
+                                 const std::shared_ptr<FenceTime>& presentFence) = 0;
     // Clean up the layer record
     virtual void onDestroy(int32_t layerId) = 0;
     // If SF skips or rejects a buffer, remove the corresponding TimeRecord.
@@ -190,9 +142,7 @@ class TimeStats : public android::TimeStats {
     };
 
     struct LayerRecord {
-        uid_t uid;
         std::string layerName;
-        int32_t gameMode = 0;
         // This is the index in timeRecords, at which the timestamps for that
         // specific frame are still not fully received. This is not waiting for
         // fences to signal, but rather waiting to receive those fences/timestamps.
@@ -222,11 +172,58 @@ class TimeStats : public android::TimeStats {
 
 public:
     TimeStats();
+
+    // Delegate to the statsd service and associated APIs.
+    // Production code may use this class directly, whereas unit test may define
+    // a subclass for ease of testing.
+    class StatsEventDelegate {
+    public:
+        virtual ~StatsEventDelegate() = default;
+        virtual AStatsEvent* addStatsEventToPullData(AStatsEventList* data) {
+            return AStatsEventList_addStatsEvent(data);
+        }
+        virtual void setStatsPullAtomCallback(int32_t atom_tag,
+                                              AStatsManager_PullAtomMetadata* metadata,
+                                              AStatsManager_PullAtomCallback callback,
+                                              void* cookie) {
+            return AStatsManager_setPullAtomCallback(atom_tag, metadata, callback, cookie);
+        }
+
+        virtual void clearStatsPullAtomCallback(int32_t atom_tag) {
+            return AStatsManager_clearPullAtomCallback(atom_tag);
+        }
+
+        virtual void statsEventSetAtomId(AStatsEvent* event, uint32_t atom_id) {
+            return AStatsEvent_setAtomId(event, atom_id);
+        }
+
+        virtual void statsEventWriteInt32(AStatsEvent* event, int32_t field) {
+            return AStatsEvent_writeInt32(event, field);
+        }
+
+        virtual void statsEventWriteInt64(AStatsEvent* event, int64_t field) {
+            return AStatsEvent_writeInt64(event, field);
+        }
+
+        virtual void statsEventWriteString8(AStatsEvent* event, const char* field) {
+            return AStatsEvent_writeString(event, field);
+        }
+
+        virtual void statsEventWriteByteArray(AStatsEvent* event, const uint8_t* buf,
+                                              size_t numBytes) {
+            return AStatsEvent_writeByteArray(event, buf, numBytes);
+        }
+
+        virtual void statsEventBuild(AStatsEvent* event) { return AStatsEvent_build(event); }
+    };
     // For testing only for injecting custom dependencies.
-    TimeStats(std::optional<size_t> maxPulledLayers,
+    TimeStats(std::unique_ptr<StatsEventDelegate> statsDelegate,
+              std::optional<size_t> maxPulledLayers,
               std::optional<size_t> maxPulledHistogramBuckets);
 
-    bool onPullAtom(const int atomId, std::string* pulledData) override;
+    ~TimeStats() override;
+
+    void onBootFinished() override;
     void parseArgs(bool asProto, const Vector<String16>& args, std::string& result) override;
     bool isEnabled() override;
     std::string miniDump() override;
@@ -244,8 +241,8 @@ public:
     void recordRenderEngineDuration(nsecs_t startTime,
                                     const std::shared_ptr<FenceTime>& readyFence) override;
 
-    void setPostTime(int32_t layerId, uint64_t frameNumber, const std::string& layerName, uid_t uid,
-                     nsecs_t postTime, int32_t gameMode) override;
+    void setPostTime(int32_t layerId, uint64_t frameNumber, const std::string& layerName,
+                     nsecs_t postTime) override;
     void setLatchTime(int32_t layerId, uint64_t frameNumber, nsecs_t latchTime) override;
     void incrementLatchSkipped(int32_t layerId, LatchSkipReason reason) override;
     void incrementBadDesiredPresent(int32_t layerId) override;
@@ -253,15 +250,9 @@ public:
     void setAcquireTime(int32_t layerId, uint64_t frameNumber, nsecs_t acquireTime) override;
     void setAcquireFence(int32_t layerId, uint64_t frameNumber,
                          const std::shared_ptr<FenceTime>& acquireFence) override;
-    void setPresentTime(int32_t layerId, uint64_t frameNumber, nsecs_t presentTime,
-                        Fps displayRefreshRate, std::optional<Fps> renderRate,
-                        SetFrameRateVote frameRateVote, int32_t gameMode) override;
+    void setPresentTime(int32_t layerId, uint64_t frameNumber, nsecs_t presentTime) override;
     void setPresentFence(int32_t layerId, uint64_t frameNumber,
-                         const std::shared_ptr<FenceTime>& presentFence, Fps displayRefreshRate,
-                         std::optional<Fps> renderRate, SetFrameRateVote frameRateVote,
-                         int32_t gameMode) override;
-
-    void incrementJankyFrames(const JankyFramesInfo& info) override;
+                         const std::shared_ptr<FenceTime>& presentFence) override;
     // Clean up the layer record
     void onDestroy(int32_t layerId) override;
     // If SF skips or rejects a buffer, remove the corresponding TimeRecord.
@@ -276,15 +267,15 @@ public:
     static const size_t MAX_NUM_TIME_RECORDS = 64;
 
 private:
-    bool populateGlobalAtom(std::string* pulledData);
-    bool populateLayerAtom(std::string* pulledData);
+    static AStatsManager_PullAtomCallbackReturn pullAtomCallback(int32_t atom_tag,
+                                                                 AStatsEventList* data,
+                                                                 void* cookie);
+    AStatsManager_PullAtomCallbackReturn populateGlobalAtom(AStatsEventList* data);
+    AStatsManager_PullAtomCallbackReturn populateLayerAtom(AStatsEventList* data);
     bool recordReadyLocked(int32_t layerId, TimeRecord* timeRecord);
-    void flushAvailableRecordsToStatsLocked(int32_t layerId, Fps displayRefreshRate,
-                                            std::optional<Fps> renderRate,
-                                            SetFrameRateVote frameRateVote, int32_t gameMode);
+    void flushAvailableRecordsToStatsLocked(int32_t layerId);
     void flushPowerTimeLocked();
     void flushAvailableGlobalRecordsToStatsLocked();
-    bool canAddNewAggregatedStats(uid_t uid, const std::string& layerName, int32_t gameMode);
 
     void enable();
     void disable();
@@ -302,12 +293,9 @@ private:
     GlobalRecord mGlobalRecord;
 
     static const size_t MAX_NUM_LAYER_RECORDS = 200;
-
-    static const size_t REFRESH_RATE_BUCKET_WIDTH = 30;
-    static const size_t RENDER_RATE_BUCKET_WIDTH = REFRESH_RATE_BUCKET_WIDTH;
     static const size_t MAX_NUM_LAYER_STATS = 200;
-    static const size_t MAX_NUM_PULLED_LAYERS = MAX_NUM_LAYER_STATS;
-    size_t mMaxPulledLayers = MAX_NUM_PULLED_LAYERS;
+    std::unique_ptr<StatsEventDelegate> mStatsDelegate = std::make_unique<StatsEventDelegate>();
+    size_t mMaxPulledLayers = 8;
     size_t mMaxPulledHistogramBuckets = 6;
 };
 

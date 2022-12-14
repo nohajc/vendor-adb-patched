@@ -14,212 +14,125 @@
  * limitations under the License.
  */
 
-// Result<T, E> is the type that is used to pass a success value of type T or an error code of type
-// E, optionally together with an error message. T and E can be any type. If E is omitted it
-// defaults to int, which is useful when errno(3) is used as the error code.
+// This file contains classes for returning a successful result along with an optional
+// arbitrarily typed return value or for returning a failure result along with an optional string
+// indicating why the function failed.
+
+// There are 3 classes that implement this functionality and one additional helper type.
 //
-// Passing a success value or an error value:
+// Result<T> either contains a member of type T that can be accessed using similar semantics as
+// std::optional<T> or it contains a ResultError describing an error, which can be accessed via
+// Result<T>::error().
 //
-// Result<std::string> readFile() {
-//   std::string content;
-//   if (base::ReadFileToString("path", &content)) {
-//     return content; // ok case
-//   } else {
-//     return ErrnoError() << "failed to read"; // error case
+// ResultError is a type that contains both a std::string describing the error and a copy of errno
+// from when the error occurred.  ResultError can be used in an ostream directly to print its
+// string value.
+//
+// Result<void> is the correct return type for a function that either returns successfully or
+// returns an error value.  Returning {} from a function that returns Result<void> is the
+// correct way to indicate that a function without a return type has completed successfully.
+//
+// A successful Result<T> is constructed implicitly from any type that can be implicitly converted
+// to T or from the constructor arguments for T.  This allows you to return a type T directly from
+// a function that returns Result<T>.
+//
+// Error and ErrnoError are used to construct a Result<T> that has failed.  The Error class takes
+// an ostream as an input and are implicitly cast to a Result<T> containing that failure.
+// ErrnoError() is a helper function to create an Error class that appends ": " + strerror(errno)
+// to the end of the failure string to aid in interacting with C APIs.  Alternatively, an errno
+// value can be directly specified via the Error() constructor.
+//
+// Errorf and ErrnoErrorf accept the format string syntax of the fmblib (https://fmt.dev).
+// Errorf("{} errors", num) is equivalent to Error() << num << " errors".
+//
+// ResultError can be used in the ostream and when using Error/Errorf to construct a Result<T>.
+// In this case, the string that the ResultError takes is passed through the stream normally, but
+// the errno is passed to the Result<T>. This can be used to pass errno from a failing C function up
+// multiple callers. Note that when the outer Result<T> is created with ErrnoError/ErrnoErrorf then
+// the errno from the inner ResultError is not passed. Also when multiple ResultError objects are
+// used, the errno of the last one is respected.
+//
+// ResultError can also directly construct a Result<T>.  This is particularly useful if you have a
+// function that return Result<T> but you have a Result<U> and want to return its error.  In this
+// case, you can return the .error() from the Result<U> to construct the Result<T>.
+
+// An example of how to use these is below:
+// Result<U> CalculateResult(const T& input) {
+//   U output;
+//   if (!SomeOtherCppFunction(input, &output)) {
+//     return Errorf("SomeOtherCppFunction {} failed", input);
 //   }
+//   if (!c_api_function(output)) {
+//     return ErrnoErrorf("c_api_function {} failed", output);
+//   }
+//   return output;
 // }
 //
-// Checking the result and then unwrapping the value or propagating the error:
-//
-// Result<bool> hasAWord() {
-//   auto content = readFile();
-//   if (!content.ok()) {
-//     return Error() << "failed to process: " << content.error();
-//   }
-//   return (*content.find("happy") != std::string::npos);
-// }
-//
-// Using custom error code type:
-//
-// enum class MyError { A, B }; // assume that this is the error code you already have
-//
-// // To use the error code with Result, define a wrapper class that provides the following
-// operations and use the wrapper class as the second type parameter (E) when instantiating
-// Result<T, E>
-//
-// 1. default constructor
-// 2. copy constructor / and move constructor if copying is expensive
-// 3. conversion operator to the error code type
-// 4. value() function that return the error code value
-// 5. print() function that gives a string representation of the error ode value
-//
-// struct MyErrorWrapper {
-//   MyError val_;
-//   MyErrorWrapper() : val_(/* reasonable default value */) {}
-//   MyErrorWrapper(MyError&& e) : val_(std:forward<MyError>(e)) {}
-//   operator const MyError&() const { return val_; }
-//   MyError value() const { return val_; }
-//   std::string print() const {
-//     switch(val_) {
-//       MyError::A: return "A";
-//       MyError::B: return "B";
-//     }
-//   }
-// };
-//
-// #define NewMyError(e) Error<MyErrorWrapper>(MyError::e)
-//
-// Result<T, MyError> val = NewMyError(A) << "some message";
-//
-// Formatting the error message using fmtlib:
-//
-// Errorf("{} errors", num); // equivalent to Error() << num << " errors";
-// ErrnoErrorf("{} errors", num); // equivalent to ErrnoError() << num << " errors";
-//
-// Returning success or failure, but not the value:
-//
-// Result<void> doSomething() {
-//   if (success) return {};
-//   else return Error() << "error occurred";
-// }
-//
-// Extracting error code:
-//
-// Result<T> val = Error(3) << "some error occurred";
-// assert(3 == val.error().code());
-//
+// auto output = CalculateResult(input);
+// if (!output) return Error() << "CalculateResult failed: " << output.error();
+// UseOutput(*output);
 
 #pragma once
 
-#include <assert.h>
 #include <errno.h>
 
 #include <sstream>
 #include <string>
-#include <type_traits>
 
-#include "android-base/errors.h"
 #include "android-base/expected.h"
 #include "android-base/format.h"
 
 namespace android {
 namespace base {
 
-// Errno is a wrapper class for errno(3). Use this type instead of `int` when instantiating
-// `Result<T, E>` and `Error<E>` template classes. This is required to distinguish errno from other
-// integer-based error code types like `status_t`.
-struct Errno {
-  Errno() : val_(0) {}
-  Errno(int e) : val_(e) {}
-  int value() const { return val_; }
-  operator int() const { return value(); }
-  std::string print() const { return strerror(value()); }
-
-  int val_;
-
-  // TODO(b/209929099): remove this conversion operator. This currently is needed to not break
-  // existing places where error().code() is used to construct enum values.
-  template <typename E, typename = std::enable_if_t<std::is_enum_v<E>>>
-  operator E() const {
-    return E(val_);
-  }
-};
-
-template <typename E = Errno, bool include_message = true>
 struct ResultError {
-  template <typename T, typename P, typename = std::enable_if_t<std::is_convertible_v<P, E>>>
-  ResultError(T&& message, P&& code)
-      : message_(std::forward<T>(message)), code_(E(std::forward<P>(code))) {}
+  template <typename T>
+  ResultError(T&& message, int code) : message_(std::forward<T>(message)), code_(code) {}
 
   template <typename T>
   // NOLINTNEXTLINE(google-explicit-constructor)
-  operator android::base::expected<T, ResultError<E>>() const {
-    return android::base::unexpected(ResultError<E>(message_, code_));
+  operator android::base::expected<T, ResultError>() {
+    return android::base::unexpected(ResultError(message_, code_));
   }
 
   std::string message() const { return message_; }
-  const E& code() const { return code_; }
+  int code() const { return code_; }
 
  private:
   std::string message_;
-  E code_;
+  int code_;
 };
 
-template <typename E>
-struct ResultError<E, /* include_message */ false> {
-  template <typename P, typename = std::enable_if_t<std::is_convertible_v<P, E>>>
-  ResultError(P&& code) : code_(E(std::forward<P>(code))) {}
-
-  template <typename T>
-  operator android::base::expected<T, ResultError<E, false>>() const {
-    return android::base::unexpected(ResultError<E, false>(code_));
-  }
-
-  const E& code() const { return code_; }
-
- private:
-  E code_;
-};
-
-template <typename E>
-inline bool operator==(const ResultError<E>& lhs, const ResultError<E>& rhs) {
+inline bool operator==(const ResultError& lhs, const ResultError& rhs) {
   return lhs.message() == rhs.message() && lhs.code() == rhs.code();
 }
 
-template <typename E>
-inline bool operator!=(const ResultError<E>& lhs, const ResultError<E>& rhs) {
+inline bool operator!=(const ResultError& lhs, const ResultError& rhs) {
   return !(lhs == rhs);
 }
 
-template <typename E>
-inline std::ostream& operator<<(std::ostream& os, const ResultError<E>& t) {
+inline std::ostream& operator<<(std::ostream& os, const ResultError& t) {
   os << t.message();
   return os;
 }
 
-namespace internal {
-// Stream class that does nothing and is has zero (actually 1) size. It is used instead of
-// std::stringstream when include_message is false so that we use less on stack.
-// sizeof(std::stringstream) is 280 on arm64.
-struct DoNothingStream {
-  template <typename T>
-  DoNothingStream& operator<<(T&&) {
-    return *this;
-  }
-
-  std::string str() const { return ""; }
-};
-}  // namespace internal
-
-template <typename E = Errno, bool include_message = true,
-          typename = std::enable_if_t<!std::is_same_v<E, int>>>
 class Error {
  public:
-  Error() : code_(0), has_code_(false) {}
-  template <typename P, typename = std::enable_if_t<std::is_convertible_v<P, E>>>
+  Error() : errno_(0), append_errno_(false) {}
   // NOLINTNEXTLINE(google-explicit-constructor)
-  Error(P&& code) : code_(std::forward<P>(code)), has_code_(true) {}
+  Error(int errno_to_append) : errno_(errno_to_append), append_errno_(true) {}
 
-  template <typename T, typename P, typename = std::enable_if_t<std::is_convertible_v<E, P>>>
+  template <typename T>
   // NOLINTNEXTLINE(google-explicit-constructor)
-  operator android::base::expected<T, ResultError<P>>() const {
-    return android::base::unexpected(ResultError<P>(str(), static_cast<P>(code_)));
-  }
-
-  template <typename T, typename P, typename = std::enable_if_t<std::is_convertible_v<E, P>>>
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  operator android::base::expected<T, ResultError<P, false>>() const {
-    return android::base::unexpected(ResultError<P, false>(static_cast<P>(code_)));
+  operator android::base::expected<T, ResultError>() {
+    return android::base::unexpected(ResultError(str(), errno_));
   }
 
   template <typename T>
   Error& operator<<(T&& t) {
-    static_assert(include_message, "<< not supported when include_message = false");
     // NOLINTNEXTLINE(bugprone-suspicious-semicolon)
-    if constexpr (std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, ResultError<E>>) {
-      if (!has_code_) {
-        code_ = t.code();
-      }
+    if constexpr (std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, ResultError>) {
+      errno_ = t.code();
       return (*this) << t.message();
     }
     int saved = errno;
@@ -229,13 +142,12 @@ class Error {
   }
 
   const std::string str() const {
-    static_assert(include_message, "str() not supported when include_message = false");
     std::string str = ss_.str();
-    if (has_code_) {
+    if (append_errno_) {
       if (str.empty()) {
-        return code_.print();
+        return strerror(errno_);
       }
-      return std::move(str) + ": " + code_.print();
+      return std::move(str) + ": " + strerror(errno_);
     }
     return str;
   }
@@ -252,196 +164,73 @@ class Error {
   friend Error ErrnoErrorfImpl(const T&& fmt, const Args&... args);
 
  private:
-  Error(bool has_code, E code, const std::string& message) : code_(code), has_code_(has_code) {
+  Error(bool append_errno, int errno_to_append, const std::string& message)
+      : errno_(errno_to_append), append_errno_(append_errno) {
     (*this) << message;
   }
 
-  std::conditional_t<include_message, std::stringstream, internal::DoNothingStream> ss_;
-  E code_;
-  const bool has_code_;
+  std::stringstream ss_;
+  int errno_;
+  const bool append_errno_;
 };
 
-inline Error<Errno> ErrnoError() {
-  return Error<Errno>(Errno{errno});
+inline Error ErrnoError() {
+  return Error(errno);
 }
 
-template <typename E>
-inline E ErrorCode(E code) {
+inline int ErrorCode(int code) {
   return code;
 }
 
 // Return the error code of the last ResultError object, if any.
 // Otherwise, return `code` as it is.
-template <typename T, typename E, typename... Args>
-inline E ErrorCode(E code, T&& t, const Args&... args) {
-  if constexpr (std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, ResultError<E>>) {
+template <typename T, typename... Args>
+inline int ErrorCode(int code, T&& t, const Args&... args) {
+  if constexpr (std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, ResultError>) {
     return ErrorCode(t.code(), args...);
   }
   return ErrorCode(code, args...);
 }
 
 template <typename T, typename... Args>
-inline Error<Errno> ErrorfImpl(const T&& fmt, const Args&... args) {
-  return Error(false, ErrorCode(Errno{}, args...), fmt::format(fmt, args...));
+inline Error ErrorfImpl(const T&& fmt, const Args&... args) {
+  return Error(false, ErrorCode(0, args...), fmt::format(fmt, args...));
 }
 
 template <typename T, typename... Args>
-inline Error<Errno> ErrnoErrorfImpl(const T&& fmt, const Args&... args) {
-  return Error<Errno>(true, Errno{errno}, fmt::format(fmt, args...));
+inline Error ErrnoErrorfImpl(const T&& fmt, const Args&... args) {
+  return Error(true, errno, fmt::format(fmt, args...));
 }
 
 #define Errorf(fmt, ...) android::base::ErrorfImpl(FMT_STRING(fmt), ##__VA_ARGS__)
 #define ErrnoErrorf(fmt, ...) android::base::ErrnoErrorfImpl(FMT_STRING(fmt), ##__VA_ARGS__)
 
-template <typename T, typename E = Errno, bool include_message = true>
-using Result = android::base::expected<T, ResultError<E, include_message>>;
-
-// Specialization of android::base::OkOrFail<V> for V = Result<T, E>. See android-base/errors.h
-// for the contract.
-
-namespace impl {
-template <typename U>
-using Code = std::decay_t<decltype(std::declval<U>().error().code())>;
-
-template <typename U>
-using ErrorType = std::decay_t<decltype(std::declval<U>().error())>;
-
-template <typename U>
-constexpr bool IsNumeric = std::is_integral_v<U> || std::is_floating_point_v<U> ||
-                           (std::is_enum_v<U> && std::is_convertible_v<U, size_t>);
-
-// This base class exists to take advantage of shadowing
-// We include the conversion in this base class so that if the conversion in NumericConversions
-// overlaps, we (arbitrarily) choose the implementation in NumericConversions due to shadowing.
 template <typename T>
-struct ConversionBase {
-  ErrorType<T> error_;
-  // T is a expected<U, ErrorType<T>>.
-  operator const T() const && {
-    return unexpected(std::move(error_));
-  }
-
-  operator const Code<T>() const && {
-    return error_.code();
-  }
-
-};
-
-// User defined conversions can be followed by numeric conversions
-// Although we template specialize for the exact code type, we need
-// specializations for conversions to all numeric types to avoid an
-// ambiguous conversion sequence.
-template <typename T, typename = void>
-struct NumericConversions : public ConversionBase<T> {};
-template <typename T>
-struct NumericConversions<T,
-    std::enable_if_t<impl::IsNumeric<impl::Code<T>>>
-    > : public ConversionBase<T>
-{
-#pragma push_macro("SPECIALIZED_CONVERSION")
-#define SPECIALIZED_CONVERSION(type)\
-  operator const expected<type, ErrorType<T>>() const &&\
-  { return unexpected(std::move(this->error_));}
-
-  SPECIALIZED_CONVERSION(int)
-  SPECIALIZED_CONVERSION(short int)
-  SPECIALIZED_CONVERSION(unsigned short int)
-  SPECIALIZED_CONVERSION(unsigned int)
-  SPECIALIZED_CONVERSION(long int)
-  SPECIALIZED_CONVERSION(unsigned long int)
-  SPECIALIZED_CONVERSION(long long int)
-  SPECIALIZED_CONVERSION(unsigned long long int)
-  SPECIALIZED_CONVERSION(bool)
-  SPECIALIZED_CONVERSION(char)
-  SPECIALIZED_CONVERSION(unsigned char)
-  SPECIALIZED_CONVERSION(signed char)
-  SPECIALIZED_CONVERSION(wchar_t)
-  SPECIALIZED_CONVERSION(char16_t)
-  SPECIALIZED_CONVERSION(char32_t)
-  SPECIALIZED_CONVERSION(float)
-  SPECIALIZED_CONVERSION(double)
-  SPECIALIZED_CONVERSION(long double)
-
-#undef SPECIALIZED_CONVERSION
-#pragma pop_macro("SPECIALIZED_CONVERSION")
-  // For debugging purposes
-  using IsNumericT = std::true_type;
-};
-
-#ifdef __cpp_concepts
-template <class U>
-// Define a concept which **any** type matches to
-concept Universal = std::is_same_v<U, U>;
-#endif
-} // namespace impl
-
-template <typename T, typename E, bool include_message>
-struct OkOrFail<Result<T, E, include_message>>
-    : public impl::NumericConversions<Result<T, E, include_message>> {
-  using V = Result<T, E, include_message>;
-  using Err = impl::ErrorType<V>;
-  using C = impl::Code<V>;
-private:
-   OkOrFail(Err&& v): impl::NumericConversions<V>{std::move(v)} {}
-   OkOrFail(const OkOrFail& other) = delete;
-   OkOrFail(const OkOrFail&& other) = delete;
-public:
-  // Checks if V is ok or fail
-  static bool IsOk(const V& val) { return val.ok(); }
-
-  // Turns V into a success value
-  static T Unwrap(V&& val) {
-    if constexpr (std::is_same_v<T, void>) {
-      assert(IsOk(val));
-      return;
-    } else {
-      return std::move(val.value());
-    }
-  }
-
-  // Consumes V when it's a fail value
-  static const OkOrFail<V> Fail(V&& v) {
-    assert(!IsOk(v));
-    return OkOrFail<V>{std::move(v.error())};
-  }
-
-  // We specialize as much as possible to avoid ambiguous conversion with
-  // templated expected ctor
-  operator const Result<C, E, include_message>() const && {
-    return unexpected(std::move(this->error_));
-  }
-#ifdef __cpp_concepts
-  // The idea here is to match this template method to any type (not simply trivial types).
-  // The reason for including a constraint is to take advantage of the fact that a constrained
-  // method always has strictly lower precedence than a non-constrained method in template
-  // specialization rules (thus avoiding ambiguity). So we use a universally matching constraint to
-  // mark this function as less preferable (but still accepting of all types).
-  template <impl::Universal U>
-#else
-  template <typename U>
-#endif
-  operator const Result<U, E, include_message>() const&& {
-    return unexpected(std::move(this->error_));
-  }
-
-  static std::string ErrorMessage(const V& val) { return val.error().message(); }
-};
+using Result = android::base::expected<T, ResultError>;
 
 // Macros for testing the results of functions that return android::base::Result.
 // These also work with base::android::expected.
 // For advanced matchers and customized error messages, see result-gtest.h.
 
-#define ASSERT_RESULT_OK(stmt)                            \
-  if (const auto& tmp = (stmt); !tmp.ok())                \
-  FAIL() << "Value of: " << #stmt << "\n"                 \
-         << "  Actual: " << tmp.error().message() << "\n" \
-         << "Expected: is ok\n"
+#define CHECK_RESULT_OK(stmt)       \
+  do {                              \
+    const auto& tmp = (stmt);       \
+    CHECK(tmp.ok()) << tmp.error(); \
+  } while (0)
 
-#define EXPECT_RESULT_OK(stmt)                                   \
-  if (const auto& tmp = (stmt); !tmp.ok())                       \
-  ADD_FAILURE() << "Value of: " << #stmt << "\n"                 \
-                << "  Actual: " << tmp.error().message() << "\n" \
-                << "Expected: is ok\n"
+#define ASSERT_RESULT_OK(stmt)            \
+  do {                                    \
+    const auto& tmp = (stmt);             \
+    ASSERT_TRUE(tmp.ok()) << tmp.error(); \
+  } while (0)
+
+#define EXPECT_RESULT_OK(stmt)            \
+  do {                                    \
+    auto tmp = (stmt);                    \
+    EXPECT_TRUE(tmp.ok()) << tmp.error(); \
+  } while (0)
+
+// TODO: Maybe add RETURN_IF_ERROR() and ASSIGN_OR_RETURN()
 
 }  // namespace base
 }  // namespace android

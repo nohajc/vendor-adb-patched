@@ -15,6 +15,7 @@ typedef struct dbase_file dbase_t;
 #include <strings.h>
 #include <semanage/handle.h>
 #include "ibpkey_internal.h"
+#include "context_internal.h"
 #include "database_file.h"
 #include "parse_utils.h"
 #include "debug.h"
@@ -80,7 +81,7 @@ static int ibpkey_parse(semanage_handle_t *handle,
 		goto err;
 
 	/* Subnet Prefix */
-	if (parse_fetch_string(handle, info, &str, ' ', 0) < 0)
+	if (parse_fetch_string(handle, info, &str, ' ') < 0)
 		goto err;
 	if (semanage_ibpkey_set_subnet_prefix(handle, ibpkey, str) < 0)
 		goto err;
@@ -115,7 +116,7 @@ static int ibpkey_parse(semanage_handle_t *handle,
 		semanage_ibpkey_set_pkey(ibpkey, low);
 	}
 	/* Pkey context */
-	if (parse_fetch_string(handle, info, &str, ' ', 0) < 0)
+	if (parse_fetch_string(handle, info, &str, ' ') < 0)
 		goto err;
 	if (semanage_context_from_string(handle, str, &con) < 0) {
 		ERR(handle, "invalid security context \"%s\" (%s: %u)\n%s",

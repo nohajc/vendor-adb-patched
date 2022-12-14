@@ -94,10 +94,7 @@ status_t BufferQueueConsumer::acquireBuffer(BufferItem* outBuffer,
                 ++numAcquiredBuffers;
             }
         }
-        const bool acquireNonDroppableBuffer = mCore->mAllowExtraAcquire &&
-                numAcquiredBuffers == mCore->mMaxAcquiredBufferCount + 1;
-        if (numAcquiredBuffers >= mCore->mMaxAcquiredBufferCount + 1 &&
-            !acquireNonDroppableBuffer) {
+        if (numAcquiredBuffers >= mCore->mMaxAcquiredBufferCount + 1) {
             BQ_LOGE("acquireBuffer: max acquired buffer count reached: %d (max %d)",
                     numAcquiredBuffers, mCore->mMaxAcquiredBufferCount);
             return INVALID_OPERATION;
@@ -257,9 +254,6 @@ status_t BufferQueueConsumer::acquireBuffer(BufferItem* outBuffer,
             outBuffer->mIsStale = false;
             outBuffer->mAutoRefresh = mCore->mSharedBufferMode &&
                     mCore->mAutoRefresh;
-        } else if (acquireNonDroppableBuffer && front->mIsDroppable) {
-            BQ_LOGV("acquireBuffer: front buffer is not droppable");
-            return NO_BUFFER_AVAILABLE;
         } else {
             slot = front->mSlot;
             *outBuffer = *front;
@@ -828,11 +822,6 @@ status_t BufferQueueConsumer::dumpState(const String8& prefix, String8* outResul
 
     mCore->dumpState(prefix, outResult);
     return NO_ERROR;
-}
-
-void BufferQueueConsumer::setAllowExtraAcquire(bool allow) {
-    std::lock_guard<std::mutex> lock(mCore->mMutex);
-    mCore->mAllowExtraAcquire = allow;
 }
 
 } // namespace android

@@ -18,7 +18,6 @@
 #define ANDROID_SF_COMPOSER_HAL_H
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -27,13 +26,11 @@
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wextra"
 
 #include <android/hardware/graphics/common/1.1/types.h>
 #include <android/hardware/graphics/composer/2.4/IComposer.h>
 #include <android/hardware/graphics/composer/2.4/IComposerClient.h>
 #include <composer-command-buffer/2.4/ComposerCommandBuffer.h>
-#include <gui/BufferQueue.h>
 #include <gui/HdrMetadata.h>
 #include <math/mat4.h>
 #include <ui/DisplayedFrameStats.h>
@@ -41,7 +38,7 @@
 #include <utils/StrongPointer.h>
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
-#pragma clang diagnostic pop // ignored "-Wconversion -Wextra"
+#pragma clang diagnostic pop // ignored "-Wconversion"
 
 namespace android {
 
@@ -95,7 +92,7 @@ public:
     virtual Error executeCommands() = 0;
 
     virtual uint32_t getMaxVirtualDisplayCount() = 0;
-    virtual Error createVirtualDisplay(uint32_t width, uint32_t height, PixelFormat*,
+    virtual Error createVirtualDisplay(uint32_t width, uint32_t height, PixelFormat* format,
                                        Display* outDisplay) = 0;
     virtual Error destroyVirtualDisplay(Display display) = 0;
 
@@ -493,11 +490,6 @@ private:
     // 64KiB minus a small space for metadata such as read/write pointers
     static constexpr size_t kWriterInitialSize =
         64 * 1024 / sizeof(uint32_t) - 16;
-    // Max number of buffers that may be cached for a given layer
-    // We obtain this number by:
-    // 1. Tightly coupling this cache to the max size of BufferQueue
-    // 2. Adding an additional slot for the layer caching feature in SurfaceFlinger (see: Planner.h)
-    static const constexpr uint32_t kMaxLayerBufferCount = BufferQueue::NUM_BUFFER_SLOTS + 1;
     CommandWriter mWriter;
     CommandReader mReader;
 };

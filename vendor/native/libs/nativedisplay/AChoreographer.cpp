@@ -20,6 +20,7 @@
 #include <android-base/thread_annotations.h>
 #include <gui/DisplayEventDispatcher.h>
 #include <gui/ISurfaceComposer.h>
+#include <gui/SurfaceComposerClient.h>
 #include <jni.h>
 #include <private/android/choreographer.h>
 #include <utils/Looper.h>
@@ -127,21 +128,15 @@ public:
 
     static Choreographer* getForThread();
     virtual ~Choreographer() override EXCLUDES(gChoreographers.lock);
-    int64_t getVsyncId() const;
-    int64_t getFrameDeadline() const;
-    int64_t getFrameInterval() const;
 
 private:
     Choreographer(const Choreographer&) = delete;
 
-    void dispatchVsync(nsecs_t timestamp, PhysicalDisplayId displayId, uint32_t count,
-                       VsyncEventData vsyncEventData) override;
+    void dispatchVsync(nsecs_t timestamp, PhysicalDisplayId displayId, uint32_t count) override;
     void dispatchHotplug(nsecs_t timestamp, PhysicalDisplayId displayId, bool connected) override;
-    void dispatchModeChanged(nsecs_t timestamp, PhysicalDisplayId displayId, int32_t modeId,
-                             nsecs_t vsyncPeriod) override;
+    void dispatchConfigChanged(nsecs_t timestamp, PhysicalDisplayId displayId, int32_t configId,
+                               nsecs_t vsyncPeriod) override;
     void dispatchNullEvent(nsecs_t, PhysicalDisplayId) override;
-    void dispatchFrameRateOverrides(nsecs_t timestamp, PhysicalDisplayId displayId,
-                                    std::vector<FrameRateOverride> overrides) override;
 
     void scheduleCallbacks();
 
@@ -151,7 +146,6 @@ private:
     std::vector<RefreshRateCallback> mRefreshRateCallbacks;
 
     nsecs_t mLatestVsyncPeriod = -1;
-    VsyncEventData mLastVsyncEventData;
 
     const sp<Looper> mLooper;
     const std::thread::id mThreadId;
@@ -176,7 +170,8 @@ Choreographer* Choreographer::getForThread() {
 }
 
 Choreographer::Choreographer(const sp<Looper>& looper)
-      : DisplayEventDispatcher(looper, ISurfaceComposer::VsyncSource::eVsyncSourceApp),
+      : DisplayEventDispatcher(looper, ISurfaceComposer::VsyncSource::eVsyncSourceApp,
+                               ISurfaceComposer::ConfigChanged::eConfigChangedSuppress),
         mLooper(looper),
         mThreadId(std::this_thread::get_id()) {
     std::lock_guard<std::mutex> _l(gChoreographers.lock);
@@ -355,8 +350,7 @@ void Choreographer::handleRefreshRateUpdates() {
 // TODO(b/74619554): The PhysicalDisplayId is ignored because SF only emits VSYNC events for the
 // internal display and DisplayEventReceiver::requestNextVsync only allows requesting VSYNC for
 // the internal display implicitly.
-void Choreographer::dispatchVsync(nsecs_t timestamp, PhysicalDisplayId, uint32_t,
-                                  VsyncEventData vsyncEventData) {
+void Choreographer::dispatchVsync(nsecs_t timestamp, PhysicalDisplayId, uint32_t) {
     std::vector<FrameCallback> callbacks{};
     {
         std::lock_guard<std::mutex> _l{mLock};
@@ -366,7 +360,6 @@ void Choreographer::dispatchVsync(nsecs_t timestamp, PhysicalDisplayId, uint32_t
             mFrameCallbacks.pop();
         }
     }
-    mLastVsyncEventData = vsyncEventData;
     for (const auto& cb : callbacks) {
         if (cb.callback64 != nullptr) {
             cb.callback64(timestamp, cb.data);
@@ -377,17 +370,21 @@ void Choreographer::dispatchVsync(nsecs_t timestamp, PhysicalDisplayId, uint32_t
 }
 
 void Choreographer::dispatchHotplug(nsecs_t, PhysicalDisplayId displayId, bool connected) {
-    ALOGV("choreographer %p ~ received hotplug event (displayId=%s, connected=%s), ignoring.",
-            this, to_string(displayId).c_str(), toString(connected));
+    ALOGV("choreographer %p ~ received hotplug event (displayId=%"
+            ANDROID_PHYSICAL_DISPLAY_ID_FORMAT ", connected=%s), ignoring.",
+            this, displayId, toString(connected));
 }
 
-void Choreographer::dispatchModeChanged(nsecs_t, PhysicalDisplayId, int32_t, nsecs_t) {
-    LOG_ALWAYS_FATAL("dispatchModeChanged was called but was never registered");
-}
-
-void Choreographer::dispatchFrameRateOverrides(nsecs_t, PhysicalDisplayId,
-                                               std::vector<FrameRateOverride>) {
-    LOG_ALWAYS_FATAL("dispatchFrameRateOverrides was called but was never registered");
+// TODO(b/74619554): The PhysicalDisplayId is ignored because currently
+// Choreographer only supports dispatching VSYNC events for the internal
+// display, so as such Choreographer does not support the notion of multiple
+// displays. When multi-display choreographer is properly supported, then
+// PhysicalDisplayId should no longer be ignored.
+void Choreographer::dispatchConfigChanged(nsecs_t, PhysicalDisplayId displayId, int32_t configId,
+                                          nsecs_t) {
+    ALOGV("choreographer %p ~ received config change event "
+          "(displayId=%" ANDROID_PHYSICAL_DISPLAY_ID_FORMAT ", configId=%d).",
+          this, displayId, configId);
 }
 
 void Choreographer::dispatchNullEvent(nsecs_t, PhysicalDisplayId) {
@@ -409,28 +406,11 @@ void Choreographer::handleMessage(const Message& message) {
     }
 }
 
-int64_t Choreographer::getVsyncId() const {
-    return mLastVsyncEventData.id;
-}
-
-int64_t Choreographer::getFrameDeadline() const {
-    return mLastVsyncEventData.deadlineTimestamp;
-}
-
-int64_t Choreographer::getFrameInterval() const {
-    return mLastVsyncEventData.frameInterval;
-}
-
 } // namespace android
 using namespace android;
 
 static inline Choreographer* AChoreographer_to_Choreographer(AChoreographer* choreographer) {
     return reinterpret_cast<Choreographer*>(choreographer);
-}
-
-static inline const Choreographer* AChoreographer_to_Choreographer(
-        const AChoreographer* choreographer) {
-    return reinterpret_cast<const Choreographer*>(choreographer);
 }
 
 // Glue for private C api
@@ -496,21 +476,14 @@ void AChoreographer_routeUnregisterRefreshRateCallback(AChoreographer* choreogra
     return AChoreographer_unregisterRefreshRateCallback(choreographer, callback, data);
 }
 
-int64_t AChoreographer_getVsyncId(const AChoreographer* choreographer) {
-    return AChoreographer_to_Choreographer(choreographer)->getVsyncId();
-}
-
-int64_t AChoreographer_getFrameDeadline(const AChoreographer* choreographer) {
-    return AChoreographer_to_Choreographer(choreographer)->getFrameDeadline();
-}
-
-int64_t AChoreographer_getFrameInterval(const AChoreographer* choreographer) {
-    return AChoreographer_to_Choreographer(choreographer)->getFrameInterval();
-}
-
 } // namespace android
 
 /* Glue for the NDK interface */
+
+static inline const Choreographer* AChoreographer_to_Choreographer(
+        const AChoreographer* choreographer) {
+    return reinterpret_cast<const Choreographer*>(choreographer);
+}
 
 static inline AChoreographer* Choreographer_to_AChoreographer(Choreographer* choreographer) {
     return reinterpret_cast<AChoreographer*>(choreographer);

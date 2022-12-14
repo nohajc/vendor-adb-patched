@@ -26,7 +26,7 @@
 #define D_DISP_u64(ptr, member)                                                 \
     do {                                                                        \
         SLOGV("%-30s"                                                           \
-              "\t\t[0x%#016" PRIx64 " : %" PRIu64 "]\n",                          \
+              "\t\t[0x%#016llx : %llu]\n",                                      \
               #member, le64_to_cpu((ptr)->member), le64_to_cpu((ptr)->member)); \
     } while (0);
 

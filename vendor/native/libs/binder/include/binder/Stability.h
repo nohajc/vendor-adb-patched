@@ -44,9 +44,10 @@ namespace internal {
 //   to old servers, and new servers know how to interpret the 8-byte result,
 //   they can still communicate.
 //
-// This class is specifically about (1). (2) is not currently tracked by
-// libbinder for regular binder calls, and everything on the system uses the
-// same copy of libbinder.
+// Every binder object has a stability level associated with it, and when
+// communicating with a binder, we make sure that the command we sent is one
+// that it knows how to process. The summary of stability of a binder is
+// represented by a Stability::Category object.
 
 class Stability final {
 public:
@@ -127,16 +128,44 @@ private:
 
     static void tryMarkCompilationUnit(IBinder* binder);
 
-    // Currently, we use int16_t for Level so that it can fit in BBinder.
-    // However, on the wire, we have 4 bytes reserved for stability, so whenever
-    // we ingest a Level, we always accept an int32_t.
-    enum Level : int16_t {
+    enum Level : uint8_t {
         UNDECLARED = 0,
 
         VENDOR = 0b000011,
         SYSTEM = 0b001100,
         VINTF = 0b111111,
     };
+
+    // This is the format of stability passed on the wire. It is only 2 bytes
+    // long, but 2 bytes in addition to this are reserved here. The difference
+    // in size is in order to free up space in BBinder, which is fixed by
+    // prebuilts inheriting from it.
+    struct Category {
+        static inline Category fromRepr(int16_t representation) {
+            return *reinterpret_cast<Category*>(&representation);
+        }
+        int16_t repr() const { return *reinterpret_cast<const int16_t*>(this); }
+        static inline Category currentFromLevel(Level level);
+
+        bool operator== (const Category& o) const {
+            return repr() == o.repr();
+        }
+        bool operator!= (const Category& o) const {
+            return !(*this == o);
+        }
+
+        std::string debugString();
+
+        // This is the version of the wire protocol associated with the host
+        // process of a particular binder. As the wire protocol changes, if
+        // sending a transaction to a binder with an old version, the Parcel
+        // class must write parcels according to the version documented here.
+        uint8_t version;
+
+        // bitmask of Stability::Level
+        Level level;
+    };
+    static_assert(sizeof(Category) == sizeof(int16_t));
 
     // returns the stability according to how this was built
     static Level getLocalLevel();
@@ -150,18 +179,18 @@ private:
       REPR_ALLOW_DOWNGRADE = 2,
     };
     // applies stability to binder if stability level is known
-    __attribute__((warn_unused_result)) static status_t setRepr(IBinder* binder, int32_t setting,
-                                                                uint32_t flags);
+    __attribute__((warn_unused_result))
+    static status_t setRepr(IBinder* binder, int32_t representation, uint32_t flags);
 
     // get stability information as encoded on the wire
-    static int16_t getRepr(IBinder* binder);
+    static Category getCategory(IBinder* binder);
 
     // whether a transaction on binder is allowed, if the transaction
     // is done from a context with a specific stability level
-    static bool check(int16_t provided, Level required);
+    static bool check(Category provided, Level required);
 
-    static bool isDeclaredLevel(int32_t level);
-    static std::string levelString(int32_t level);
+    static bool isDeclaredLevel(Level level);
+    static std::string levelString(Level level);
 
     Stability();
 };

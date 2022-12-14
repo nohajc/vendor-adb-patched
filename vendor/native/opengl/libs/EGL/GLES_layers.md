@@ -251,7 +251,7 @@ When layering is enabled, GLES 1.x exclusive functions will continue to route to
    - Secondly, if you want to determine from an application that can't call out to ADB for this, you can check for the [EGL_ANDROID_GLES_layers](../../specs/EGL_ANDROID_GLES_layers.txt). It simply indicates support of this layering system:
      ```cpp
      std::string display_extensions = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
-     if (display_extensions.find("EGL_ANDROID_GLES_layers") != std::string::npos)
+     if (display_extension.find("EGL_ANDROID_GLES_layers") != std::string::npos)
      {
         // Layers are supported!
      }

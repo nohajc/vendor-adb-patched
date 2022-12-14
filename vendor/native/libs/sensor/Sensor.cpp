@@ -231,10 +231,6 @@ Sensor::Sensor(struct sensor_t const& hwSensor, const uuid_t& uuid, int halVersi
             mFlags |= SENSOR_FLAG_WAKE_UP;
         }
         break;
-    case SENSOR_TYPE_DEVICE_ORIENTATION:
-        mStringType = SENSOR_STRING_TYPE_DEVICE_ORIENTATION;
-        mFlags |= SENSOR_FLAG_ON_CHANGE_MODE;
-        break;
     case SENSOR_TYPE_DYNAMIC_SENSOR_META:
         mStringType = SENSOR_STRING_TYPE_DYNAMIC_SENSOR_META;
         mFlags |= SENSOR_FLAG_SPECIAL_REPORTING_MODE; // special trigger
@@ -470,19 +466,6 @@ const Sensor::uuid_t& Sensor::getUuid() const {
 void Sensor::setId(int32_t id) {
     mUuid.i64[0] = id;
     mUuid.i64[1] = 0;
-}
-
-void Sensor::capMinDelayMicros(int32_t cappedMinDelay) {
-    if (mMinDelay < cappedMinDelay) {
-        mMinDelay = cappedMinDelay;
-    }
-}
-
-void Sensor::capHighestDirectReportRateLevel(int32_t cappedRateLevel) {
-    if (cappedRateLevel < getHighestDirectReportRateLevel()) {
-        mFlags &= ~SENSOR_FLAG_MASK_DIRECT_REPORT;
-        mFlags |= cappedRateLevel << SENSOR_FLAG_SHIFT_DIRECT_REPORT;
-    }
 }
 
 int32_t Sensor::getId() const {

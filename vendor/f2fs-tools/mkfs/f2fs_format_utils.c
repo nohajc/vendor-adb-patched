@@ -26,7 +26,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#ifdef HAVE_SYS_IOCTL_H
+#ifndef ANDROID_WINDOWS_HOST
 #include <sys/ioctl.h>
 #endif
 #include <sys/stat.h>
@@ -39,23 +39,20 @@
 #include <linux/falloc.h>
 #endif
 
-#ifdef __linux__
 #ifndef BLKDISCARD
 #define BLKDISCARD	_IO(0x12,119)
 #endif
 #ifndef BLKSECDISCARD
 #define BLKSECDISCARD	_IO(0x12,125)
 #endif
-#endif
 
-#if defined(FALLOC_FL_PUNCH_HOLE) || defined(BLKDISCARD) || \
-	defined(BLKSECDISCARD)
 static int trim_device(int i)
 {
+#ifndef ANDROID_WINDOWS_HOST
 	unsigned long long range[2];
 	struct stat *stat_buf;
 	struct device_info *dev = c.devices + i;
-	uint64_t bytes = dev->total_sectors * dev->sector_size;
+	u_int64_t bytes = dev->total_sectors * dev->sector_size;
 	int fd = dev->fd;
 
 	stat_buf = malloc(sizeof(struct stat));
@@ -110,18 +107,13 @@ static int trim_device(int i)
 	}
 #endif
 	free(stat_buf);
-	return 0;
-}
-#else
-static int trim_device(int UNUSED(i))
-{
-	return 0;
-}
 #endif
+	return 0;
+}
 
-#ifdef WITH_ANDROID
 static bool is_wiped_device(int i)
 {
+#ifdef WITH_ANDROID
 	struct device_info *dev = c.devices + i;
 	int fd = dev->fd;
 	char *buf, *zero_buf;
@@ -161,13 +153,10 @@ static bool is_wiped_device(int i)
 	if (wiped)
 		MSG(0, "Info: Found all zeros in first %d blocks\n", nblocks);
 	return wiped;
-}
 #else
-static bool is_wiped_device(int UNUSED(i))
-{
 	return false;
-}
 #endif
+}
 
 int f2fs_trim_devices(void)
 {

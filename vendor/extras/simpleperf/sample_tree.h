@@ -59,7 +59,7 @@ class SampleTreeBuilder {
       : sample_set_(comparator),
         accumulate_callchain_(false),
         sample_comparator_(comparator),
-        filtered_sample_set_(comparator),
+        callchain_sample_set_(comparator),
         use_branch_address_(false),
         build_callchain_(false),
         use_caller_as_callchain_root_(false) {}
@@ -197,19 +197,8 @@ class SampleTreeBuilder {
   virtual void MergeSample(EntryT* sample1, EntryT* sample2) = 0;
 
   EntryT* InsertSample(std::unique_ptr<EntryT> sample) {
-    if (sample == nullptr) {
+    if (sample == nullptr || !FilterSample(sample.get())) {
       return nullptr;
-    }
-    if (!FilterSample(sample.get())) {
-      // Store in filtered_sample_set_ for use in other EntryT's callchain.
-      auto it = filtered_sample_set_.find(sample.get());
-      if (it != filtered_sample_set_.end()) {
-        return *it;
-      }
-      EntryT* result = sample.get();
-      filtered_sample_set_.insert(sample.get());
-      sample_storage_.push_back(std::move(sample));
-      return result;
     }
     UpdateSummary(sample.get());
     EntryT* result;
@@ -230,6 +219,18 @@ class SampleTreeBuilder {
     if (sample == nullptr) {
       return nullptr;
     }
+    if (!FilterSample(sample.get())) {
+      // Store in callchain_sample_set_ for use in other EntryT's callchain.
+      auto it = callchain_sample_set_.find(sample.get());
+      if (it != callchain_sample_set_.end()) {
+        return *it;
+      }
+      EntryT* result = sample.get();
+      callchain_sample_set_.insert(sample.get());
+      sample_storage_.push_back(std::move(sample));
+      return result;
+    }
+
     auto it = sample_set_.find(sample.get());
     if (it != sample_set_.end()) {
       EntryT* sample = *it;
@@ -280,9 +281,9 @@ class SampleTreeBuilder {
   }
 
   const SampleComparator<EntryT> sample_comparator_;
-  // If a Sample/CallChainSample is filtered out, it is stored in filtered_sample_set_,
+  // If a CallChainSample is filtered out, it is stored in callchain_sample_set_
   // and only used in other EntryT's callchain.
-  std::set<EntryT*, SampleComparator<EntryT>> filtered_sample_set_;
+  std::set<EntryT*, SampleComparator<EntryT>> callchain_sample_set_;
   std::vector<std::unique_ptr<EntryT>> sample_storage_;
 
   struct CallChainParentInfo {

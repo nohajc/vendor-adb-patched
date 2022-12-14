@@ -30,7 +30,6 @@ cc_library_shared {
 
     include_dirs: [
         "external/f2fs-tools/include",
-        "bionic/libc",
     ],
 
     export_include_dirs: ["."],
@@ -49,11 +48,10 @@ cc_binary {
 
     include_dirs: [
         "external/f2fs-tools/include",
-        "bionic/libc",
     ],
 }
 
-sh_binary_host {
+sh_binary {
     name: "mkf2fsuserimg.sh",
 
     src: "mkf2fsuserimg.sh",
@@ -61,4 +59,5 @@ sh_binary_host {
         "make_f2fs",
         "sload_f2fs",
     ],
+    host_supported: true,
 }

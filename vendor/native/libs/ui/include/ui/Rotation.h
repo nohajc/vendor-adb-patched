@@ -41,15 +41,6 @@ constexpr Rotation operator+(Rotation lhs, Rotation rhs) {
     return toRotation((toRotationInt(lhs) + toRotationInt(rhs)) % N);
 }
 
-constexpr Rotation operator-(Rotation lhs, Rotation rhs) {
-    constexpr auto N = toRotationInt(ROTATION_270) + 1;
-    return toRotation((N + toRotationInt(lhs) - toRotationInt(rhs)) % N);
-}
-
-constexpr Rotation operator-(Rotation rotation) {
-    return ROTATION_0 - rotation;
-}
-
 constexpr const char* toCString(Rotation rotation) {
     switch (rotation) {
         case ROTATION_0:

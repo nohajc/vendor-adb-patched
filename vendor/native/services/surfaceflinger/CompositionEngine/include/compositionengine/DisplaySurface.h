@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <ui/Size.h>
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
 #include <utils/StrongPointer.h>
@@ -72,7 +71,7 @@ public:
 
     virtual void dumpAsString(String8& result) const = 0;
 
-    virtual void resizeBuffers(const ui::Size&) = 0;
+    virtual void resizeBuffers(const uint32_t w, const uint32_t h) = 0;
 
     virtual const sp<Fence>& getClientTargetAcquireFence() const = 0;
 };

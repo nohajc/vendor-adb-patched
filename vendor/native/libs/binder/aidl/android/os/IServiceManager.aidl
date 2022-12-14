@@ -19,7 +19,6 @@ package android.os;
 import android.os.IClientCallback;
 import android.os.IServiceCallback;
 import android.os.ServiceDebugInfo;
-import android.os.ConnectionInfo;
 
 /**
  * Basic interface for finding and publishing system services.
@@ -112,11 +111,6 @@ interface IServiceManager {
      * If updatable-via-apex, returns the APEX via which this is updated.
      */
     @nullable @utf8InCpp String updatableViaApex(@utf8InCpp String name);
-
-    /**
-     * If connection info is available for the given instance, returns the ConnectionInfo
-     */
-    @nullable ConnectionInfo getConnectionInfo(@utf8InCpp String name);
 
     /**
      * Request a callback when the number of clients of the service changes.

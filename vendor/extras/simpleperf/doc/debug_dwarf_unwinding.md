@@ -10,8 +10,6 @@ By default, `simpleperf record` unwinds a sample before saving it to disk, to re
 by stack data. But this behavior makes it harder to reproduce unwinding problems. So we added
 debug-unwind command, to help debug and profile dwarf unwinding. Below are two use cases.
 
-[TOC]
-
 ## Debug failed unwinding cases
 
 Unwinding a sample can fail for different reasons: not enough stack or register data, unknown

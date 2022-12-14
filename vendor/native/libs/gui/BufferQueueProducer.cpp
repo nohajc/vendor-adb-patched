@@ -645,10 +645,7 @@ status_t BufferQueueProducer::detachBuffer(int slot) {
                     slot, BufferQueueDefs::NUM_BUFFER_SLOTS);
             return BAD_VALUE;
         } else if (!mSlots[slot].mBufferState.isDequeued()) {
-            // TODO(http://b/140581935): This message is BQ_LOGW because it
-            // often logs when no actionable errors are present. Return to
-            // using BQ_LOGE after ensuring this only logs during errors.
-            BQ_LOGW("detachBuffer: slot %d is not owned by the producer "
+            BQ_LOGE("detachBuffer: slot %d is not owned by the producer "
                     "(state = %s)", slot, mSlots[slot].mBufferState.string());
             return BAD_VALUE;
         } else if (!mSlots[slot].mRequestBufferCalled) {

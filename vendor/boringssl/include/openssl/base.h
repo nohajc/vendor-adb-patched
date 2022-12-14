@@ -105,10 +105,6 @@ extern "C" {
 #elif defined(__MIPSEL__) && defined(__LP64__)
 #define OPENSSL_64_BIT
 #define OPENSSL_MIPS64
-#elif defined(__riscv) && (__SIZEOF_POINTER__ == 8 || __riscv_xlen == 64)
-#define OPENSSL_64_BIT
-#elif defined(__riscv) && __SIZEOF_POINTER__ == 4
-#define OPENSSL_32_BIT
 #elif defined(__pnacl__)
 #define OPENSSL_32_BIT
 #define OPENSSL_PNACL
@@ -145,7 +141,7 @@ extern "C" {
 // Trusty isn't Linux but currently defines __linux__. As a workaround, we
 // exclude it here.
 // TODO(b/169780122): Remove this workaround once Trusty no longer defines it.
-#if defined(__linux__) && !defined(__TRUSTY__)
+#if defined(__linux__) && !defined(TRUSTY)
 #define OPENSSL_LINUX
 #endif
 
@@ -153,17 +149,17 @@ extern "C" {
 #define OPENSSL_FUCHSIA
 #endif
 
-#if defined(__TRUSTY__)
+#if defined(TRUSTY)
 #define OPENSSL_TRUSTY
 #define OPENSSL_NO_THREADS_CORRUPT_MEMORY_AND_LEAK_SECRETS_IF_THREADED
 #endif
 
 #if defined(__ANDROID_API__)
 #define OPENSSL_ANDROID
+#if defined(BORINGSSL_FIPS)
+// The FIPS module on Android passively receives entropy.
+#define BORINGSSL_FIPS_PASSIVE_ENTROPY
 #endif
-
-#if defined(__FreeBSD__)
-#define OPENSSL_FREEBSD
 #endif
 
 // BoringSSL requires platform's locking APIs to make internal global state
@@ -195,7 +191,7 @@ extern "C" {
 // A consumer may use this symbol in the preprocessor to temporarily build
 // against multiple revisions of BoringSSL at the same time. It is not
 // recommended to do so for longer than is necessary.
-#define BORINGSSL_API_VERSION 17
+#define BORINGSSL_API_VERSION 14
 
 #if defined(BORINGSSL_SHARED_LIBRARY)
 
@@ -328,11 +324,8 @@ enum ssl_verify_result_t BORINGSSL_ENUM_INT;
 // CRYPTO_THREADID is a dummy value.
 typedef int CRYPTO_THREADID;
 
-// An |ASN1_NULL| is an opaque type. asn1.h represents the ASN.1 NULL value as
-// an opaque, non-NULL |ASN1_NULL*| pointer.
-typedef struct asn1_null_st ASN1_NULL;
-
 typedef int ASN1_BOOLEAN;
+typedef int ASN1_NULL;
 typedef struct ASN1_ITEM_st ASN1_ITEM;
 typedef struct asn1_object_st ASN1_OBJECT;
 typedef struct asn1_pctx_st ASN1_PCTX;
@@ -368,14 +361,17 @@ typedef struct X509_POLICY_NODE_st X509_POLICY_NODE;
 typedef struct X509_POLICY_TREE_st X509_POLICY_TREE;
 typedef struct X509_VERIFY_PARAM_st X509_VERIFY_PARAM;
 typedef struct X509_algor_st X509_ALGOR;
+typedef struct X509_crl_info_st X509_CRL_INFO;
 typedef struct X509_crl_st X509_CRL;
 typedef struct X509_extension_st X509_EXTENSION;
 typedef struct X509_info_st X509_INFO;
 typedef struct X509_name_entry_st X509_NAME_ENTRY;
 typedef struct X509_name_st X509_NAME;
 typedef struct X509_pubkey_st X509_PUBKEY;
+typedef struct X509_req_info_st X509_REQ_INFO;
 typedef struct X509_req_st X509_REQ;
 typedef struct X509_sig_st X509_SIG;
+typedef struct X509_val_st X509_VAL;
 typedef struct bignum_ctx BN_CTX;
 typedef struct bignum_st BIGNUM;
 typedef struct bio_method_st BIO_METHOD;
@@ -402,15 +398,9 @@ typedef struct engine_st ENGINE;
 typedef struct env_md_ctx_st EVP_MD_CTX;
 typedef struct env_md_st EVP_MD;
 typedef struct evp_aead_st EVP_AEAD;
-typedef struct evp_aead_ctx_st EVP_AEAD_CTX;
 typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
 typedef struct evp_cipher_st EVP_CIPHER;
 typedef struct evp_encode_ctx_st EVP_ENCODE_CTX;
-typedef struct evp_hpke_aead_st EVP_HPKE_AEAD;
-typedef struct evp_hpke_ctx_st EVP_HPKE_CTX;
-typedef struct evp_hpke_kdf_st EVP_HPKE_KDF;
-typedef struct evp_hpke_kem_st EVP_HPKE_KEM;
-typedef struct evp_hpke_key_st EVP_HPKE_KEY;
 typedef struct evp_pkey_asn1_method_st EVP_PKEY_ASN1_METHOD;
 typedef struct evp_pkey_ctx_st EVP_PKEY_CTX;
 typedef struct evp_pkey_method_st EVP_PKEY_METHOD;
@@ -425,7 +415,6 @@ typedef struct private_key_st X509_PKEY;
 typedef struct rand_meth_st RAND_METHOD;
 typedef struct rc4_key_st RC4_KEY;
 typedef struct rsa_meth_st RSA_METHOD;
-typedef struct rsa_pss_params_st RSA_PSS_PARAMS;
 typedef struct rsa_st RSA;
 typedef struct sha256_state_st SHA256_CTX;
 typedef struct sha512_state_st SHA512_CTX;
@@ -434,8 +423,6 @@ typedef struct spake2_ctx_st SPAKE2_CTX;
 typedef struct srtp_protection_profile_st SRTP_PROTECTION_PROFILE;
 typedef struct ssl_cipher_st SSL_CIPHER;
 typedef struct ssl_ctx_st SSL_CTX;
-typedef struct ssl_early_callback_ctx SSL_CLIENT_HELLO;
-typedef struct ssl_ech_keys_st SSL_ECH_KEYS;
 typedef struct ssl_method_st SSL_METHOD;
 typedef struct ssl_private_key_method_st SSL_PRIVATE_KEY_METHOD;
 typedef struct ssl_quic_method_st SSL_QUIC_METHOD;
@@ -449,9 +436,10 @@ typedef struct trust_token_issuer_st TRUST_TOKEN_ISSUER;
 typedef struct trust_token_method_st TRUST_TOKEN_METHOD;
 typedef struct v3_ext_ctx X509V3_CTX;
 typedef struct x509_attributes_st X509_ATTRIBUTE;
+typedef struct x509_cert_aux_st X509_CERT_AUX;
+typedef struct x509_cinf_st X509_CINF;
+typedef struct x509_crl_method_st X509_CRL_METHOD;
 typedef struct x509_lookup_st X509_LOOKUP;
-typedef struct x509_lookup_method_st X509_LOOKUP_METHOD;
-typedef struct x509_object_st X509_OBJECT;
 typedef struct x509_revoked_st X509_REVOKED;
 typedef struct x509_st X509;
 typedef struct x509_store_ctx_st X509_STORE_CTX;
@@ -540,39 +528,8 @@ class StackAllocated {
   StackAllocated() { init(&ctx_); }
   ~StackAllocated() { cleanup(&ctx_); }
 
-  StackAllocated(const StackAllocated &) = delete;
-  StackAllocated& operator=(const StackAllocated &) = delete;
-
-  T *get() { return &ctx_; }
-  const T *get() const { return &ctx_; }
-
-  T *operator->() { return &ctx_; }
-  const T *operator->() const { return &ctx_; }
-
-  void Reset() {
-    cleanup(&ctx_);
-    init(&ctx_);
-  }
-
- private:
-  T ctx_;
-};
-
-template <typename T, typename CleanupRet, void (*init)(T *),
-          CleanupRet (*cleanup)(T *), void (*move)(T *, T *)>
-class StackAllocatedMovable {
- public:
-  StackAllocatedMovable() { init(&ctx_); }
-  ~StackAllocatedMovable() { cleanup(&ctx_); }
-
-  StackAllocatedMovable(StackAllocatedMovable &&other) {
-    init(&ctx_);
-    move(&ctx_, &other.ctx_);
-  }
-  StackAllocatedMovable &operator=(StackAllocatedMovable &&other) {
-    move(&ctx_, &other.ctx_);
-    return *this;
-  }
+  StackAllocated(const StackAllocated<T, CleanupRet, init, cleanup> &) = delete;
+  T& operator=(const StackAllocated<T, CleanupRet, init, cleanup> &) = delete;
 
   T *get() { return &ctx_; }
   const T *get() const { return &ctx_; }

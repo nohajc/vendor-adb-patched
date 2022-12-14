@@ -33,7 +33,6 @@ inline const OptionFormatMap& GetRecordCmdOptionFormats() {
   if (option_formats.empty()) {
     option_formats = {
         {"-a", {OptionValueType::NONE, OptionType::SINGLE, AppRunnerType::NOT_ALLOWED}},
-        {"--add-counter", {OptionValueType::STRING, OptionType::SINGLE, AppRunnerType::ALLOWED}},
         {"--add-meta-info",
          {OptionValueType::STRING, OptionType::MULTIPLE, AppRunnerType::ALLOWED}},
         {"--addr-filter", {OptionValueType::STRING, OptionType::SINGLE, AppRunnerType::ALLOWED}},
@@ -88,10 +87,8 @@ inline const OptionFormatMap& GetRecordCmdOptionFormats() {
         {"--trace-offcpu", {OptionValueType::NONE, OptionType::SINGLE, AppRunnerType::ALLOWED}},
         {"--tracepoint-events",
          {OptionValueType::STRING, OptionType::SINGLE, AppRunnerType::CHECK_PATH}},
-        {"--use-cmd-exit-code",
-         {OptionValueType::NONE, OptionType::SINGLE, AppRunnerType::NOT_ALLOWED}},
     };
-    OptionFormatMap record_filter_options = GetRecordFilterOptionFormats(true);
+    const OptionFormatMap& record_filter_options = GetRecordFilterOptionFormats();
     option_formats.insert(record_filter_options.begin(), record_filter_options.end());
   }
   return option_formats;

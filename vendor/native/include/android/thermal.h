@@ -59,10 +59,6 @@
 extern "C" {
 #endif
 
-/**
- * Thermal status used in function {@link AThermal_getCurrentThermalStatus} and
- * {@link AThermal_StatusCallback}.
- */
 enum AThermalStatus {
     /** Error in thermal status. */
     ATHERMAL_STATUS_ERROR = -1,
@@ -179,47 +175,6 @@ int AThermal_registerThermalStatusListener(AThermalManager *manager,
  */
 int AThermal_unregisterThermalStatusListener(AThermalManager *manager,
         AThermal_StatusCallback callback, void *data) __INTRODUCED_IN(30);
-
-/**
- * Provides an estimate of how much thermal headroom the device currently has before
- * hitting severe throttling.
- *
- * Note that this only attempts to track the headroom of slow-moving sensors, such as
- * the skin temperature sensor. This means that there is no benefit to calling this function
- * more frequently than about once per second, and attempted to call significantly
- * more frequently may result in the function returning {@code NaN}.
- *
- * In addition, in order to be able to provide an accurate forecast, the system does
- * not attempt to forecast until it has multiple temperature samples from which to
- * extrapolate. This should only take a few seconds from the time of the first call,
- * but during this time, no forecasting will occur, and the current headroom will be
- * returned regardless of the value of {@code forecastSeconds}.
- *
- * The value returned is a non-negative float that represents how much of the thermal envelope
- * is in use (or is forecasted to be in use). A value of 1.0 indicates that the device is
- * (or will be) throttled at {@link #ATHERMAL_STATUS_SEVERE}. Such throttling can affect the
- * CPU, GPU, and other subsystems. Values may exceed 1.0, but there is no implied mapping
- * to specific thermal levels beyond that point. This means that values greater than 1.0
- * may correspond to {@link #ATHERMAL_STATUS_SEVERE}, but may also represent heavier throttling.
- *
- * A value of 0.0 corresponds to a fixed distance from 1.0, but does not correspond to any
- * particular thermal status or temperature. Values on (0.0, 1.0] may be expected to scale
- * linearly with temperature, though temperature changes over time are typically not linear.
- * Negative values will be clamped to 0.0 before returning.
- *
- * Available since API level 31.
- *
- * @param manager The manager instance to use.
- *                Acquired via {@link AThermal_acquireManager}.
- * @param forecastSeconds how many seconds into the future to forecast. Given that device
- *                        conditions may change at any time, forecasts from further in the
- *                        future will likely be less accurate than forecasts in the near future.
- * @return a value greater than equal to 0.0, where 1.0 indicates the SEVERE throttling threshold,
- *         as described above. Returns NaN if the device does not support this functionality or
- *         if this function is called significantly faster than once per second.
-  */
-float AThermal_getThermalHeadroom(AThermalManager *manager,
-        int forecastSeconds) __INTRODUCED_IN(31);
 
 #ifdef __cplusplus
 }

@@ -30,16 +30,16 @@ public:
     virtual void populateDeviceInfo(InputDeviceInfo* deviceInfo) override;
     virtual void process(const RawEvent* rawEvent) override;
 
-    virtual void vibrate(const VibrationSequence& sequence, ssize_t repeat, int32_t token) override;
+    virtual void vibrate(const nsecs_t* pattern, size_t patternSize, ssize_t repeat,
+                         int32_t token) override;
     virtual void cancelVibrate(int32_t token) override;
-    virtual bool isVibrating() override;
-    virtual std::vector<int32_t> getVibratorIds() override;
     virtual void timeoutExpired(nsecs_t when) override;
     virtual void dump(std::string& dump) override;
 
 private:
     bool mVibrating;
-    VibrationSequence mSequence;
+    nsecs_t mPattern[MAX_VIBRATE_PATTERN_SIZE];
+    size_t mPatternSize;
     ssize_t mRepeat;
     int32_t mToken;
     ssize_t mIndex;

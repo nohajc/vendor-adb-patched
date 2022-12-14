@@ -43,10 +43,7 @@ static const int kIncFsFileIdStringLength = sizeof(IncFsFileId) * 2;
 
 typedef enum {
     INCFS_FEATURE_NONE = 0,
-    INCFS_FEATURE_CORE = 1 << 0,
-    INCFS_FEATURE_V2 = 1 << 1,
-    INCFS_FEATURE_MAPPING_FILES_PROGRESS_FIXED = 1 << 2,
-
+    INCFS_FEATURE_CORE = 1,
 } IncFsFeatures;
 
 typedef int IncFsErrorCode;
@@ -54,9 +51,6 @@ typedef int64_t IncFsSize;
 typedef int32_t IncFsBlockIndex;
 typedef int IncFsFd;
 typedef struct IncFsControl IncFsControl;
-typedef int IncFsUid;
-
-static const IncFsUid kIncFsNoUid = -1;
 
 typedef struct {
     const char* data;
@@ -67,7 +61,6 @@ typedef enum {
     CMD,
     PENDING_READS,
     LOGS,
-    BLOCKS_WRITTEN,
     FDS_COUNT,
 } IncFsFdType;
 
@@ -92,13 +85,11 @@ typedef struct {
     int32_t defaultReadTimeoutMs;
     int32_t readLogBufferPages;
     int32_t readLogDisableAfterTimeoutMs;
-    const char* sysfsName;
 } IncFsMountOptions;
 
 typedef enum {
     INCFS_COMPRESSION_KIND_NONE,
     INCFS_COMPRESSION_KIND_LZ4,
-    INCFS_COMPRESSION_KIND_ZSTD,
 } IncFsCompressionKind;
 
 typedef enum {
@@ -122,25 +113,11 @@ typedef struct {
 } IncFsNewFileParams;
 
 typedef struct {
-    IncFsFileId sourceId;
-    IncFsSize sourceOffset;
-    IncFsSize size;
-} IncFsNewMappedFileParams;
-
-typedef struct {
     IncFsFileId id;
     uint64_t bootClockTsUs;
     IncFsBlockIndex block;
     uint32_t serialNo;
 } IncFsReadInfo;
-
-typedef struct {
-    IncFsFileId id;
-    uint64_t bootClockTsUs;
-    IncFsBlockIndex block;
-    uint32_t serialNo;
-    IncFsUid uid;
-} IncFsReadInfoWithUid;
 
 typedef struct {
     IncFsBlockIndex begin;
@@ -154,40 +131,6 @@ typedef struct {
     int32_t hashRangesCount;
     IncFsBlockIndex endIndex;
 } IncFsFilledRanges;
-
-typedef struct {
-    IncFsSize totalDataBlocks;
-    IncFsSize filledDataBlocks;
-    IncFsSize totalHashBlocks;
-    IncFsSize filledHashBlocks;
-} IncFsBlockCounts;
-
-typedef struct {
-    IncFsUid uid;
-    uint32_t minTimeUs;
-    uint32_t minPendingTimeUs;
-    uint32_t maxPendingTimeUs;
-} IncFsUidReadTimeouts;
-
-typedef struct {
-    uint32_t readsDelayedMin;
-    uint64_t readsDelayedMinUs;
-    uint32_t readsDelayedPending;
-    uint64_t readsDelayedPendingUs;
-    uint32_t readsFailedHashVerification;
-    uint32_t readsFailedOther;
-    uint32_t readsFailedTimedOut;
-    uint64_t reserved;
-    uint64_t reserved1;
-} IncFsMetrics;
-
-typedef struct {
-    IncFsFileId id;
-    uint64_t timestampUs;
-    IncFsBlockIndex block;
-    uint32_t errorNo;
-    IncFsUid uid;
-} IncFsLastReadError;
 
 // All functions return -errno in case of failure.
 // All IncFsFd functions return >=0 in case of success.
@@ -212,8 +155,7 @@ IncFsFileId IncFs_FileIdFromMetadata(IncFsSpan metadata);
 IncFsControl* IncFs_Mount(const char* backingPath, const char* targetDir,
                           IncFsMountOptions options);
 IncFsControl* IncFs_Open(const char* dir);
-IncFsControl* IncFs_CreateControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs,
-                                  IncFsFd blocksWritten);
+IncFsControl* IncFs_CreateControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs);
 void IncFs_DeleteControl(IncFsControl* control);
 IncFsFd IncFs_GetControlFd(const IncFsControl* control, IncFsFdType type);
 IncFsSize IncFs_ReleaseControlFds(IncFsControl* control, IncFsFd out[], IncFsSize outSize);
@@ -227,9 +169,6 @@ IncFsErrorCode IncFs_Root(const IncFsControl* control, char buffer[], size_t* bu
 
 IncFsErrorCode IncFs_MakeFile(const IncFsControl* control, const char* path, int32_t mode,
                               IncFsFileId id, IncFsNewFileParams params);
-IncFsErrorCode IncFs_MakeMappedFile(const IncFsControl* control, const char* path, int32_t mode,
-                                    IncFsNewMappedFileParams params);
-
 IncFsErrorCode IncFs_MakeDir(const IncFsControl* control, const char* path, int32_t mode);
 IncFsErrorCode IncFs_MakeDirs(const IncFsControl* control, const char* path, int32_t mode);
 
@@ -255,44 +194,10 @@ IncFsErrorCode IncFs_WaitForPendingReads(const IncFsControl* control, int32_t ti
 IncFsErrorCode IncFs_WaitForPageReads(const IncFsControl* control, int32_t timeoutMs,
                                       IncFsReadInfo buffer[], size_t* bufferSize);
 
-IncFsErrorCode IncFs_WaitForPendingReadsWithUid(const IncFsControl* control, int32_t timeoutMs,
-                                                IncFsReadInfoWithUid buffer[], size_t* bufferSize);
-IncFsErrorCode IncFs_WaitForPageReadsWithUid(const IncFsControl* control, int32_t timeoutMs,
-                                             IncFsReadInfoWithUid buffer[], size_t* bufferSize);
-
-IncFsErrorCode IncFs_WaitForFsWrittenBlocksChange(const IncFsControl* control, int32_t timeoutMs,
-                                                  IncFsSize* count);
-
 IncFsFd IncFs_OpenForSpecialOpsByPath(const IncFsControl* control, const char* path);
 IncFsFd IncFs_OpenForSpecialOpsById(const IncFsControl* control, IncFsFileId id);
 
 IncFsErrorCode IncFs_WriteBlocks(const IncFsDataBlock blocks[], size_t blocksCount);
-
-IncFsErrorCode IncFs_SetUidReadTimeouts(const IncFsControl* control,
-                                        const IncFsUidReadTimeouts timeouts[], size_t count);
-IncFsErrorCode IncFs_GetUidReadTimeouts(const IncFsControl* control,
-                                        IncFsUidReadTimeouts timeoutsBuffer[], size_t* bufferSize);
-
-IncFsErrorCode IncFs_GetFileBlockCountByPath(const IncFsControl* control, const char* path,
-                                             IncFsBlockCounts* blockCount);
-IncFsErrorCode IncFs_GetFileBlockCountById(const IncFsControl* control, IncFsFileId id,
-                                           IncFsBlockCounts* blockCount);
-
-IncFsErrorCode IncFs_ListIncompleteFiles(const IncFsControl* control, IncFsFileId ids[],
-                                         size_t* bufferSize);
-
-// Calls a passed callback for each file on the mounted filesystem, or, in the second case,
-// for each incomplete file (only for v2 IncFS).
-// Callback can stop the iteration early by returning |false|.
-// Return codes:
-// >=0      - number of files iterated,
-// <0       - -errno
-typedef bool (*FileCallback)(void* context, const IncFsControl* control, IncFsFileId fileId);
-IncFsErrorCode IncFs_ForEachFile(const IncFsControl* control, void* context, FileCallback cb);
-IncFsErrorCode IncFs_ForEachIncompleteFile(const IncFsControl* control, void* context,
-                                           FileCallback cb);
-
-IncFsErrorCode IncFs_WaitForLoadingComplete(const IncFsControl* control, int32_t timeoutMs);
 
 // Gets a collection of filled ranges in the file from IncFS. Uses the |outBuffer| memory, it has
 // to be big enough to fit all the ranges the caller is expecting.
@@ -309,38 +214,6 @@ IncFsErrorCode IncFs_GetFilledRangesStartingFrom(int fd, int startBlockIndex, In
 //  -ENODATA - some blocks are missing,
 //  <0       - error from the syscall.
 IncFsErrorCode IncFs_IsFullyLoaded(int fd);
-IncFsErrorCode IncFs_IsFullyLoadedByPath(const IncFsControl* control, const char* path);
-IncFsErrorCode IncFs_IsFullyLoadedById(const IncFsControl* control, IncFsFileId fileId);
-
-// Check if all files on the mount are fully loaded. Return codes:
-//  0        - fully loaded,
-//  -ENODATA - some blocks are missing,
-//  <0       - error from the syscall.
-IncFsErrorCode IncFs_IsEverythingFullyLoaded(const IncFsControl* control);
-
-// Reserve |size| bytes for the file. Trims reserved space to the current file size when |size = -1|
-static const IncFsSize kIncFsTrimReservedSpace = -1;
-IncFsErrorCode IncFs_ReserveSpaceByPath(const IncFsControl* control, const char* path,
-                                        IncFsSize size);
-IncFsErrorCode IncFs_ReserveSpaceById(const IncFsControl* control, IncFsFileId id, IncFsSize size);
-
-// Gets the metrics of a mount by specifying the corresponding sysfs subpath.
-// Return codes:
-// =0       - success
-// <0       - -errno
-IncFsErrorCode IncFs_GetMetrics(const char* sysfsName, IncFsMetrics* metrics);
-
-// Gets information about the last read error of a mount.
-// Return codes:
-// =0       - success
-// <0       - -errno
-// When there is no read error, still returns success. Fields in IncFsLastReadError will be all 0.
-// Possible values of IncFsLastReadError.errorNo:
-//   -ETIME for read timeout;
-//   -EBADMSG for hash verification failure;
-//   Other negative values for other types of errors.
-IncFsErrorCode IncFs_GetLastReadError(const IncFsControl* control,
-                                      IncFsLastReadError* lastReadError);
 
 __END_DECLS
 

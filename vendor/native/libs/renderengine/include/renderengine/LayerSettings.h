@@ -16,20 +16,18 @@
 
 #pragma once
 
+#include <iosfwd>
+
 #include <math/mat4.h>
 #include <math/vec3.h>
-#include <renderengine/ExternalTexture.h>
-#include <ui/BlurRegion.h>
+#include <renderengine/Texture.h>
 #include <ui/Fence.h>
 #include <ui/FloatRect.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicTypes.h>
 #include <ui/Rect.h>
 #include <ui/Region.h>
-#include <ui/StretchEffect.h>
 #include <ui/Transform.h>
-
-#include <iosfwd>
 
 namespace android {
 namespace renderengine {
@@ -39,7 +37,7 @@ struct Buffer {
     // Buffer containing the image that we will render.
     // If buffer == nullptr, then the rest of the fields in this struct will be
     // ignored.
-    std::shared_ptr<ExternalTexture> buffer = nullptr;
+    sp<GraphicBuffer> buffer = nullptr;
 
     // Fence that will fire when the buffer is ready to be bound.
     sp<Fence> fence = nullptr;
@@ -64,8 +62,8 @@ struct Buffer {
 
     // HDR color-space setting for Y410.
     bool isY410BT2020 = false;
-
-    float maxLuminanceNits = 0.0;
+    float maxMasteringLuminance = 0.0;
+    float maxContentLuminance = 0.0;
 };
 
 // Metadata describing the layer geometry.
@@ -107,9 +105,6 @@ struct PixelSource {
  * material design guidelines.
  */
 struct ShadowSettings {
-    // Boundaries of the shadow.
-    FloatRect boundaries = FloatRect();
-
     // Color to the ambient shadow. The alpha is premultiplied.
     vec4 ambientColor = vec4();
 
@@ -153,24 +148,9 @@ struct LayerSettings {
     // True if blending will be forced to be disabled.
     bool disableBlending = false;
 
-    // If true, then this layer casts a shadow and/or blurs behind it, but it does
-    // not otherwise draw any of the layer's other contents.
-    bool skipContentDraw = false;
-
     ShadowSettings shadow;
 
     int backgroundBlurRadius = 0;
-
-    std::vector<BlurRegion> blurRegions;
-
-    // Transform matrix used to convert the blurRegions geometry into the same
-    // coordinate space as LayerSettings.geometry
-    mat4 blurRegionTransform = mat4();
-
-    StretchEffect stretchEffect;
-
-    // Name associated with the layer for debugging purposes.
-    std::string name;
 };
 
 // Keep in sync with custom comparison function in
@@ -182,7 +162,8 @@ static inline bool operator==(const Buffer& lhs, const Buffer& rhs) {
             lhs.textureTransform == rhs.textureTransform &&
             lhs.usePremultipliedAlpha == rhs.usePremultipliedAlpha &&
             lhs.isOpaque == rhs.isOpaque && lhs.isY410BT2020 == rhs.isY410BT2020 &&
-            lhs.maxLuminanceNits == rhs.maxLuminanceNits;
+            lhs.maxMasteringLuminance == rhs.maxMasteringLuminance &&
+            lhs.maxContentLuminance == rhs.maxContentLuminance;
 }
 
 static inline bool operator==(const Geometry& lhs, const Geometry& rhs) {
@@ -196,31 +177,17 @@ static inline bool operator==(const PixelSource& lhs, const PixelSource& rhs) {
 }
 
 static inline bool operator==(const ShadowSettings& lhs, const ShadowSettings& rhs) {
-    return lhs.boundaries == rhs.boundaries && lhs.ambientColor == rhs.ambientColor &&
-            lhs.spotColor == rhs.spotColor && lhs.lightPos == rhs.lightPos &&
-            lhs.lightRadius == rhs.lightRadius && lhs.length == rhs.length &&
-            lhs.casterIsTranslucent == rhs.casterIsTranslucent;
+    return lhs.ambientColor == rhs.ambientColor && lhs.spotColor == rhs.spotColor &&
+            lhs.lightPos == rhs.lightPos && lhs.lightRadius == rhs.lightRadius &&
+            lhs.length == rhs.length && lhs.casterIsTranslucent == rhs.casterIsTranslucent;
 }
 
 static inline bool operator==(const LayerSettings& lhs, const LayerSettings& rhs) {
-    if (lhs.blurRegions.size() != rhs.blurRegions.size()) {
-        return false;
-    }
-    const auto size = lhs.blurRegions.size();
-    for (size_t i = 0; i < size; i++) {
-        if (lhs.blurRegions[i] != rhs.blurRegions[i]) {
-            return false;
-        }
-    }
-
     return lhs.geometry == rhs.geometry && lhs.source == rhs.source && lhs.alpha == rhs.alpha &&
             lhs.sourceDataspace == rhs.sourceDataspace &&
             lhs.colorTransform == rhs.colorTransform &&
-            lhs.disableBlending == rhs.disableBlending &&
-            lhs.skipContentDraw == rhs.skipContentDraw && lhs.shadow == rhs.shadow &&
-            lhs.backgroundBlurRadius == rhs.backgroundBlurRadius &&
-            lhs.blurRegionTransform == rhs.blurRegionTransform &&
-            lhs.stretchEffect == rhs.stretchEffect;
+            lhs.disableBlending == rhs.disableBlending && lhs.shadow == rhs.shadow &&
+            lhs.backgroundBlurRadius == rhs.backgroundBlurRadius;
 }
 
 // Defining PrintTo helps with Google Tests.
@@ -235,7 +202,8 @@ static inline void PrintTo(const Buffer& settings, ::std::ostream* os) {
     *os << "\n    .usePremultipliedAlpha = " << settings.usePremultipliedAlpha;
     *os << "\n    .isOpaque = " << settings.isOpaque;
     *os << "\n    .isY410BT2020 = " << settings.isY410BT2020;
-    *os << "\n    .maxLuminanceNits = " << settings.maxLuminanceNits;
+    *os << "\n    .maxMasteringLuminance = " << settings.maxMasteringLuminance;
+    *os << "\n    .maxContentLuminance = " << settings.maxContentLuminance;
     *os << "\n}";
 }
 
@@ -260,8 +228,6 @@ static inline void PrintTo(const PixelSource& settings, ::std::ostream* os) {
 
 static inline void PrintTo(const ShadowSettings& settings, ::std::ostream* os) {
     *os << "ShadowSettings {";
-    *os << "\n    .boundaries = ";
-    PrintTo(settings.boundaries, os);
     *os << "\n    .ambientColor = " << settings.ambientColor;
     *os << "\n    .spotColor = " << settings.spotColor;
     *os << "\n    .lightPos = " << settings.lightPos;
@@ -271,23 +237,8 @@ static inline void PrintTo(const ShadowSettings& settings, ::std::ostream* os) {
     *os << "\n}";
 }
 
-static inline void PrintTo(const StretchEffect& effect, ::std::ostream* os) {
-    *os << "StretchEffect {";
-    *os << "\n     .width = " << effect.width;
-    *os << "\n     .height = " << effect.height;
-    *os << "\n     .vectorX = " << effect.vectorX;
-    *os << "\n     .vectorY = " << effect.vectorY;
-    *os << "\n     .maxAmountX = " << effect.maxAmountX;
-    *os << "\n     .maxAmountY = " << effect.maxAmountY;
-    *os << "\n     .mappedLeft = " << effect.mappedChildBounds.left;
-    *os << "\n     .mappedTop = " << effect.mappedChildBounds.top;
-    *os << "\n     .mappedRight = " << effect.mappedChildBounds.right;
-    *os << "\n     .mappedBottom = " << effect.mappedChildBounds.bottom;
-    *os << "\n}";
-}
-
 static inline void PrintTo(const LayerSettings& settings, ::std::ostream* os) {
-    *os << "LayerSettings for '" << settings.name.c_str() << "' {";
+    *os << "LayerSettings {";
     *os << "\n    .geometry = ";
     PrintTo(settings.geometry, os);
     *os << "\n    .source = ";
@@ -297,16 +248,9 @@ static inline void PrintTo(const LayerSettings& settings, ::std::ostream* os) {
     PrintTo(settings.sourceDataspace, os);
     *os << "\n    .colorTransform = " << settings.colorTransform;
     *os << "\n    .disableBlending = " << settings.disableBlending;
-    *os << "\n    .skipContentDraw = " << settings.skipContentDraw;
     *os << "\n    .backgroundBlurRadius = " << settings.backgroundBlurRadius;
-    for (auto blurRegion : settings.blurRegions) {
-        *os << "\n";
-        PrintTo(blurRegion, os);
-    }
     *os << "\n    .shadow = ";
     PrintTo(settings.shadow, os);
-    *os << "\n    .stretchEffect = ";
-    PrintTo(settings.stretchEffect, os);
     *os << "\n}";
 }
 

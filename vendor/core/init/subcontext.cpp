@@ -44,7 +44,6 @@
 #endif
 
 using android::base::GetExecutablePath;
-using android::base::GetProperty;
 using android::base::Join;
 using android::base::Socketpair;
 using android::base::Split;
@@ -250,21 +249,13 @@ void Subcontext::Restart() {
     Fork();
 }
 
-bool Subcontext::PathMatchesSubcontext(const std::string& path) const {
-    auto apex_name = GetApexNameFromFileName(path);
-    if (!apex_name.empty()) {
-        return std::find(apex_list_.begin(), apex_list_.end(), apex_name) != apex_list_.end();
-    }
+bool Subcontext::PathMatchesSubcontext(const std::string& path) {
     for (const auto& prefix : path_prefixes_) {
         if (StartsWith(path, prefix)) {
             return true;
         }
     }
     return false;
-}
-
-void Subcontext::SetApexList(std::vector<std::string>&& apex_list) {
-    apex_list_ = std::move(apex_list);
 }
 
 Result<SubcontextReply> Subcontext::TransmitMessage(const SubcontextCommand& subcontext_command) {
@@ -305,7 +296,7 @@ Result<void> Subcontext::Execute(const std::vector<std::string>& args) {
 
     if (subcontext_reply->reply_case() == SubcontextReply::kFailure) {
         auto& failure = subcontext_reply->failure();
-        return ResultError<>(failure.error_string(), failure.error_errno());
+        return ResultError(failure.error_string(), failure.error_errno());
     }
 
     if (subcontext_reply->reply_case() != SubcontextReply::kSuccess) {
@@ -329,7 +320,7 @@ Result<std::vector<std::string>> Subcontext::ExpandArgs(const std::vector<std::s
 
     if (subcontext_reply->reply_case() == SubcontextReply::kFailure) {
         auto& failure = subcontext_reply->failure();
-        return ResultError<>(failure.error_string(), failure.error_errno());
+        return ResultError(failure.error_string(), failure.error_errno());
     }
 
     if (subcontext_reply->reply_case() != SubcontextReply::kExpandArgsReply) {
@@ -346,11 +337,6 @@ Result<std::vector<std::string>> Subcontext::ExpandArgs(const std::vector<std::s
 }
 
 void InitializeSubcontext() {
-    if (IsMicrodroid()) {
-        LOG(INFO) << "Not using subcontext for microdroid";
-        return;
-    }
-
     if (SelinuxGetVendorAndroidVersion() >= __ANDROID_API_P__) {
         subcontext.reset(
                 new Subcontext(std::vector<std::string>{"/vendor", "/odm"}, kVendorContext));
@@ -365,9 +351,6 @@ Subcontext* GetSubcontext() {
 }
 
 bool SubcontextChildReap(pid_t pid) {
-    if (!subcontext) {
-        return false;
-    }
     if (subcontext->pid() == pid) {
         if (!subcontext_terminated_by_shutdown) {
             subcontext->Restart();
@@ -378,9 +361,6 @@ bool SubcontextChildReap(pid_t pid) {
 }
 
 void SubcontextTerminate() {
-    if (!subcontext) {
-        return;
-    }
     subcontext_terminated_by_shutdown = true;
     kill(subcontext->pid(), SIGTERM);
 }

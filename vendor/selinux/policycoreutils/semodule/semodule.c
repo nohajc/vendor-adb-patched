@@ -47,7 +47,6 @@ static int verbose;
 static int reload;
 static int no_reload;
 static int build;
-static int check_ext_changes;
 static int disable_dontaudit;
 static int preserve_tunables;
 static int ignore_module_cache;
@@ -58,7 +57,6 @@ static semanage_handle_t *sh = NULL;
 static char *store;
 static char *store_root;
 int extract_cil = 0;
-static int checksum = 0;
 
 extern char *optarg;
 extern int optind;
@@ -149,10 +147,6 @@ static void usage(char *progname)
 	printf("  -S,--store-path  use an alternate path for the policy store root\n");
 	printf("  -c, --cil extract module as cil. This only affects module extraction.\n");
 	printf("  -H, --hll extract module as hll. This only affects module extraction.\n");
-	printf("  -m, --checksum   print module checksum (SHA256).\n");
-	printf("      --rebuild-if-modules-changed\n"
-	       "                   force policy rebuild if module content changed since\n"
-	       "                   last rebuild (based on checksum)\n");
 }
 
 /* Sets the global mode variable to new_mode, but only if no other
@@ -184,7 +178,6 @@ static void set_mode(enum client_modes new_mode, char *arg)
 static void parse_command_line(int argc, char **argv)
 {
 	static struct option opts[] = {
-		{"rebuild-if-modules-changed", 0, NULL, '\0'},
 		{"store", required_argument, NULL, 's'},
 		{"base", required_argument, NULL, 'b'},
 		{"help", 0, NULL, 'h'},
@@ -207,31 +200,19 @@ static void parse_command_line(int argc, char **argv)
 		{"disable", required_argument, NULL, 'd'},
 		{"path", required_argument, NULL, 'p'},
 		{"store-path", required_argument, NULL, 'S'},
-		{"checksum", 0, NULL, 'm'},
 		{NULL, 0, NULL, 0}
 	};
 	int extract_selected = 0;
 	int cil_hll_set = 0;
-	int i, longind;
+	int i;
 	verbose = 0;
 	reload = 0;
 	no_reload = 0;
-	check_ext_changes = 0;
 	priority = 400;
 	while ((i =
-		getopt_long(argc, argv, "s:b:hi:l::vr:u:RnNBDCPX:e:d:p:S:E:cHm",
-			    opts, &longind)) != -1) {
+		getopt_long(argc, argv, "s:b:hi:l::vr:u:RnNBDCPX:e:d:p:S:E:cH", opts,
+			    NULL)) != -1) {
 		switch (i) {
-		case '\0':
-			switch(longind) {
-			case 0: /* --rebuild-if-modules-changed */
-				check_ext_changes = 1;
-				break;
-			default:
-				usage(argv[0]);
-				exit(1);
-			}
-			break;
 		case 'b':
 			fprintf(stderr, "The --base option is deprecated. Use --install instead.\n");
 			set_mode(INSTALL_M, optarg);
@@ -306,9 +287,6 @@ static void parse_command_line(int argc, char **argv)
 		case 'd':
 			set_mode(DISABLE_M, optarg);
 			break;
-		case 'm':
-			checksum = 1;
-			break;
 		case '?':
 		default:{
 				usage(argv[0]);
@@ -316,13 +294,13 @@ static void parse_command_line(int argc, char **argv)
 			}
 		}
 	}
-	if ((build || reload || check_ext_changes) && num_commands) {
+	if ((build || reload) && num_commands) {
 		fprintf(stderr,
 			"build or reload should not be used with other commands\n");
 		usage(argv[0]);
 		exit(1);
 	}
-	if (num_commands == 0 && reload == 0 && build == 0 && check_ext_changes == 0) {
+	if (num_commands == 0 && reload == 0 && build == 0) {
 		fprintf(stderr, "At least one mode must be specified.\n");
 		usage(argv[0]);
 		exit(1);
@@ -360,42 +338,6 @@ static void parse_command_line(int argc, char **argv)
 	}
 }
 
-/* Get module checksum */
-static char *hash_module_data(const char *module_name, const int prio) {
-	semanage_module_key_t *modkey = NULL;
-	char *hash_str = NULL;
-	void *hash = NULL;
-	size_t hash_len = 0;
-	int result;
-
-	result = semanage_module_key_create(sh, &modkey);
-	if (result != 0) {
-		goto cleanup;
-	}
-
-	result = semanage_module_key_set_name(sh, modkey, module_name);
-	if (result != 0) {
-		goto cleanup;
-	}
-
-	result = semanage_module_key_set_priority(sh, modkey, prio);
-	if (result != 0) {
-		goto cleanup;
-	}
-
-	result = semanage_module_compute_checksum(sh, modkey, 1, &hash_str,
-						  &hash_len);
-	if (result != 0) {
-		goto cleanup;
-	}
-
-cleanup:
-	free(hash);
-	semanage_module_key_destroy(sh, modkey);
-	free(modkey);
-	return hash_str;
-}
-
 int main(int argc, char *argv[])
 {
 	int i, commit = 0;
@@ -411,7 +353,7 @@ int main(int argc, char *argv[])
 
 	cil_set_log_level(CIL_ERR + verbose);
 
-	if (build || check_ext_changes)
+	if (build)
 		commit = 1;
 
 	sh = semanage_handle_create();
@@ -450,7 +392,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (build || check_ext_changes) {
+	if (build) {
 		if ((result = semanage_begin_transaction(sh)) < 0) {
 			fprintf(stderr, "%s:  Could not begin transaction:  %s\n",
 				argv[0], errno ? strerror(errno) : "");
@@ -510,7 +452,8 @@ int main(int argc, char *argv[])
 					}
 
 					semanage_module_info_get_priority(sh, extract_info, &curr_priority);
-					printf("Extracting at highest existing priority '%d'.\n", curr_priority);
+					printf("Module '%s' does not exist at the default priority '%d'. "
+							"Extracting at highest existing priority '%d'.\n", mode_arg, priority, curr_priority);
 					priority = curr_priority;
 				}
 
@@ -604,8 +547,6 @@ cleanup_extract:
 				int modinfos_len = 0;
 				semanage_module_info_t *m = NULL;
 				int j = 0;
-				char *module_checksum = NULL;
-				uint16_t pri = 0;
 
 				if (verbose) {
 					printf
@@ -630,18 +571,7 @@ cleanup_extract:
 						result = semanage_module_info_get_name(sh, m, &name);
 						if (result != 0) goto cleanup_list;
 
-						result = semanage_module_info_get_priority(sh, m, &pri);
-						if (result != 0) goto cleanup_list;
-
-						printf("%s", name);
-						if (checksum) {
-							module_checksum = hash_module_data(name, pri);
-							if (module_checksum) {
-								printf(" %s", module_checksum);
-								free(module_checksum);
-							}
-						}
-						printf("\n");
+						printf("%s\n", name);
 					}
 				}
 				else if (strcmp(mode_arg, "full") == 0) {
@@ -656,15 +586,11 @@ cleanup_extract:
 					}
 
 					/* calculate column widths */
-					size_t column[5] = { 0, 0, 0, 0, 0 };
+					size_t column[4] = { 0, 0, 0, 0 };
 
 					/* fixed width columns */
 					column[0] = sizeof("000") - 1;
 					column[3] = sizeof("disabled") - 1;
-
-					result = semanage_module_compute_checksum(sh, NULL, 0, NULL,
-										  &column[4]);
-					if (result != 0) goto cleanup_list;
 
 					/* variable width columns */
 					const char *tmp = NULL;
@@ -682,11 +608,12 @@ cleanup_extract:
 						if (result != 0) goto cleanup_list;
 
 						size = strlen(tmp);
-						if (size > column[2]) column[2] = size;
+						if (size > column[3]) column[3] = size;
 					}
 
 					/* print out each module */
 					for (j = 0; j < modinfos_len; j++) {
+						uint16_t pri = 0;
 						const char *name = NULL;
 						int enabled = 0;
 						const char *lang_ext = NULL;
@@ -705,20 +632,11 @@ cleanup_extract:
 						result = semanage_module_info_get_lang_ext(sh, m, &lang_ext);
 						if (result != 0) goto cleanup_list;
 
-						printf("%0*u %-*s %-*s %-*s",
+						printf("%0*u %-*s %-*s %-*s\n",
 							(int)column[0], pri,
 							(int)column[1], name,
 							(int)column[2], lang_ext,
 							(int)column[3], enabled ? "" : "disabled");
-						if (checksum) {
-							module_checksum = hash_module_data(name, pri);
-							if (module_checksum) {
-								printf(" %-*s", (int)column[4], module_checksum);
-								free(module_checksum);
-							}
-						}
-						printf("\n");
-
 					}
 				}
 				else {
@@ -823,8 +741,6 @@ cleanup_disable:
 			semanage_set_reload(sh, 0);
 		if (build)
 			semanage_set_rebuild(sh, 1);
-		if (check_ext_changes)
-			semanage_set_check_ext_changes(sh, 1);
 		if (disable_dontaudit)
 			semanage_set_disable_dontaudit(sh, 1);
 		else if (build)

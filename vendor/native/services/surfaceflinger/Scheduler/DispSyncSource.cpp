@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 
 #include "DispSyncSource.h"
@@ -22,127 +26,37 @@
 #include <utils/Trace.h>
 #include <mutex>
 
+#include "DispSync.h"
 #include "EventThread.h"
-#include "VsyncController.h"
 
-namespace android::scheduler {
+namespace android {
 using base::StringAppendF;
-using namespace std::chrono_literals;
 
-class CallbackRepeater {
-public:
-    CallbackRepeater(VSyncDispatch& dispatch, VSyncDispatch::Callback cb, const char* name,
-                     std::chrono::nanoseconds workDuration, std::chrono::nanoseconds readyDuration,
-                     std::chrono::nanoseconds notBefore)
-          : mName(name),
-            mCallback(cb),
-            mRegistration(dispatch,
-                          std::bind(&CallbackRepeater::callback, this, std::placeholders::_1,
-                                    std::placeholders::_2, std::placeholders::_3),
-                          mName),
-            mStarted(false),
-            mWorkDuration(workDuration),
-            mReadyDuration(readyDuration),
-            mLastCallTime(notBefore) {}
-
-    ~CallbackRepeater() {
-        std::lock_guard lock(mMutex);
-        mRegistration.cancel();
-    }
-
-    void start(std::chrono::nanoseconds workDuration, std::chrono::nanoseconds readyDuration) {
-        std::lock_guard lock(mMutex);
-        mStarted = true;
-        mWorkDuration = workDuration;
-        mReadyDuration = readyDuration;
-
-        auto const scheduleResult =
-                mRegistration.schedule({.workDuration = mWorkDuration.count(),
-                                        .readyDuration = mReadyDuration.count(),
-                                        .earliestVsync = mLastCallTime.count()});
-        LOG_ALWAYS_FATAL_IF((!scheduleResult.has_value()), "Error scheduling callback");
-    }
-
-    void stop() {
-        std::lock_guard lock(mMutex);
-        LOG_ALWAYS_FATAL_IF(!mStarted, "DispSyncInterface misuse: callback already stopped");
-        mStarted = false;
-        mRegistration.cancel();
-    }
-
-    void dump(std::string& result) const {
-        std::lock_guard lock(mMutex);
-        const auto relativeLastCallTime =
-                mLastCallTime - std::chrono::steady_clock::now().time_since_epoch();
-        StringAppendF(&result, "\t%s: ", mName.c_str());
-        StringAppendF(&result, "mWorkDuration=%.2f mReadyDuration=%.2f last vsync time ",
-                      mWorkDuration.count() / 1e6f, mReadyDuration.count() / 1e6f);
-        StringAppendF(&result, "%.2fms relative to now (%s)\n", relativeLastCallTime.count() / 1e6f,
-                      mStarted ? "running" : "stopped");
-    }
-
-private:
-    void callback(nsecs_t vsyncTime, nsecs_t wakeupTime, nsecs_t readyTime) {
-        {
-            std::lock_guard lock(mMutex);
-            mLastCallTime = std::chrono::nanoseconds(vsyncTime);
-        }
-
-        mCallback(vsyncTime, wakeupTime, readyTime);
-
-        {
-            std::lock_guard lock(mMutex);
-            if (!mStarted) {
-                return;
-            }
-            auto const scheduleResult =
-                    mRegistration.schedule({.workDuration = mWorkDuration.count(),
-                                            .readyDuration = mReadyDuration.count(),
-                                            .earliestVsync = vsyncTime});
-            LOG_ALWAYS_FATAL_IF(!scheduleResult.has_value(), "Error rescheduling callback");
-        }
-    }
-
-    const std::string mName;
-    scheduler::VSyncDispatch::Callback mCallback;
-
-    mutable std::mutex mMutex;
-    VSyncCallbackRegistration mRegistration GUARDED_BY(mMutex);
-    bool mStarted GUARDED_BY(mMutex) = false;
-    std::chrono::nanoseconds mWorkDuration GUARDED_BY(mMutex) = 0ns;
-    std::chrono::nanoseconds mReadyDuration GUARDED_BY(mMutex) = 0ns;
-    std::chrono::nanoseconds mLastCallTime GUARDED_BY(mMutex) = 0ns;
-};
-
-DispSyncSource::DispSyncSource(scheduler::VSyncDispatch& vSyncDispatch,
-                               std::chrono::nanoseconds workDuration,
-                               std::chrono::nanoseconds readyDuration, bool traceVsync,
+DispSyncSource::DispSyncSource(DispSync* dispSync, nsecs_t phaseOffset, bool traceVsync,
                                const char* name)
       : mName(name),
         mValue(base::StringPrintf("VSYNC-%s", name), 0),
         mTraceVsync(traceVsync),
         mVsyncOnLabel(base::StringPrintf("VsyncOn-%s", name)),
-        mWorkDuration(base::StringPrintf("VsyncWorkDuration-%s", name), workDuration),
-        mReadyDuration(readyDuration) {
-    mCallbackRepeater =
-            std::make_unique<CallbackRepeater>(vSyncDispatch,
-                                               std::bind(&DispSyncSource::onVsyncCallback, this,
-                                                         std::placeholders::_1,
-                                                         std::placeholders::_2,
-                                                         std::placeholders::_3),
-                                               name, workDuration, readyDuration,
-                                               std::chrono::steady_clock::now().time_since_epoch());
-}
-
-DispSyncSource::~DispSyncSource() = default;
+        mDispSync(dispSync),
+        mPhaseOffset(base::StringPrintf("VsyncOffset-%s", name), phaseOffset) {}
 
 void DispSyncSource::setVSyncEnabled(bool enable) {
     std::lock_guard lock(mVsyncMutex);
     if (enable) {
-        mCallbackRepeater->start(mWorkDuration, mReadyDuration);
+        status_t err = mDispSync->addEventListener(mName, mPhaseOffset,
+                                                   static_cast<DispSync::Callback*>(this),
+                                                   mLastCallbackTime);
+        if (err != NO_ERROR) {
+            ALOGE("error registering vsync callback: %s (%d)", strerror(-err), err);
+        }
         // ATRACE_INT(mVsyncOnLabel.c_str(), 1);
     } else {
-        mCallbackRepeater->stop();
+        status_t err = mDispSync->removeEventListener(static_cast<DispSync::Callback*>(this),
+                                                      &mLastCallbackTime);
+        if (err != NO_ERROR) {
+            ALOGE("error unregistering vsync callback: %s (%d)", strerror(-err), err);
+        }
         // ATRACE_INT(mVsyncOnLabel.c_str(), 0);
     }
     mEnabled = enable;
@@ -153,22 +67,32 @@ void DispSyncSource::setCallback(VSyncSource::Callback* callback) {
     mCallback = callback;
 }
 
-void DispSyncSource::setDuration(std::chrono::nanoseconds workDuration,
-                                 std::chrono::nanoseconds readyDuration) {
+void DispSyncSource::setPhaseOffset(nsecs_t phaseOffset) {
     std::lock_guard lock(mVsyncMutex);
-    mWorkDuration = workDuration;
-    mReadyDuration = readyDuration;
+    const nsecs_t period = mDispSync->getPeriod();
+
+    // Normalize phaseOffset to [-period, period)
+    const int numPeriods = phaseOffset / period;
+    phaseOffset -= numPeriods * period;
+    if (mPhaseOffset == phaseOffset) {
+        return;
+    }
+
+    mPhaseOffset = phaseOffset;
 
     // If we're not enabled, we don't need to mess with the listeners
     if (!mEnabled) {
         return;
     }
 
-    mCallbackRepeater->start(mWorkDuration, mReadyDuration);
+    status_t err =
+            mDispSync->changePhaseOffset(static_cast<DispSync::Callback*>(this), mPhaseOffset);
+    if (err != NO_ERROR) {
+        ALOGE("error changing vsync offset: %s (%d)", strerror(-err), err);
+    }
 }
 
-void DispSyncSource::onVsyncCallback(nsecs_t vsyncTime, nsecs_t targetWakeupTime,
-                                     nsecs_t readyTime) {
+void DispSyncSource::onDispSyncEvent(nsecs_t when, nsecs_t expectedVSyncTimestamp) {
     VSyncSource::Callback* callback;
     {
         std::lock_guard lock(mCallbackMutex);
@@ -180,13 +104,17 @@ void DispSyncSource::onVsyncCallback(nsecs_t vsyncTime, nsecs_t targetWakeupTime
     }
 
     if (callback != nullptr) {
-        callback->onVSyncEvent(targetWakeupTime, vsyncTime, readyTime);
+        callback->onVSyncEvent(when, expectedVSyncTimestamp);
     }
 }
 
 void DispSyncSource::dump(std::string& result) const {
     std::lock_guard lock(mVsyncMutex);
     StringAppendF(&result, "DispSyncSource: %s(%s)\n", mName, mEnabled ? "enabled" : "disabled");
+    mDispSync->dump(result);
 }
 
-} // namespace android::scheduler
+} // namespace android
+
+// TODO(b/129481165): remove the #pragma below and fix conversion issues
+#pragma clang diagnostic pop // ignored "-Wconversion"

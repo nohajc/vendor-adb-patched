@@ -17,32 +17,40 @@
 #ifndef ANDROID_EGLDEFS_H
 #define ANDROID_EGLDEFS_H
 
-#include <log/log.h>
-
 #include "../hooks.h"
 #include "egl_platform_entries.h"
+
+#include <log/log.h>
 
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 4
 #define EGL_MAKE_VERSION(major, minor, patch) (((major) << 22) | ((minor) << 12) | (patch))
 
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
-// EGLDisplay are global, not attached to a given thread
+//  EGLDisplay are global, not attached to a given thread
 const unsigned int NUM_DISPLAYS = 1;
 
-extern const char* const platform_names[];
+// ----------------------------------------------------------------------------
 
+extern char const * const platform_names[];
+
+// clang-format off
 struct egl_connection_t {
-    enum { GLESv1_INDEX = 0, GLESv2_INDEX = 1 };
+    enum {
+        GLESv1_INDEX = 0,
+        GLESv2_INDEX = 1
+    };
 
-    inline egl_connection_t()
-          : dso(nullptr),
-            libEgl(nullptr),
-            libGles1(nullptr),
-            libGles2(nullptr),
-            systemDriverUnloaded(false) {
-        const char* const* entries = platform_names;
+    inline egl_connection_t() : dso(nullptr),
+                                libEgl(nullptr),
+                                libGles1(nullptr),
+                                libGles2(nullptr),
+                                systemDriverUnloaded(false) {
+
+        char const* const* entries = platform_names;
         EGLFuncPointer* curr = reinterpret_cast<EGLFuncPointer*>(&platform);
         while (*entries) {
             const char* name = *entries;
@@ -58,34 +66,41 @@ struct egl_connection_t {
         }
     }
 
-    void* dso;
-    gl_hooks_t* hooks[2];
-    EGLint major;
-    EGLint minor;
-    EGLint driverVersion;
-    egl_t egl;
+    void *              dso;
+    gl_hooks_t *        hooks[2];
+    EGLint              major;
+    EGLint              minor;
+    EGLint              driverVersion;
+    egl_t               egl;
 
     // Functions implemented or redirected by platform libraries
-    platform_impl_t platform;
+    platform_impl_t     platform;
 
-    void* libEgl;
-    void* libGles1;
-    void* libGles2;
+    void*               libEgl;
+    void*               libGles1;
+    void*               libGles2;
 
-    bool systemDriverUnloaded;
-    bool useAngle; // Was ANGLE successfully loaded
+    bool                systemDriverUnloaded;
+    bool                useAngle;       // Was ANGLE successfully loaded
 };
+// clang-format on
+
+// ----------------------------------------------------------------------------
 
 extern gl_hooks_t gHooks[2];
 extern gl_hooks_t gHooksNoContext;
 extern pthread_key_t gGLWrapperKey;
 extern "C" void gl_unimplemented();
 extern "C" void gl_noop();
-extern const char* const gl_names[];
-extern const char* const gl_names_1[];
-extern const char* const egl_names[];
+
+extern char const * const gl_names[];
+extern char const * const gl_names_1[];
+extern char const * const egl_names[];
+
 extern egl_connection_t gEGLImpl;
 
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------
 
 #endif /* ANDROID_EGLDEFS_H */

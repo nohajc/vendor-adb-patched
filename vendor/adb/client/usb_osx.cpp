@@ -296,13 +296,6 @@ AndroidInterfaceAdded(io_iterator_t iterator)
             continue;
         }
 
-        if (!transport_server_owns_device(devpath, serial)) {
-            // We aren't allowed to communicate with this device. Don't open this device.
-            D("ignoring device: not owned by this server dev_path: '%s', serial: '%s'",
-              devpath.c_str(), serial);
-            continue;
-        }
-
         std::unique_ptr<usb_handle> handle =
             CheckInterface((IOUSBInterfaceInterface550**)iface, vendor, product);
         if (handle == nullptr) {

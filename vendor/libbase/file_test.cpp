@@ -333,32 +333,12 @@ TEST(file, Basename) {
   EXPECT_EQ("sh", android::base::Basename("/system/bin/sh"));
   EXPECT_EQ("sh", android::base::Basename("sh"));
   EXPECT_EQ("sh", android::base::Basename("/system/bin/sh/"));
-
-  // Since we've copy & pasted bionic's implementation, copy & paste the tests.
-  EXPECT_EQ(".",   android::base::Basename(""));
-  EXPECT_EQ("lib", android::base::Basename("/usr/lib"));
-  EXPECT_EQ("usr", android::base::Basename("/usr/"));
-  EXPECT_EQ("usr", android::base::Basename("usr"));
-  EXPECT_EQ("/",   android::base::Basename("/"));
-  EXPECT_EQ(".",   android::base::Basename("."));
-  EXPECT_EQ("..",  android::base::Basename(".."));
-  EXPECT_EQ("/",   android::base::Basename("///"));
-  EXPECT_EQ("lib", android::base::Basename("//usr//lib//"));
 }
 
 TEST(file, Dirname) {
   EXPECT_EQ("/system/bin", android::base::Dirname("/system/bin/sh"));
   EXPECT_EQ(".", android::base::Dirname("sh"));
   EXPECT_EQ("/system/bin", android::base::Dirname("/system/bin/sh/"));
-
-  // Since we've copy & pasted bionic's implementation, copy & paste the tests.
-  EXPECT_EQ(".", android::base::Dirname(""));
-  EXPECT_EQ("/usr", android::base::Dirname("/usr/lib"));
-  EXPECT_EQ("/", android::base::Dirname("/usr/"));
-  EXPECT_EQ(".", android::base::Dirname("usr"));
-  EXPECT_EQ(".", android::base::Dirname("."));
-  EXPECT_EQ(".", android::base::Dirname(".."));
-  EXPECT_EQ("/", android::base::Dirname("/"));
 }
 
 TEST(file, ReadFileToString_capacity) {

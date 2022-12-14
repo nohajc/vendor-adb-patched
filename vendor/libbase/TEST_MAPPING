@@ -3,10 +3,5 @@
     {
       "name": "libbase_test"
     }
-  ],
-  "hwasan-presubmit": [
-    {
-      "name": "libbase_test"
-    }
   ]
 }

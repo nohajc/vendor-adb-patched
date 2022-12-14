@@ -16,15 +16,12 @@
 
 #pragma once
 
-#include <android-base/logging.h>
-#include <android-base/off64_t.h>
-
-#include <atomic>
-#include <iterator>
 #include <memory>
 #include <shared_mutex>
-#include <type_traits>
 #include <vector>
+
+#include <android-base/logging.h>
+#include <android-base/off64_t.h>
 
 #ifdef __ANDROID__
 #include <linux/incrementalfs.h>
@@ -57,24 +54,14 @@ struct map_ptr;
 // This always uses MAP_SHARED.
 class IncFsFileMap final {
 public:
-    IncFsFileMap() noexcept;
+    IncFsFileMap();
     IncFsFileMap(IncFsFileMap&&) noexcept;
     IncFsFileMap& operator =(IncFsFileMap&&) noexcept;
-    ~IncFsFileMap() noexcept;
+    ~IncFsFileMap();
 
     // Initializes the map. Does not take ownership of the file descriptor.
     // Returns whether or not the file was able to be memory-mapped.
     bool Create(int fd, off64_t offset, size_t length, const char* file_name);
-
-    // Same thing, but allows verification to be disabled when `verify` is `false`, and enabled when
-    // `verify` is true and the file resides on IncFs.
-    bool Create(int fd, off64_t offset, size_t length, const char* file_name, bool verify);
-
-    // Same thing, but allows verification to be disabled when `verify` is `false`, and enabled when
-    // `verify` is true regardless of whether the file resides on IncFs (used for benchmarks and
-    // testing).
-    bool CreateForceVerification(int fd, off64_t offset, size_t length, const char* file_name,
-                                 bool verify);
 
     template <typename T = void>
     map_ptr<T> data() const {
@@ -87,13 +74,14 @@ public:
     off64_t offset() const;
     const char* file_name() const;
 
-public:
+private:
+    DISALLOW_COPY_AND_ASSIGN(IncFsFileMap);
+
+#ifdef __ANDROID__
     // Returns whether the data range is entirely present on IncFs.
     bool Verify(const uint8_t* const& data_start, const uint8_t* const& data_end,
                 const uint8_t** prev_verified_block) const;
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(IncFsFileMap);
+#endif
 
     using bucket_t = uint8_t;
     static constexpr size_t kBucketBits = sizeof(bucket_t) * 8U;
@@ -357,13 +345,13 @@ public:
     // Returns true if the elements are completely present; otherwise, returns false.
     template <typename T1 = T, NotVoid<T1> = 0, bool V1 = Verified, IsUnverified<V1> = 0>
     bool verify(size_t n = 1) const {
-        if (ptr_ == nullptr) {
-            return false;
-        }
-
 #ifdef __ANDROID__
         if (LIKELY(map_ == nullptr)) {
             return ptr_ != nullptr;
+        }
+
+        if (ptr_ == nullptr) {
+            return false;
         }
 
         const size_t verify_size = sizeof(T) * n;

@@ -30,13 +30,7 @@ cc_defaults {
         "-Werror",
         "-Wno-unused-parameter",
         "-Wthread-safety",
-        "-Wshadow",
-        "-Wshadow-field-in-constructor-modified",
-        "-Wshadow-uncaptured-local",
     ],
-    sanitize: {
-        misc_undefined: ["bounds"],
-    },
 }
 
 /////////////////////////////////////////////////
@@ -63,20 +57,10 @@ cc_defaults {
         "libcutils",
         "libhidlbase",
         "libinput",
-        "libkll",
         "liblog",
-        "libprotobuf-cpp-lite",
         "libstatslog",
-        "libstatspull",
-        "libstatssocket",
         "libutils",
         "libui",
-        "lib-platform-compat-native-api",
-        "server_configurable_flags",
-        "InputFlingerProperties",
-    ],
-    static_libs: [
-        "libattestation",
     ],
 }
 
@@ -96,7 +80,6 @@ cc_library_shared {
         "libinputflinger_base",
         "libinputreporter",
         "libinputreader",
-        "libgui",
     ],
     static_libs: [
         "libinputdispatcher",
@@ -125,7 +108,6 @@ filegroup {
         "InputListener.cpp",
         "InputReaderBase.cpp",
         "InputThread.cpp",
-        "VibrationElement.cpp"
     ],
 }
 
@@ -137,7 +119,6 @@ cc_defaults {
         "libcutils",
         "libinput",
         "liblog",
-        "libui",
         "libutils",
     ],
     header_libs: [

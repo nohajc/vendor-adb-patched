@@ -7,7 +7,7 @@ package {
     default_applicable_licenses: ["frameworks_native_license"],
 }
 
-cc_library {
+cc_library_shared {
     name: "libtimestats_proto",
     export_include_dirs: ["include"],
 
@@ -38,29 +38,4 @@ cc_library {
         "-Wno-undef",
         "-Wno-unused-parameter",
     ],
-}
-
-// ====  java host library for timestats proto  ===========================
-// Note timestats is deprecated and is only used for legacy tests
-java_library_host {
-    name: "host-timestats-proto",
-    srcs: [
-        "timestats.proto",
-    ],
-    proto: {
-        type: "full",
-    },
-}
-
-// ====  java device library for timestats proto  ===========================
-// Note timestats is deprecated and is only used for legacy tests
-java_library {
-    name: "timestats-proto",
-    srcs: [
-        "timestats.proto",
-    ],
-    proto: {
-        type: "lite",
-    },
-    sdk_version: "current",
 }

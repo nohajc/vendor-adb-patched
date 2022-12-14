@@ -26,30 +26,15 @@ namespace android {
 
 // ---------------------------------------------------------------------------
 
-class MemoryHeapBase : public BnMemoryHeap
+class MemoryHeapBase : public virtual BnMemoryHeap
 {
 public:
-    static constexpr auto MEMFD_ALLOW_SEALING_FLAG = 0x00000800;
     enum {
         READ_ONLY = IMemoryHeap::READ_ONLY,
         // memory won't be mapped locally, but will be mapped in the remote
         // process.
         DONT_MAP_LOCALLY = 0x00000100,
-        NO_CACHING = 0x00000200,
-        // Bypass ashmem-libcutils to create a memfd shared region.
-        // Ashmem-libcutils will eventually migrate to memfd.
-        // Memfd has security benefits and supports file sealing.
-        // Calling process will need to modify selinux permissions to
-        // open access to tmpfs files. See audioserver for examples.
-        // This is only valid for size constructor.
-        // For host compilation targets, memfd is stubbed in favor of /tmp
-        // files so sealing is not enforced.
-        FORCE_MEMFD = 0x00000400,
-        // Default opt-out of sealing behavior in memfd to avoid potential DOS.
-        // Clients of shared files can seal at anytime via syscall, leading to
-        // TOC/TOU issues if additional seals prevent access from the creating
-        // process. Alternatively, seccomp fcntl().
-        MEMFD_ALLOW_SEALING = FORCE_MEMFD | MEMFD_ALLOW_SEALING_FLAG
+        NO_CACHING = 0x00000200
     };
 
     /*

@@ -93,7 +93,7 @@ TEST(PatchUtilsTest, GatherMetadata) {
 
     std::string expectedMetadata;
     android::base::ReadFileToString(GetTestFile("rotating_cube-metadata-release.data"),
-                                    &expectedMetadata, true);
+                                    &expectedMetadata);
     APKMetaData expected;
     EXPECT_TRUE(expected.ParseFromString(expectedMetadata));
 
@@ -123,7 +123,7 @@ TEST(PatchUtilsTest, GatherDumpMetadata) {
 
     {
         std::string cd;
-        android::base::ReadFileToString(GetTestFile("sample.cd"), &cd, true);
+        android::base::ReadFileToString(GetTestFile("sample.cd"), &cd);
 
         APKDump dump;
         dump.set_cd(std::move(cd));

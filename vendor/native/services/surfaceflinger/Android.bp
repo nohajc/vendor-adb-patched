@@ -12,7 +12,6 @@ cc_defaults {
     cflags: [
         "-Wall",
         "-Werror",
-        "-Wextra",
         "-Wformat",
         "-Wthread-safety",
         "-Wunused",
@@ -23,10 +22,7 @@ cc_defaults {
 
 cc_defaults {
     name: "libsurfaceflinger_defaults",
-    defaults: [
-        "surfaceflinger_defaults",
-        "skia_renderengine_deps",
-    ],
+    defaults: ["surfaceflinger_defaults"],
     cflags: [
         "-DLOG_TAG=\"SurfaceFlinger\"",
         "-DGL_GLEXT_PROTOTYPES",
@@ -48,6 +44,7 @@ cc_defaults {
         "android.hardware.power-V1-cpp",
         "libbase",
         "libbinder",
+        "libbufferhubqueue",
         "libcutils",
         "libEGL",
         "libfmq",
@@ -58,8 +55,10 @@ cc_defaults {
         "liblayers_proto",
         "liblog",
         "libnativewindow",
+        "libpdx_default_transport",
         "libprocessgroup",
         "libprotobuf-cpp-lite",
+        "libstatslog",
         "libsync",
         "libtimestats",
         "libui",
@@ -69,7 +68,6 @@ cc_defaults {
     ],
     static_libs: [
         "libcompositionengine",
-        "libframetimeline",
         "libperfetto_client_experimental",
         "librenderengine",
         "libserviceutils",
@@ -101,7 +99,7 @@ cc_defaults {
     // TODO (marissaw): this library is not used by surfaceflinger. This is here so
     // the library compiled in a way that is accessible to system partition when running
     // IMapper's VTS.
-    required: ["libgralloctypes"],
+    required: ["libgralloctypes"]
 }
 
 cc_defaults {
@@ -114,7 +112,10 @@ cc_defaults {
         thin: true,
     },
     whole_program_vtables: true, // Requires ThinLTO
-    afdo: true,
+    pgo: {
+        sampling: true,
+        profile_file: "surfaceflinger/surfaceflinger.profdata",
+    },
     // TODO(b/131771163): Fix broken fuzzer support with LTO.
     sanitize: {
         fuzzer: false,
@@ -143,60 +144,69 @@ filegroup {
         "DisplayHardware/ComposerHal.cpp",
         "DisplayHardware/DisplayIdentification.cpp",
         "DisplayHardware/FramebufferSurface.cpp",
-        "DisplayHardware/Hash.cpp",
         "DisplayHardware/HWC2.cpp",
         "DisplayHardware/HWComposer.cpp",
         "DisplayHardware/PowerAdvisor.cpp",
         "DisplayHardware/VirtualDisplaySurface.cpp",
-        "DisplayRenderArea.cpp",
         "Effects/Daltonizer.cpp",
         "EventLog/EventLog.cpp",
-        "FpsReporter.cpp",
         "FrameTracer/FrameTracer.cpp",
         "FrameTracker.cpp",
-        "HdrLayerInfoReporter.cpp",
-        "WindowInfosListenerInvoker.cpp",
         "Layer.cpp",
         "LayerProtoHelper.cpp",
         "LayerRejecter.cpp",
-        "LayerRenderArea.cpp",
         "LayerVector.cpp",
         "MonitoredProducer.cpp",
         "NativeWindowSurface.cpp",
         "RefreshRateOverlay.cpp",
         "RegionSamplingThread.cpp",
         "RenderArea.cpp",
+        "Scheduler/DispSync.cpp",
         "Scheduler/DispSyncSource.cpp",
+        "Scheduler/EventControlThread.cpp",
         "Scheduler/EventThread.cpp",
         "Scheduler/OneShotTimer.cpp",
         "Scheduler/LayerHistory.cpp",
+        "Scheduler/LayerHistoryV2.cpp",
         "Scheduler/LayerInfo.cpp",
+        "Scheduler/LayerInfoV2.cpp",
         "Scheduler/MessageQueue.cpp",
+        "Scheduler/PhaseOffsets.cpp",
         "Scheduler/RefreshRateConfigs.cpp",
         "Scheduler/Scheduler.cpp",
         "Scheduler/SchedulerUtils.cpp",
         "Scheduler/Timer.cpp",
         "Scheduler/VSyncDispatchTimerQueue.cpp",
         "Scheduler/VSyncPredictor.cpp",
-        "Scheduler/VsyncModulator.cpp",
+        "Scheduler/VSyncModulator.cpp",
         "Scheduler/VSyncReactor.cpp",
-        "Scheduler/VsyncConfiguration.cpp",
         "StartPropertySetThread.cpp",
         "SurfaceFlinger.cpp",
         "SurfaceFlingerDefaultFactory.cpp",
         "SurfaceInterceptor.cpp",
         "SurfaceTracing.cpp",
-        "TransactionCallbackInvoker.cpp",
-        "TunnelModeEnabledReporter.cpp",
+        "TransactionCompletedThread.cpp",
     ],
+}
+
+cc_library_shared {
+    // Please use libsurfaceflinger_defaults to configure how the sources are
+    // built, so the same settings can be used elsewhere.
+    name: "libsurfaceflinger",
+    defaults: ["libsurfaceflinger_production_defaults"],
+    srcs: [
+        ":libsurfaceflinger_sources",
+
+        // Note: SurfaceFlingerFactory is not in the default sources so that it
+        // can be easily replaced.
+        "SurfaceFlingerFactory.cpp",
+    ],
+    logtags: ["EventLog/EventLogTags.logtags"],
 }
 
 cc_defaults {
     name: "libsurfaceflinger_binary",
-    defaults: [
-        "surfaceflinger_defaults",
-        "libsurfaceflinger_production_defaults",
-    ],
+    defaults: ["surfaceflinger_defaults"],
     cflags: [
         "-DLOG_TAG=\"SurfaceFlinger\"",
     ],
@@ -210,6 +220,7 @@ cc_defaults {
         "libcutils",
         "libdisplayservicehidl",
         "libhidlbase",
+        "libinput",
         "liblayers_proto",
         "liblog",
         "libprocessgroup",
@@ -220,31 +231,23 @@ cc_defaults {
         "libserviceutils",
         "libtrace_proto",
     ],
+    ldflags: ["-Wl,--export-dynamic"],
 }
 
 filegroup {
     name: "surfaceflinger_binary_sources",
-    srcs: [
-        ":libsurfaceflinger_sources",
-        "main_surfaceflinger.cpp",
-    ],
+    srcs: ["main_surfaceflinger.cpp"],
 }
 
 cc_binary {
     name: "surfaceflinger",
     defaults: ["libsurfaceflinger_binary"],
     init_rc: ["surfaceflinger.rc"],
-    srcs: [
-        ":surfaceflinger_binary_sources",
-        // Note: SurfaceFlingerFactory is not in the filegroup so that it
-        // can be easily replaced.
-        "SurfaceFlingerFactory.cpp",
-    ],
+    srcs: [":surfaceflinger_binary_sources"],
     shared_libs: [
+        "libsurfaceflinger",
         "libSurfaceFlingerProp",
     ],
-
-    logtags: ["EventLog/EventLogTags.logtags"],
 }
 
 subdirs = [

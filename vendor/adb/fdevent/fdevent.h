@@ -28,6 +28,7 @@
 #include <optional>
 #include <unordered_map>
 #include <variant>
+#include <atomic>
 
 #include <android-base/thread_annotations.h>
 

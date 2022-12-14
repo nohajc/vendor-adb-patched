@@ -72,9 +72,9 @@ class BnInterface : public INTERFACE, public BBinder
 public:
     virtual sp<IInterface>      queryLocalInterface(const String16& _descriptor);
     virtual const String16&     getInterfaceDescriptor() const;
-    typedef INTERFACE BaseInterface;
 
 protected:
+    typedef INTERFACE           BaseInterface;
     virtual IBinder*            onAsBinder();
 };
 
@@ -85,28 +85,28 @@ class BpInterface : public INTERFACE, public BpRefBase
 {
 public:
     explicit                    BpInterface(const sp<IBinder>& remote);
-    typedef INTERFACE BaseInterface;
 
 protected:
+    typedef INTERFACE           BaseInterface;
     virtual IBinder*            onAsBinder();
 };
 
 // ----------------------------------------------------------------------
 
-#define DECLARE_META_INTERFACE(INTERFACE)                                                         \
-public:                                                                                           \
-    static const ::android::String16 descriptor;                                                  \
-    static ::android::sp<I##INTERFACE> asInterface(const ::android::sp<::android::IBinder>& obj); \
-    virtual const ::android::String16& getInterfaceDescriptor() const;                            \
-    I##INTERFACE();                                                                               \
-    virtual ~I##INTERFACE();                                                                      \
-    static bool setDefaultImpl(::android::sp<I##INTERFACE> impl);                                 \
-    static const ::android::sp<I##INTERFACE>& getDefaultImpl();                                   \
-                                                                                                  \
-private:                                                                                          \
-    static ::android::sp<I##INTERFACE> default_impl;                                              \
-                                                                                                  \
-public:
+#define DECLARE_META_INTERFACE(INTERFACE)                               \
+public:                                                                 \
+    static const ::android::String16 descriptor;                        \
+    static ::android::sp<I##INTERFACE> asInterface(                     \
+            const ::android::sp<::android::IBinder>& obj);              \
+    virtual const ::android::String16& getInterfaceDescriptor() const;  \
+    I##INTERFACE();                                                     \
+    virtual ~I##INTERFACE();                                            \
+    static bool setDefaultImpl(std::unique_ptr<I##INTERFACE> impl);     \
+    static const std::unique_ptr<I##INTERFACE>& getDefaultImpl();       \
+private:                                                                \
+    static std::unique_ptr<I##INTERFACE> default_impl;                  \
+public:                                                                 \
+
 
 #define __IINTF_CONCAT(x, y) (x ## y)
 
@@ -129,50 +129,48 @@ public:
 
 #endif
 
-// Macro to be used by both IMPLEMENT_META_INTERFACE and IMPLEMENT_META_NESTED_INTERFACE
-#define DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE0(ITYPE, INAME, BPTYPE)                     \
-    const ::android::String16& ITYPE::getInterfaceDescriptor() const { return ITYPE::descriptor; } \
-    ::android::sp<ITYPE> ITYPE::asInterface(const ::android::sp<::android::IBinder>& obj) {        \
-        ::android::sp<ITYPE> intr;                                                                 \
-        if (obj != nullptr) {                                                                      \
-            intr = ::android::sp<ITYPE>::cast(obj->queryLocalInterface(ITYPE::descriptor));        \
-            if (intr == nullptr) {                                                                 \
-                intr = ::android::sp<BPTYPE>::make(obj);                                           \
-            }                                                                                      \
-        }                                                                                          \
-        return intr;                                                                               \
-    }                                                                                              \
-    ::android::sp<ITYPE> ITYPE::default_impl;                                                      \
-    bool ITYPE::setDefaultImpl(::android::sp<ITYPE> impl) {                                        \
-        /* Only one user of this interface can use this function     */                            \
-        /* at a time. This is a heuristic to detect if two different */                            \
-        /* users in the same process use this function.              */                            \
-        assert(!ITYPE::default_impl);                                                              \
-        if (impl) {                                                                                \
-            ITYPE::default_impl = std::move(impl);                                                 \
-            return true;                                                                           \
-        }                                                                                          \
-        return false;                                                                              \
-    }                                                                                              \
-    const ::android::sp<ITYPE>& ITYPE::getDefaultImpl() { return ITYPE::default_impl; }            \
-    ITYPE::INAME() {}                                                                              \
-    ITYPE::~INAME() {}
+#define DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(INTERFACE, NAME)\
+    const ::android::StaticString16                                     \
+        I##INTERFACE##_descriptor_static_str16(__IINTF_CONCAT(u, NAME));\
+    const ::android::String16 I##INTERFACE::descriptor(                 \
+        I##INTERFACE##_descriptor_static_str16);                        \
+    const ::android::String16&                                          \
+            I##INTERFACE::getInterfaceDescriptor() const {              \
+        return I##INTERFACE::descriptor;                                \
+    }                                                                   \
+    ::android::sp<I##INTERFACE> I##INTERFACE::asInterface(              \
+            const ::android::sp<::android::IBinder>& obj)               \
+    {                                                                   \
+        ::android::sp<I##INTERFACE> intr;                               \
+        if (obj != nullptr) {                                           \
+            intr = ::android::sp<I##INTERFACE>::cast(                   \
+                obj->queryLocalInterface(I##INTERFACE::descriptor));    \
+            if (intr == nullptr) {                                      \
+                intr = ::android::sp<Bp##INTERFACE>::make(obj);         \
+            }                                                           \
+        }                                                               \
+        return intr;                                                    \
+    }                                                                   \
+    std::unique_ptr<I##INTERFACE> I##INTERFACE::default_impl;           \
+    bool I##INTERFACE::setDefaultImpl(std::unique_ptr<I##INTERFACE> impl)\
+    {                                                                   \
+        /* Only one user of this interface can use this function     */ \
+        /* at a time. This is a heuristic to detect if two different */ \
+        /* users in the same process use this function.              */ \
+        assert(!I##INTERFACE::default_impl);                            \
+        if (impl) {                                                     \
+            I##INTERFACE::default_impl = std::move(impl);               \
+            return true;                                                \
+        }                                                               \
+        return false;                                                   \
+    }                                                                   \
+    const std::unique_ptr<I##INTERFACE>& I##INTERFACE::getDefaultImpl() \
+    {                                                                   \
+        return I##INTERFACE::default_impl;                              \
+    }                                                                   \
+    I##INTERFACE::I##INTERFACE() { }                                    \
+    I##INTERFACE::~I##INTERFACE() { }                                   \
 
-// Macro for an interface type.
-#define DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE(INTERFACE, NAME)                        \
-    const ::android::StaticString16 I##INTERFACE##_descriptor_static_str16(                     \
-            __IINTF_CONCAT(u, NAME));                                                           \
-    const ::android::String16 I##INTERFACE::descriptor(I##INTERFACE##_descriptor_static_str16); \
-    DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE0(I##INTERFACE, I##INTERFACE, Bp##INTERFACE)
-
-// Macro for "nested" interface type.
-// For example,
-//   class Parent .. { class INested .. { }; };
-// DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_NESTED_INTERFACE(Parent, Nested, "Parent.INested")
-#define DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_NESTED_INTERFACE(PARENT, INTERFACE, NAME)  \
-    const ::android::String16 PARENT::I##INTERFACE::descriptor(NAME);                    \
-    DO_NOT_DIRECTLY_USE_ME_IMPLEMENT_META_INTERFACE0(PARENT::I##INTERFACE, I##INTERFACE, \
-                                                     PARENT::Bp##INTERFACE)
 
 #define CHECK_INTERFACE(interface, data, reply)                         \
     do {                                                                \
@@ -241,11 +239,23 @@ constexpr const char* const kManualInterfaces[] = {
   "android.hardware.ICameraRecordingProxyListener",
   "android.hardware.ICrypto",
   "android.hardware.IOMXObserver",
+  "android.hardware.ISoundTrigger",
+  "android.hardware.ISoundTriggerClient",
+  "android.hardware.ISoundTriggerHwService",
   "android.hardware.IStreamListener",
   "android.hardware.IStreamSource",
+  "android.input.IInputFlinger",
+  "android.input.ISetInputWindowsListener",
+  "android.media.IAudioFlinger",
+  "android.media.IAudioFlingerClient",
+  "android.media.IAudioPolicyService",
+  "android.media.IAudioPolicyServiceClient",
   "android.media.IAudioService",
+  "android.media.IAudioTrack",
   "android.media.IDataSource",
   "android.media.IDrmClient",
+  "android.media.IEffect",
+  "android.media.IEffectClient",
   "android.media.IMediaCodecList",
   "android.media.IMediaDrmService",
   "android.media.IMediaExtractor",
@@ -269,6 +279,7 @@ constexpr const char* const kManualInterfaces[] = {
   "android.os.IComplexTypeInterface",
   "android.os.IPermissionController",
   "android.os.IPingResponder",
+  "android.os.IPowerManager",
   "android.os.IProcessInfoService",
   "android.os.ISchedulingPolicyService",
   "android.os.IStringConstants",

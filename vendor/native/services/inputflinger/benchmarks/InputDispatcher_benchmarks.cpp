@@ -16,16 +16,8 @@
 
 #include <benchmark/benchmark.h>
 
-#include <android/os/IInputConstants.h>
 #include <binder/Binder.h>
-#include <gui/constants.h>
 #include "../dispatcher/InputDispatcher.h"
-
-using android::gui::WindowInfo;
-using android::gui::WindowInfoHandle;
-using android::os::IInputConstants;
-using android::os::InputEventInjectionResult;
-using android::os::InputEventInjectionSync;
 
 namespace android::inputdispatcher {
 
@@ -53,72 +45,49 @@ protected:
     virtual ~FakeInputDispatcherPolicy() {}
 
 private:
-    void notifyConfigurationChanged(nsecs_t) override {}
+    virtual void notifyConfigurationChanged(nsecs_t) override {}
 
-    void notifyNoFocusedWindowAnr(
-            const std::shared_ptr<InputApplicationHandle>& applicationHandle) override {
-        ALOGE("There is no focused window for %s", applicationHandle->getName().c_str());
-    }
-
-    void notifyWindowUnresponsive(const sp<IBinder>& connectionToken,
-                                  const std::string& reason) override {
-        ALOGE("Window is not responding: %s", reason.c_str());
-    }
-
-    void notifyWindowResponsive(const sp<IBinder>& connectionToken) override {}
-
-    void notifyMonitorUnresponsive(int32_t pid, const std::string& reason) override {
-        ALOGE("Monitor is not responding: %s", reason.c_str());
-    }
-
-    void notifyMonitorResponsive(int32_t pid) override {}
-
-    void notifyInputChannelBroken(const sp<IBinder>&) override {}
-
-    void notifyFocusChanged(const sp<IBinder>&, const sp<IBinder>&) override {}
-
-    void notifySensorEvent(int32_t deviceId, InputDeviceSensorType sensorType,
-                           InputDeviceSensorAccuracy accuracy, nsecs_t timestamp,
-                           const std::vector<float>& values) override {}
-
-    void notifySensorAccuracy(int32_t deviceId, InputDeviceSensorType sensorType,
-                              InputDeviceSensorAccuracy accuracy) override {}
-
-    void notifyVibratorState(int32_t deviceId, bool isOn) override {}
-
-    void notifyUntrustedTouch(const std::string& obscuringPackage) override {}
-
-    void getDispatcherConfiguration(InputDispatcherConfiguration* outConfig) override {
-        *outConfig = mConfig;
-    }
-
-    bool filterInputEvent(const InputEvent* inputEvent, uint32_t policyFlags) override {
-        return true;
-    }
-
-    void interceptKeyBeforeQueueing(const KeyEvent*, uint32_t&) override {}
-
-    void interceptMotionBeforeQueueing(int32_t, nsecs_t, uint32_t&) override {}
-
-    nsecs_t interceptKeyBeforeDispatching(const sp<IBinder>&, const KeyEvent*, uint32_t) override {
+    virtual nsecs_t notifyAnr(const sp<InputApplicationHandle>&, const sp<IBinder>&,
+                              const std::string& name) override {
+        ALOGE("The window is not responding : %s", name.c_str());
         return 0;
     }
 
-    bool dispatchUnhandledKey(const sp<IBinder>&, const KeyEvent*, uint32_t, KeyEvent*) override {
+    virtual void notifyInputChannelBroken(const sp<IBinder>&) override {}
+
+    virtual void notifyFocusChanged(const sp<IBinder>&, const sp<IBinder>&) override {}
+
+    virtual void getDispatcherConfiguration(InputDispatcherConfiguration* outConfig) override {
+        *outConfig = mConfig;
+    }
+
+    virtual bool filterInputEvent(const InputEvent* inputEvent, uint32_t policyFlags) override {
+        return true;
+    }
+
+    virtual void interceptKeyBeforeQueueing(const KeyEvent*, uint32_t&) override {}
+
+    virtual void interceptMotionBeforeQueueing(int32_t, nsecs_t, uint32_t&) override {}
+
+    virtual nsecs_t interceptKeyBeforeDispatching(const sp<IBinder>&, const KeyEvent*,
+                                                  uint32_t) override {
+        return 0;
+    }
+
+    virtual bool dispatchUnhandledKey(const sp<IBinder>&, const KeyEvent*, uint32_t,
+                                      KeyEvent*) override {
         return false;
     }
 
-    void notifySwitch(nsecs_t, uint32_t, uint32_t, uint32_t) override {}
+    virtual void notifySwitch(nsecs_t, uint32_t, uint32_t, uint32_t) override {}
 
-    void pokeUserActivity(nsecs_t, int32_t, int32_t) override {}
+    virtual void pokeUserActivity(nsecs_t, int32_t) override {}
 
-    bool checkInjectEventsPermissionNonReentrant(int32_t, int32_t) override { return false; }
+    virtual bool checkInjectEventsPermissionNonReentrant(int32_t, int32_t) override {
+        return false;
+    }
 
-    void onPointerDownOutsideFocus(const sp<IBinder>& newToken) override {}
-
-    void setPointerCapture(const PointerCaptureRequest&) override {}
-
-    void notifyDropWindow(const sp<IBinder>&, float x, float y) override {}
+    virtual void onPointerDownOutsideFocus(const sp<IBinder>& newToken) override {}
 
     InputDispatcherConfiguration mConfig;
 };
@@ -129,8 +98,7 @@ public:
     virtual ~FakeApplicationHandle() {}
 
     virtual bool updateInfo() {
-        mInfo.dispatchingTimeoutMillis =
-                std::chrono::duration_cast<std::chrono::milliseconds>(DISPATCHING_TIMEOUT).count();
+        mInfo.dispatchingTimeout = DISPATCHING_TIMEOUT.count();
         return true;
     }
 };
@@ -138,7 +106,7 @@ public:
 class FakeInputReceiver {
 public:
     void consumeEvent() {
-        uint32_t consumeSeq = 0;
+        uint32_t consumeSeq;
         InputEvent* event;
 
         std::chrono::time_point start = std::chrono::steady_clock::now();
@@ -164,36 +132,38 @@ public:
 protected:
     explicit FakeInputReceiver(const sp<InputDispatcher>& dispatcher, const std::string name)
           : mDispatcher(dispatcher) {
-        mClientChannel = *mDispatcher->createInputChannel(name);
+        InputChannel::openInputChannelPair(name, mServerChannel, mClientChannel);
         mConsumer = std::make_unique<InputConsumer>(mClientChannel);
     }
 
     virtual ~FakeInputReceiver() {}
 
     sp<InputDispatcher> mDispatcher;
-    std::shared_ptr<InputChannel> mClientChannel;
+    sp<InputChannel> mServerChannel, mClientChannel;
     std::unique_ptr<InputConsumer> mConsumer;
     PreallocatedInputEventFactory mEventFactory;
 };
 
-class FakeWindowHandle : public WindowInfoHandle, public FakeInputReceiver {
+class FakeWindowHandle : public InputWindowHandle, public FakeInputReceiver {
 public:
     static const int32_t WIDTH = 200;
     static const int32_t HEIGHT = 200;
 
-    FakeWindowHandle(const std::shared_ptr<InputApplicationHandle>& inputApplicationHandle,
+    FakeWindowHandle(const sp<InputApplicationHandle>& inputApplicationHandle,
                      const sp<InputDispatcher>& dispatcher, const std::string name)
           : FakeInputReceiver(dispatcher, name), mFrame(Rect(0, 0, WIDTH, HEIGHT)) {
+        mDispatcher->registerInputChannel(mServerChannel);
+
         inputApplicationHandle->updateInfo();
-        updateInfo();
         mInfo.applicationInfo = *inputApplicationHandle->getInfo();
     }
 
-    void updateInfo() {
-        mInfo.token = mClientChannel->getConnectionToken();
+    virtual bool updateInfo() override {
+        mInfo.token = mServerChannel->getConnectionToken();
         mInfo.name = "FakeWindowHandle";
-        mInfo.type = WindowInfo::Type::APPLICATION;
-        mInfo.dispatchingTimeout = DISPATCHING_TIMEOUT;
+        mInfo.layoutParamsFlags = 0;
+        mInfo.layoutParamsType = InputWindowInfo::TYPE_APPLICATION;
+        mInfo.dispatchingTimeout = DISPATCHING_TIMEOUT.count();
         mInfo.frameLeft = mFrame.left;
         mInfo.frameTop = mFrame.top;
         mInfo.frameRight = mFrame.right;
@@ -202,12 +172,16 @@ public:
         mInfo.touchableRegion.clear();
         mInfo.addTouchableRegion(mFrame);
         mInfo.visible = true;
-        mInfo.focusable = true;
+        mInfo.canReceiveKeys = true;
+        mInfo.hasFocus = true;
         mInfo.hasWallpaper = false;
         mInfo.paused = false;
         mInfo.ownerPid = INJECTOR_PID;
         mInfo.ownerUid = INJECTOR_UID;
+        mInfo.inputFeatures = 0;
         mInfo.displayId = ADISPLAY_ID_DEFAULT;
+
+        return true;
     }
 
 protected:
@@ -228,16 +202,15 @@ static MotionEvent generateMotionEvent() {
 
     const nsecs_t currentTime = now();
 
-    ui::Transform identityTransform;
     MotionEvent event;
-    event.initialize(IInputConstants::INVALID_INPUT_EVENT_ID, DEVICE_ID, AINPUT_SOURCE_TOUCHSCREEN,
+    event.initialize(InputEvent::nextId(), DEVICE_ID, AINPUT_SOURCE_TOUCHSCREEN,
                      ADISPLAY_ID_DEFAULT, INVALID_HMAC, AMOTION_EVENT_ACTION_DOWN,
                      /* actionButton */ 0, /* flags */ 0,
                      /* edgeFlags */ 0, AMETA_NONE, /* buttonState */ 0, MotionClassification::NONE,
-                     identityTransform, /* xPrecision */ 0,
+                     1 /* xScale */, 1 /* yScale */,
+                     /* xOffset */ 0, /* yOffset */ 0, /* xPrecision */ 0,
                      /* yPrecision */ 0, AMOTION_EVENT_INVALID_CURSOR_POSITION,
-                     AMOTION_EVENT_INVALID_CURSOR_POSITION, ui::Transform::ROT_0,
-                     INVALID_DISPLAY_SIZE, INVALID_DISPLAY_SIZE, currentTime, currentTime,
+                     AMOTION_EVENT_INVALID_CURSOR_POSITION, currentTime, currentTime,
                      /*pointerCount*/ 1, pointerProperties, pointerCoords);
     return event;
 }
@@ -256,9 +229,8 @@ static NotifyMotionArgs generateMotionArgs() {
 
     const nsecs_t currentTime = now();
     // Define a valid motion event.
-    NotifyMotionArgs args(IInputConstants::INVALID_INPUT_EVENT_ID, currentTime, currentTime,
-                          DEVICE_ID, AINPUT_SOURCE_TOUCHSCREEN, ADISPLAY_ID_DEFAULT,
-                          POLICY_FLAG_PASS_TO_USER, AMOTION_EVENT_ACTION_DOWN,
+    NotifyMotionArgs args(/* id */ 0, currentTime, DEVICE_ID, AINPUT_SOURCE_TOUCHSCREEN,
+                          ADISPLAY_ID_DEFAULT, POLICY_FLAG_PASS_TO_USER, AMOTION_EVENT_ACTION_DOWN,
                           /* actionButton */ 0, /* flags */ 0, AMETA_NONE, /* buttonState */ 0,
                           MotionClassification::NONE, AMOTION_EVENT_EDGE_FLAG_NONE, 1,
                           pointerProperties, pointerCoords,
@@ -277,7 +249,7 @@ static void benchmarkNotifyMotion(benchmark::State& state) {
     dispatcher->start();
 
     // Create a window that will receive motion events
-    std::shared_ptr<FakeApplicationHandle> application = std::make_shared<FakeApplicationHandle>();
+    sp<FakeApplicationHandle> application = new FakeApplicationHandle();
     sp<FakeWindowHandle> window = new FakeWindowHandle(application, dispatcher, "Fake Window");
 
     dispatcher->setInputWindows({{ADISPLAY_ID_DEFAULT, {window}}});
@@ -287,12 +259,14 @@ static void benchmarkNotifyMotion(benchmark::State& state) {
     for (auto _ : state) {
         // Send ACTION_DOWN
         motionArgs.action = AMOTION_EVENT_ACTION_DOWN;
+        motionArgs.id = 0;
         motionArgs.downTime = now();
         motionArgs.eventTime = motionArgs.downTime;
         dispatcher->notifyMotion(&motionArgs);
 
         // Send ACTION_UP
         motionArgs.action = AMOTION_EVENT_ACTION_UP;
+        motionArgs.id = 1;
         motionArgs.eventTime = now();
         dispatcher->notifyMotion(&motionArgs);
 
@@ -311,7 +285,7 @@ static void benchmarkInjectMotion(benchmark::State& state) {
     dispatcher->start();
 
     // Create a window that will receive motion events
-    std::shared_ptr<FakeApplicationHandle> application = std::make_shared<FakeApplicationHandle>();
+    sp<FakeApplicationHandle> application = new FakeApplicationHandle();
     sp<FakeWindowHandle> window = new FakeWindowHandle(application, dispatcher, "Fake Window");
 
     dispatcher->setInputWindows({{ADISPLAY_ID_DEFAULT, {window}}});
@@ -320,13 +294,13 @@ static void benchmarkInjectMotion(benchmark::State& state) {
         MotionEvent event = generateMotionEvent();
         // Send ACTION_DOWN
         dispatcher->injectInputEvent(&event, INJECTOR_PID, INJECTOR_UID,
-                                     InputEventInjectionSync::NONE, INJECT_EVENT_TIMEOUT,
+                                     INPUT_EVENT_INJECTION_SYNC_NONE, INJECT_EVENT_TIMEOUT,
                                      POLICY_FLAG_FILTERED | POLICY_FLAG_PASS_TO_USER);
 
         // Send ACTION_UP
         event.setAction(AMOTION_EVENT_ACTION_UP);
         dispatcher->injectInputEvent(&event, INJECTOR_PID, INJECTOR_UID,
-                                     InputEventInjectionSync::NONE, INJECT_EVENT_TIMEOUT,
+                                     INPUT_EVENT_INJECTION_SYNC_NONE, INJECT_EVENT_TIMEOUT,
                                      POLICY_FLAG_FILTERED | POLICY_FLAG_PASS_TO_USER);
 
         window->consumeEvent();

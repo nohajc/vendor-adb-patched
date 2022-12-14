@@ -24,7 +24,7 @@ namespace android {
 class LayerRejecter : public BufferLayerConsumer::BufferRejecter {
 public:
     LayerRejecter(Layer::State& front, Layer::State& current, bool& recomputeVisibleRegions,
-                  bool stickySet, const std::string& name,
+                  bool stickySet, const std::string& name, int32_t overrideScalingMode,
                   bool transformToDisplayInverse);
 
     virtual bool reject(const sp<GraphicBuffer>&, const BufferItem&);
@@ -35,6 +35,7 @@ private:
     bool& mRecomputeVisibleRegions;
     const bool mStickyTransformSet;
     const std::string& mName;
+    const int32_t mOverrideScalingMode;
     const bool mTransformToDisplayInverse;
 };
 

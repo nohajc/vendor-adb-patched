@@ -26,23 +26,20 @@ package {
 cc_library_static {
     name: "libprofcollect_libflags",
     srcs: ["get_flags.cpp"],
-    generated_headers: ["cxx-bridge-header"],
-    generated_sources: ["libprofcollect_libflags_bridge_code"],
 }
 
-genrule {
-    name: "libprofcollect_libflags_bridge_code",
-    tools: ["cxxbridge"],
-    cmd: "$(location cxxbridge) $(in) >> $(out)",
-    srcs: ["lib.rs"],
-    out: ["libprofcollect_libflags_cxx_generated.cc"],
+rust_bindgen {
+    name: "libprofcollect_libflags_bindgen",
+    wrapper_src: "get_flags.hpp",
+    crate_name: "profcollect_libflags_bindgen",
+    source_stem: "bindings",
 }
 
 rust_library {
     name: "libprofcollect_libflags_rust",
     crate_name: "profcollect_libflags_rust",
     srcs: ["lib.rs"],
-    rustlibs: ["libcxx"],
+    rlibs: ["libprofcollect_libflags_bindgen"],
     static_libs: ["libprofcollect_libflags"],
     shared_libs: [
         "libc++",

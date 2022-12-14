@@ -18,14 +18,16 @@
 
 #if defined(__ANDROID__)
 
-#include <cutils/trace.h>
 #include <stdint.h>
+
+#include <cutils/trace.h>
 
 // See <cutils/trace.h> for more ATRACE_* macros.
 
 // ATRACE_NAME traces from its location until the end of its enclosing scope.
-#define PASTE(x, y) x##y
-#define ATRACE_NAME(name) android::EglScopedTrace PASTE(___tracer, __LINE__)(ATRACE_TAG, name)
+#define _PASTE(x, y) x ## y
+#define PASTE(x, y) _PASTE(x,y)
+#define ATRACE_NAME(name) android::EglScopedTrace PASTE(___tracer, __LINE__) (ATRACE_TAG, name)
 
 // ATRACE_CALL is an ATRACE_NAME that uses the current function name.
 #define ATRACE_CALL() ATRACE_NAME(__FUNCTION__)
@@ -34,9 +36,13 @@ namespace android {
 
 class EglScopedTrace {
 public:
-    inline EglScopedTrace(uint64_t tag, const char* name) : mTag(tag) { atrace_begin(mTag, name); }
+    inline EglScopedTrace(uint64_t tag, const char* name) : mTag(tag) {
+        atrace_begin(mTag, name);
+    }
 
-    inline ~EglScopedTrace() { atrace_end(mTag); }
+    inline ~EglScopedTrace() {
+        atrace_end(mTag);
+    }
 
 private:
     uint64_t mTag;

@@ -23,6 +23,7 @@
 #include <utils/Log.h>
 #include <utils/SortedVector.h>
 #include <utils/String8.h>
+#include <utils/threads.h>
 
 #include <stdint.h>
 #include <stdio.h>

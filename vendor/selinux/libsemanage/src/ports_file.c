@@ -15,6 +15,7 @@ typedef struct dbase_file dbase_t;
 #include <strings.h>
 #include <semanage/handle.h>
 #include "port_internal.h"
+#include "context_internal.h"
 #include "database_file.h"
 #include "parse_utils.h"
 #include "debug.h"
@@ -77,7 +78,7 @@ static int port_parse(semanage_handle_t * handle,
 		goto err;
 
 	/* Protocol */
-	if (parse_fetch_string(handle, info, &str, ' ', 0) < 0)
+	if (parse_fetch_string(handle, info, &str, ' ') < 0)
 		goto err;
 	if (!strcasecmp(str, "tcp"))
 		semanage_port_set_proto(port, SEMANAGE_PROTO_TCP);
@@ -123,7 +124,7 @@ static int port_parse(semanage_handle_t * handle,
 		semanage_port_set_port(port, low);
 
 	/* Port context */
-	if (parse_fetch_string(handle, info, &str, ' ', 0) < 0)
+	if (parse_fetch_string(handle, info, &str, ' ') < 0)
 		goto err;
 	if (semanage_context_from_string(handle, str, &con) < 0) {
 		ERR(handle, "invalid security context \"%s\" (%s: %u)\n%s",

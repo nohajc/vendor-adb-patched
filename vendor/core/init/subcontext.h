@@ -46,8 +46,7 @@ class Subcontext {
     Result<void> Execute(const std::vector<std::string>& args);
     Result<std::vector<std::string>> ExpandArgs(const std::vector<std::string>& args);
     void Restart();
-    bool PathMatchesSubcontext(const std::string& path) const;
-    void SetApexList(std::vector<std::string>&& apex_list);
+    bool PathMatchesSubcontext(const std::string& path);
 
     const std::string& context() const { return context_; }
     pid_t pid() const { return pid_; }
@@ -57,7 +56,6 @@ class Subcontext {
     Result<SubcontextReply> TransmitMessage(const SubcontextCommand& subcontext_command);
 
     std::vector<std::string> path_prefixes_;
-    std::vector<std::string> apex_list_;
     std::string context_;
     pid_t pid_;
     android::base::unique_fd socket_;

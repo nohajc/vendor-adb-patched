@@ -15,8 +15,6 @@
  */
 
 #include <memory>
-#include <optional>
-#include <queue>
 #include <utility>
 
 #include <android-base/file.h>
@@ -24,7 +22,6 @@
 #include <android-base/strings.h>
 
 #include "JITDebugReader.h"
-#include "RecordFilter.h"
 #include "dso.h"
 #include "event_attr.h"
 #include "event_type.h"
@@ -100,7 +97,6 @@ struct FeatureSection {
 }  // extern "C"
 
 namespace simpleperf {
-namespace {
 
 struct EventInfo {
   perf_event_attr attr;
@@ -113,77 +109,22 @@ struct EventInfo {
   } tracing_info;
 };
 
-// If a recording file is generated with --trace-offcpu, we can select TraceOffCpuMode to report.
-// It affects which samples are reported, and how period in each sample is calculated.
-enum class TraceOffCpuMode {
-  // Only report on-cpu samples, with period representing time spent on cpu.
-  ON_CPU,
-  // Only report off-cpu samples, with period representing time spent off cpu.
-  OFF_CPU,
-  // Report both on-cpu and off-cpu samples.
-  ON_OFF_CPU,
-  // Report on-cpu and off-cpu samples under the same event type.
-  MIXED_ON_OFF_CPU,
-};
-
-static std::string TraceOffCpuModeToString(TraceOffCpuMode mode) {
-  switch (mode) {
-    case TraceOffCpuMode::ON_CPU:
-      return "on-cpu";
-    case TraceOffCpuMode::OFF_CPU:
-      return "off-cpu";
-    case TraceOffCpuMode::ON_OFF_CPU:
-      return "on-off-cpu";
-    case TraceOffCpuMode::MIXED_ON_OFF_CPU:
-      return "mixed-on-off-cpu";
-  }
-}
-
-static std::optional<TraceOffCpuMode> StringToTraceOffCpuMode(const std::string& s) {
-  if (s == "on-cpu") {
-    return TraceOffCpuMode::ON_CPU;
-  }
-  if (s == "off-cpu") {
-    return TraceOffCpuMode::OFF_CPU;
-  }
-  if (s == "on-off-cpu") {
-    return TraceOffCpuMode::ON_OFF_CPU;
-  }
-  if (s == "mixed-on-off-cpu") {
-    return TraceOffCpuMode::MIXED_ON_OFF_CPU;
-  }
-  return std::nullopt;
-}
-
-struct TraceOffCpuData {
-  std::vector<TraceOffCpuMode> supported_modes;
-  std::string supported_modes_string;
-  std::optional<TraceOffCpuMode> mode;
-  std::unordered_map<pid_t, std::unique_ptr<SampleRecord>> thread_map;
-};
-
-}  // namespace
-
 class ReportLib {
  public:
   ReportLib()
       : log_severity_(new android::base::ScopedLogSeverity(android::base::INFO)),
         record_filename_("perf.data"),
         current_thread_(nullptr),
-        callchain_report_builder_(thread_tree_),
-        record_filter_(thread_tree_) {}
+        trace_offcpu_(false),
+        callchain_report_builder_(thread_tree_) {}
 
   bool SetLogSeverity(const char* log_level);
 
   bool SetSymfs(const char* symfs_dir) { return Dso::SetSymFsDir(symfs_dir); }
 
   bool SetRecordFile(const char* record_file) {
-    if (record_file_reader_) {
-      LOG(ERROR) << "recording file " << record_filename_ << " has been opened";
-      return false;
-    }
     record_filename_ = record_file;
-    return OpenRecordFileIfNecessary();
+    return true;
   }
 
   bool SetKallsymsFile(const char* kallsyms_file);
@@ -197,9 +138,6 @@ class ReportLib {
   bool AddProguardMappingFile(const char* mapping_file) {
     return callchain_report_builder_.AddProguardMappingFile(mapping_file);
   }
-  const char* GetSupportedTraceOffCpuModes();
-  bool SetTraceOffCpuMode(const char* mode);
-  bool SetSampleFilter(const char** filters, int filters_len);
 
   Sample* GetNextSample();
   Event* GetEventOfCurrentSample() { return &current_event_; }
@@ -211,10 +149,7 @@ class ReportLib {
   FeatureSection* GetFeatureSection(const char* feature_name);
 
  private:
-  void ProcessSampleRecord(std::unique_ptr<Record> r);
-  void ProcessSwitchRecord(std::unique_ptr<Record> r);
-  void AddSampleRecordToQueue(SampleRecord* r);
-  void SetCurrentSample(const SampleRecord& r);
+  void SetCurrentSample();
   const EventInfo* FindEventOfCurrentSample();
   void CreateEvents();
 
@@ -225,7 +160,7 @@ class ReportLib {
   std::string record_filename_;
   std::unique_ptr<RecordFileReader> record_file_reader_;
   ThreadTree thread_tree_;
-  std::queue<std::unique_ptr<SampleRecord>> sample_record_queue_;
+  std::unique_ptr<SampleRecord> current_record_;
   const ThreadEntry* current_thread_;
   Sample current_sample_;
   Event current_event_;
@@ -236,12 +171,12 @@ class ReportLib {
   std::vector<CallChainEntry> callchain_entries_;
   std::string build_id_string_;
   std::vector<EventInfo> events_;
-  TraceOffCpuData trace_offcpu_;
+  bool trace_offcpu_;
+  std::unordered_map<pid_t, std::unique_ptr<SampleRecord>> next_sample_cache_;
   FeatureSection feature_section_;
   std::vector<char> feature_section_data_;
   CallChainReportBuilder callchain_report_builder_;
   std::unique_ptr<Tracing> tracing_;
-  RecordFilter record_filter_;
 };
 
 bool ReportLib::SetLogSeverity(const char* log_level) {
@@ -265,51 +200,6 @@ bool ReportLib::SetKallsymsFile(const char* kallsyms_file) {
   return true;
 }
 
-const char* ReportLib::GetSupportedTraceOffCpuModes() {
-  if (!OpenRecordFileIfNecessary()) {
-    return nullptr;
-  }
-  std::string& s = trace_offcpu_.supported_modes_string;
-  s.clear();
-  for (auto mode : trace_offcpu_.supported_modes) {
-    if (!s.empty()) {
-      s += ",";
-    }
-    s += TraceOffCpuModeToString(mode);
-  }
-  return s.data();
-}
-
-bool ReportLib::SetTraceOffCpuMode(const char* mode) {
-  auto mode_value = StringToTraceOffCpuMode(mode);
-  if (!mode_value) {
-    return false;
-  }
-  if (!OpenRecordFileIfNecessary()) {
-    return false;
-  }
-  auto& modes = trace_offcpu_.supported_modes;
-  if (std::find(modes.begin(), modes.end(), mode_value) == modes.end()) {
-    return false;
-  }
-  trace_offcpu_.mode = mode_value;
-  return true;
-}
-
-bool ReportLib::SetSampleFilter(const char** filters, int filters_len) {
-  std::vector<std::string> args;
-  for (int i = 0; i < filters_len; i++) {
-    args.emplace_back(filters[i]);
-  }
-  OptionFormatMap option_formats = GetRecordFilterOptionFormats(false);
-  OptionValueMap options;
-  std::vector<std::pair<OptionName, OptionValue>> ordered_options;
-  if (!ConvertArgsToOptions(args, option_formats, "", &options, &ordered_options, nullptr)) {
-    return false;
-  }
-  return record_filter_.ParseOptions(options);
-}
-
 bool ReportLib::OpenRecordFileIfNecessary() {
   if (record_file_reader_ == nullptr) {
     record_file_reader_ = RecordFileReader::CreateInstance(record_filename_);
@@ -318,24 +208,8 @@ bool ReportLib::OpenRecordFileIfNecessary() {
     }
     record_file_reader_->LoadBuildIdAndFileFeatures(thread_tree_);
     auto& meta_info = record_file_reader_->GetMetaInfoFeature();
-    if (auto it = meta_info.find("trace_offcpu"); it != meta_info.end() && it->second == "true") {
-      // If recorded with --trace-offcpu, default is to report on-off-cpu samples.
-      std::string event_name = GetEventNameByAttr(*record_file_reader_->AttrSection()[0].attr);
-      if (!android::base::StartsWith(event_name, "cpu-clock") &&
-          !android::base::StartsWith(event_name, "task-clock")) {
-        LOG(ERROR) << "Recording file " << record_filename_ << " is no longer supported. "
-                   << "--trace-offcpu must be used with `-e cpu-clock` or `-e task-clock`.";
-        return false;
-      }
-      trace_offcpu_.mode = TraceOffCpuMode::MIXED_ON_OFF_CPU;
-      trace_offcpu_.supported_modes.push_back(TraceOffCpuMode::MIXED_ON_OFF_CPU);
-      trace_offcpu_.supported_modes.push_back(TraceOffCpuMode::ON_OFF_CPU);
-      trace_offcpu_.supported_modes.push_back(TraceOffCpuMode::ON_CPU);
-      trace_offcpu_.supported_modes.push_back(TraceOffCpuMode::OFF_CPU);
-    }
-    if (!record_filter_.CheckClock(record_file_reader_->GetClockId())) {
-      LOG(ERROR) << "Recording file " << record_filename_ << " doesn't match the clock of filter.";
-      return false;
+    if (auto it = meta_info.find("trace_offcpu"); it != meta_info.end()) {
+      trace_offcpu_ = it->second == "true";
     }
   }
   return true;
@@ -345,102 +219,43 @@ Sample* ReportLib::GetNextSample() {
   if (!OpenRecordFileIfNecessary()) {
     return nullptr;
   }
-  if (!sample_record_queue_.empty()) {
-    sample_record_queue_.pop();
-  }
-  while (sample_record_queue_.empty()) {
+  while (true) {
     std::unique_ptr<Record> record;
-    if (!record_file_reader_->ReadRecord(record) || record == nullptr) {
+    if (!record_file_reader_->ReadRecord(record)) {
+      return nullptr;
+    }
+    if (record == nullptr) {
       return nullptr;
     }
     thread_tree_.Update(*record);
     if (record->type() == PERF_RECORD_SAMPLE) {
-      ProcessSampleRecord(std::move(record));
-    } else if (record->type() == PERF_RECORD_SWITCH ||
-               record->type() == PERF_RECORD_SWITCH_CPU_WIDE) {
-      ProcessSwitchRecord(std::move(record));
+      if (trace_offcpu_) {
+        SampleRecord* r = static_cast<SampleRecord*>(record.release());
+        auto it = next_sample_cache_.find(r->tid_data.tid);
+        if (it == next_sample_cache_.end()) {
+          next_sample_cache_[r->tid_data.tid].reset(r);
+          continue;
+        } else {
+          record.reset(it->second.release());
+          it->second.reset(r);
+        }
+      }
+      current_record_.reset(static_cast<SampleRecord*>(record.release()));
+      break;
     } else if (record->type() == PERF_RECORD_TRACING_DATA ||
                record->type() == SIMPLE_PERF_RECORD_TRACING_DATA) {
       const auto& r = *static_cast<TracingDataRecord*>(record.get());
       tracing_.reset(new Tracing(std::vector<char>(r.data, r.data + r.data_size)));
     }
   }
-  SetCurrentSample(*sample_record_queue_.front());
+  SetCurrentSample();
   return &current_sample_;
 }
 
-void ReportLib::ProcessSampleRecord(std::unique_ptr<Record> r) {
-  auto sr = static_cast<SampleRecord*>(r.get());
-  if (!trace_offcpu_.mode) {
-    r.release();
-    AddSampleRecordToQueue(sr);
-    return;
-  }
-  size_t attr_index = record_file_reader_->GetAttrIndexOfRecord(sr);
-  bool offcpu_sample = attr_index > 0;
-  if (trace_offcpu_.mode == TraceOffCpuMode::ON_CPU) {
-    if (!offcpu_sample) {
-      r.release();
-      AddSampleRecordToQueue(sr);
-    }
-    return;
-  }
-  uint32_t tid = sr->tid_data.tid;
-  auto it = trace_offcpu_.thread_map.find(tid);
-  if (it == trace_offcpu_.thread_map.end() || !it->second) {
-    // If there is no previous off-cpu sample, then store the current off-cpu sample.
-    if (offcpu_sample) {
-      r.release();
-      if (it == trace_offcpu_.thread_map.end()) {
-        trace_offcpu_.thread_map[tid].reset(sr);
-      } else {
-        it->second.reset(sr);
-      }
-    }
-  } else {
-    // If there is a previous off-cpu sample, update its period.
-    SampleRecord* prev_sr = it->second.get();
-    prev_sr->period_data.period =
-        (prev_sr->Timestamp() < sr->Timestamp()) ? (sr->Timestamp() - prev_sr->Timestamp()) : 1;
-    it->second.release();
-    AddSampleRecordToQueue(prev_sr);
-    if (offcpu_sample) {
-      r.release();
-      it->second.reset(sr);
-    }
-  }
-  if (!offcpu_sample && (trace_offcpu_.mode == TraceOffCpuMode::ON_OFF_CPU ||
-                         trace_offcpu_.mode == TraceOffCpuMode::MIXED_ON_OFF_CPU)) {
-    r.release();
-    AddSampleRecordToQueue(sr);
-  }
-}
-
-void ReportLib::ProcessSwitchRecord(std::unique_ptr<Record> r) {
-  if (r->header.misc & PERF_RECORD_MISC_SWITCH_OUT) {
-    return;
-  }
-  uint32_t tid = r->sample_id.tid_data.tid;
-  auto it = trace_offcpu_.thread_map.find(tid);
-  if (it != trace_offcpu_.thread_map.end() && it->second) {
-    // If there is a previous off-cpu sample, update its period.
-    SampleRecord* prev_sr = it->second.get();
-    prev_sr->period_data.period =
-        (prev_sr->Timestamp() < r->Timestamp()) ? (r->Timestamp() - prev_sr->Timestamp()) : 1;
-    it->second.release();
-    AddSampleRecordToQueue(prev_sr);
-  }
-}
-
-void ReportLib::AddSampleRecordToQueue(SampleRecord* r) {
-  if (record_filter_.Check(r)) {
-    sample_record_queue_.emplace(r);
-  }
-}
-
-void ReportLib::SetCurrentSample(const SampleRecord& r) {
+void ReportLib::SetCurrentSample() {
   current_mappings_.clear();
   callchain_entries_.clear();
+  SampleRecord& r = *current_record_;
   current_sample_.ip = r.ip_data.ip;
   current_sample_.pid = r.tid_data.pid;
   current_sample_.tid = r.tid_data.tid;
@@ -449,7 +264,13 @@ void ReportLib::SetCurrentSample(const SampleRecord& r) {
   current_sample_.time = r.time_data.time;
   current_sample_.in_kernel = r.InKernel();
   current_sample_.cpu = r.cpu_data.cpu;
-  current_sample_.period = r.period_data.period;
+  if (trace_offcpu_) {
+    uint64_t next_time =
+        std::max(next_sample_cache_[r.tid_data.tid]->time_data.time, r.time_data.time + 1);
+    current_sample_.period = next_time - r.time_data.time;
+  } else {
+    current_sample_.period = r.period_data.period;
+  }
 
   size_t kernel_ip_count;
   std::vector<uint64_t> ips = r.GetCallChain(&kernel_ip_count);
@@ -490,13 +311,13 @@ const EventInfo* ReportLib::FindEventOfCurrentSample() {
   if (events_.empty()) {
     CreateEvents();
   }
-  if (trace_offcpu_.mode == TraceOffCpuMode::MIXED_ON_OFF_CPU) {
-    // To mix on-cpu and off-cpu samples, pretend they are from the same event type.
-    // Otherwise, some report scripts may split them.
-    return &events_[0];
+  size_t attr_index;
+  if (trace_offcpu_) {
+    // For trace-offcpu, we don't want to show event sched:sched_switch.
+    attr_index = 0;
+  } else {
+    attr_index = record_file_reader_->GetAttrIndexOfRecord(current_record_.get());
   }
-  SampleRecord* r = sample_record_queue_.front().get();
-  size_t attr_index = record_file_reader_->GetAttrIndexOfRecord(r);
   return &events_[attr_index];
 }
 
@@ -596,9 +417,6 @@ void ShowIpForUnknownSymbol(ReportLib* report_lib) EXPORT;
 void ShowArtFrames(ReportLib* report_lib, bool show) EXPORT;
 void MergeJavaMethods(ReportLib* report_lib, bool merge) EXPORT;
 bool AddProguardMappingFile(ReportLib* report_lib, const char* mapping_file) EXPORT;
-const char* GetSupportedTraceOffCpuModes(ReportLib* report_lib) EXPORT;
-bool SetTraceOffCpuMode(ReportLib* report_lib, const char* mode) EXPORT;
-bool SetSampleFilter(ReportLib* report_lib, const char** filters, int filters_len) EXPORT;
 
 Sample* GetNextSample(ReportLib* report_lib) EXPORT;
 Event* GetEventOfCurrentSample(ReportLib* report_lib) EXPORT;
@@ -649,18 +467,6 @@ bool SetKallsymsFile(ReportLib* report_lib, const char* kallsyms_file) {
 
 bool AddProguardMappingFile(ReportLib* report_lib, const char* mapping_file) {
   return report_lib->AddProguardMappingFile(mapping_file);
-}
-
-const char* GetSupportedTraceOffCpuModes(ReportLib* report_lib) {
-  return report_lib->GetSupportedTraceOffCpuModes();
-}
-
-bool SetTraceOffCpuMode(ReportLib* report_lib, const char* mode) {
-  return report_lib->SetTraceOffCpuMode(mode);
-}
-
-bool SetSampleFilter(ReportLib* report_lib, const char** filters, int filters_len) {
-  return report_lib->SetSampleFilter(filters, filters_len);
 }
 
 Sample* GetNextSample(ReportLib* report_lib) {

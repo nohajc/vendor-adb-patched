@@ -45,12 +45,13 @@ class ComposerService : public Singleton<ComposerService>
     Mutex mLock;
 
     ComposerService();
-    bool connectLocked();
+    void connectLocked();
     void composerServiceDied();
     friend class Singleton<ComposerService>;
 public:
+
     // Get a connection to the Composer Service.  This will block until
-    // a connection is established. Returns null if permission is denied.
+    // a connection is established.
     static sp<ISurfaceComposer> getComposerService();
 };
 

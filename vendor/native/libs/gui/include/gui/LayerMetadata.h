@@ -27,10 +27,6 @@ enum {
     METADATA_WINDOW_TYPE = 2,
     METADATA_TASK_ID = 3,
     METADATA_MOUSE_CURSOR = 4,
-    METADATA_ACCESSIBILITY_ID = 5,
-    METADATA_OWNER_PID = 6,
-    METADATA_DEQUEUE_TIME = 7,
-    METADATA_GAME_MODE = 8
 };
 
 struct LayerMetadata : public Parcelable {
@@ -53,8 +49,6 @@ struct LayerMetadata : public Parcelable {
     bool has(uint32_t key) const;
     int32_t getInt32(uint32_t key, int32_t fallback) const;
     void setInt32(uint32_t key, int32_t value);
-    std::optional<int64_t> getInt64(uint32_t key) const;
-    void setInt64(uint32_t key, int64_t value);
 
     std::string itemToString(uint32_t key, const char* separator) const;
 };

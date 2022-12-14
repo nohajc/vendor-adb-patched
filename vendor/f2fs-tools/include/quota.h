@@ -44,24 +44,21 @@ enum quota_type {
 
 #define QT_TREEOFF	1	/* Offset of tree in file in blocks */
 
+#pragma pack(push, 1)
 struct v2_disk_dqheader {
-	uint32_t dqh_magic;	/* Magic number identifying file */
-	uint32_t dqh_version;	/* File version */
-};
-
-static_assert(sizeof(struct v2_disk_dqheader) == 8, "");
+	u_int32_t dqh_magic;	/* Magic number identifying file */
+	u_int32_t dqh_version;	/* File version */
+} __attribute__ ((packed));
 
 /* Header with type and version specific information */
 struct v2_disk_dqinfo {
-	uint32_t dqi_bgrace;	/* Time before block soft limit becomes hard limit */
-	uint32_t dqi_igrace;	/* Time before inode soft limit becomes hard limit */
-	uint32_t dqi_flags;	/* Flags for quotafile (DQF_*) */
-	uint32_t dqi_blocks;	/* Number of blocks in file */
-	uint32_t dqi_free_blk;	/* Number of first free block in the list */
-	uint32_t dqi_free_entry;	/* Number of block with at least one free entry */
-};
-
-static_assert(sizeof(struct v2_disk_dqinfo) == 24, "");
+	u_int32_t dqi_bgrace;	/* Time before block soft limit becomes hard limit */
+	u_int32_t dqi_igrace;	/* Time before inode soft limit becomes hard limit */
+	u_int32_t dqi_flags;	/* Flags for quotafile (DQF_*) */
+	u_int32_t dqi_blocks;	/* Number of blocks in file */
+	u_int32_t dqi_free_blk;	/* Number of first free block in the list */
+	u_int32_t dqi_free_entry;	/* Number of block with at least one free entry */
+} __attribute__ ((packed));
 
 struct v2r1_disk_dqblk {
 	__le32 dqb_id;  	/* id this quota applies to */
@@ -76,8 +73,7 @@ struct v2r1_disk_dqblk {
 	__le64 dqb_curspace;    /* current space occupied (in bytes) */
 	__le64 dqb_btime;       /* time limit for excessive disk use */
 	__le64 dqb_itime;       /* time limit for excessive inode use */
-};
-
-static_assert(sizeof(struct v2r1_disk_dqblk) == 72, "");
+} __attribute__ ((packed));
+#pragma pack(pop)
 
 #endif

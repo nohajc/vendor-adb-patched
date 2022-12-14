@@ -23,7 +23,7 @@ use std::fs::{self, File, Permissions};
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use uuid::v1::{Context, Timestamp};
 use uuid::Uuid;
 use zip::write::FileOptions;
@@ -79,15 +79,6 @@ fn get_report_filename(node_id: &MacAddr6) -> Result<String> {
     let since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
     let ts =
         Timestamp::from_unix(&*UUID_CONTEXT, since_epoch.as_secs(), since_epoch.subsec_nanos());
-    let uuid = Uuid::new_v1(ts, node_id.as_bytes())?;
+    let uuid = Uuid::new_v1(ts, &node_id.as_bytes())?;
     Ok(uuid.to_string())
-}
-
-/// Get report creation timestamp through its filename (version 1 UUID).
-pub fn get_report_ts(filename: &str) -> Result<SystemTime> {
-    let uuid_ts = Uuid::parse_str(filename)?
-        .to_timestamp()
-        .ok_or_else(|| anyhow!("filename is not a valid V1 UUID."))?
-        .to_unix();
-    Ok(SystemTime::UNIX_EPOCH + Duration::new(uuid_ts.0, uuid_ts.1))
 }

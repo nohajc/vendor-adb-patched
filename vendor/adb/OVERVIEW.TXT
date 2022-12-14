@@ -62,8 +62,8 @@ As a whole, everything works through the following components:
     Host Services:
       These services run within the ADB Server and thus do not need to
       communicate with a device at all. A typical example is "adb devices"
-      that is used to return the list of currently known devices and their
-      states. There are a few other services, though.
+      which is used to return the list of currently known devices and their
+      states. They are a few other services though.
 
     Local Services:
       These services either run within the adbd daemon, or are started by
@@ -77,7 +77,7 @@ II. Protocol details:
 
   1. Client <-> Server protocol:
 
-    This section details the protocol used between ADB clients and the ADB
+    This details the protocol used between ADB clients and the ADB
     server itself. The ADB server listens on TCP:localhost:5037.
 
     A client sends a request using the following format:

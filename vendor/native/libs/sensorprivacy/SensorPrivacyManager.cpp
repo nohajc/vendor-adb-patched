@@ -55,22 +55,6 @@ sp<hardware::ISensorPrivacyManager> SensorPrivacyManager::getService()
     return service;
 }
 
-bool SensorPrivacyManager::supportsSensorToggle(int sensor) {
-    if (mSupportedCache.find(sensor) == mSupportedCache.end()) {
-        sp<hardware::ISensorPrivacyManager> service = getService();
-        if (service != nullptr) {
-            bool result;
-            service->supportsSensorToggle(sensor, &result);
-            mSupportedCache[sensor] = result;
-            return result;
-        }
-        // if the SensorPrivacyManager is not available then assume sensor privacy feature isn't
-        // supported
-        return false;
-    }
-    return mSupportedCache[sensor];
-}
-
 void SensorPrivacyManager::addSensorPrivacyListener(
         const sp<hardware::ISensorPrivacyListener>& listener)
 {
@@ -80,32 +64,12 @@ void SensorPrivacyManager::addSensorPrivacyListener(
     }
 }
 
-status_t SensorPrivacyManager::addIndividualSensorPrivacyListener(int userId, int sensor,
-        const sp<hardware::ISensorPrivacyListener>& listener)
-{
-    sp<hardware::ISensorPrivacyManager> service = getService();
-    if (service != nullptr) {
-        return service->addIndividualSensorPrivacyListener(userId, sensor, listener)
-                .transactionError();
-    }
-    return UNEXPECTED_NULL;
-}
-
 void SensorPrivacyManager::removeSensorPrivacyListener(
         const sp<hardware::ISensorPrivacyListener>& listener)
 {
     sp<hardware::ISensorPrivacyManager> service = getService();
     if (service != nullptr) {
         service->removeSensorPrivacyListener(listener);
-    }
-}
-
-void SensorPrivacyManager::removeIndividualSensorPrivacyListener(int sensor,
-        const sp<hardware::ISensorPrivacyListener>& listener)
-{
-    sp<hardware::ISensorPrivacyManager> service = getService();
-    if (service != nullptr) {
-        service->removeIndividualSensorPrivacyListener(sensor, listener);
     }
 }
 
@@ -119,31 +83,6 @@ bool SensorPrivacyManager::isSensorPrivacyEnabled()
     }
     // if the SensorPrivacyManager is not available then assume sensor privacy is disabled
     return false;
-}
-
-bool SensorPrivacyManager::isIndividualSensorPrivacyEnabled(int userId, int sensor)
-{
-    sp<hardware::ISensorPrivacyManager> service = getService();
-    if (service != nullptr) {
-        bool result;
-        service->isIndividualSensorPrivacyEnabled(userId, sensor, &result);
-        return result;
-    }
-    // if the SensorPrivacyManager is not available then assume sensor privacy is disabled
-    return false;
-}
-
-status_t SensorPrivacyManager::isIndividualSensorPrivacyEnabled(int userId, int sensor,
-        bool &returnVal)
-{
-    sp<hardware::ISensorPrivacyManager> service = getService();
-    if (service != nullptr) {
-        binder::Status res = service->isIndividualSensorPrivacyEnabled(userId, sensor, &returnVal);
-        return res.transactionError();
-    }
-    // if the SensorPrivacyManager is not available then assume sensor privacy is disabled
-    returnVal = false;
-    return UNKNOWN_ERROR;
 }
 
 status_t SensorPrivacyManager::linkToDeath(const sp<IBinder::DeathRecipient>& recipient)

@@ -1,6 +1,6 @@
 include_directories(../../include)
 
-if(ARCH STREQUAL "x86_64")
+if(${ARCH} STREQUAL "x86_64")
   set(
     BCM_ASM_SOURCES
 
@@ -22,7 +22,7 @@ if(ARCH STREQUAL "x86_64")
   )
 endif()
 
-if(ARCH STREQUAL "x86")
+if(${ARCH} STREQUAL "x86")
   set(
     BCM_ASM_SOURCES
 
@@ -40,7 +40,7 @@ if(ARCH STREQUAL "x86")
   )
 endif()
 
-if(ARCH STREQUAL "arm")
+if(${ARCH} STREQUAL "arm")
   set(
     BCM_ASM_SOURCES
 
@@ -56,7 +56,7 @@ if(ARCH STREQUAL "arm")
   )
 endif()
 
-if(ARCH STREQUAL "aarch64")
+if(${ARCH} STREQUAL "aarch64")
   set(
     BCM_ASM_SOURCES
 
@@ -64,8 +64,6 @@ if(ARCH STREQUAL "aarch64")
     armv8-mont.${ASM_EXT}
     ghash-neon-armv8.${ASM_EXT}
     ghashv8-armx.${ASM_EXT}
-    p256-armv8-asm.${ASM_EXT}
-    p256_beeu-armv8-asm.${ASM_EXT}
     sha1-armv8.${ASM_EXT}
     sha256-armv8.${ASM_EXT}
     sha512-armv8.${ASM_EXT}
@@ -73,7 +71,7 @@ if(ARCH STREQUAL "aarch64")
   )
 endif()
 
-if(ARCH STREQUAL "ppc64le")
+if(${ARCH} STREQUAL "ppc64le")
   set(
     BCM_ASM_SOURCES
 
@@ -104,8 +102,6 @@ perlasm(md5-586.${ASM_EXT} md5/asm/md5-586.pl)
 perlasm(md5-x86_64.${ASM_EXT} md5/asm/md5-x86_64.pl)
 perlasm(p256-x86_64-asm.${ASM_EXT} ec/asm/p256-x86_64-asm.pl)
 perlasm(p256_beeu-x86_64-asm.${ASM_EXT} ec/asm/p256_beeu-x86_64-asm.pl)
-perlasm(p256-armv8-asm.${ASM_EXT} ec/asm/p256-armv8-asm.pl)
-perlasm(p256_beeu-armv8-asm.${ASM_EXT} ec/asm/p256_beeu-armv8-asm.pl)
 perlasm(rdrand-x86_64.${ASM_EXT} rand/asm/rdrand-x86_64.pl)
 perlasm(rsaz-avx2.${ASM_EXT} bn/asm/rsaz-avx2.pl)
 perlasm(sha1-586.${ASM_EXT} sha/asm/sha1-586.pl)
@@ -164,7 +160,7 @@ if(FIPS_DELOCATE)
     bcm.c
   )
 
-  if(ARCH STREQUAL "aarch64")
+  if(${ARCH} STREQUAL "aarch64")
     # Perlasm output on Aarch64 needs to pass through the C preprocessor before
     # it can be parsed by delocate.
     foreach(asm ${BCM_ASM_SOURCES})
@@ -203,15 +199,12 @@ if(FIPS_DELOCATE)
   set_target_properties(bcm_hashunset PROPERTIES LINKER_LANGUAGE C)
 
   set(MAYBE_INJECT_HASH_SHA256_FLAG "")
-  # If building with OPENSSL_NO_ASM then ARCH will be "generic", but we still
-  # need to use SHA-256. Since this only matters for FIPS, we only need to
-  # worry about the Linux spelling of AArch64.
-  if (ARCH STREQUAL "aarch64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+  if (ARCH STREQUAL "aarch64")
     set(MAYBE_INJECT_HASH_SHA256_FLAG "-sha256")
   endif()
 
   go_executable(inject_hash
-                boringssl.googlesource.com/boringssl/util/fipstools/inject_hash)
+	        boringssl.googlesource.com/boringssl/util/fipstools/inject_hash)
   add_custom_command(
     OUTPUT bcm.o
     COMMAND ./inject_hash -o bcm.o -in-archive $<TARGET_FILE:bcm_hashunset> ${MAYBE_INJECT_HASH_SHA256_FLAG}
@@ -230,6 +223,7 @@ if(FIPS_DELOCATE)
     OBJECT
 
     fips_shared_support.c
+    is_fips.c
   )
 
   add_dependencies(fipsmodule global_target)
@@ -246,6 +240,7 @@ elseif(FIPS_SHARED)
     OBJECT
 
     fips_shared_support.c
+    is_fips.c
   )
 
   add_dependencies(fipsmodule global_target)
@@ -278,6 +273,7 @@ else()
 
     bcm.c
     fips_shared_support.c
+    is_fips.c
 
     ${BCM_ASM_SOURCES}
   )

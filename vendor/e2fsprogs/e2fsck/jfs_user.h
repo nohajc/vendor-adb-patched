@@ -11,8 +11,6 @@
 #ifndef _JFS_USER_H
 #define _JFS_USER_H
 
-#include "config.h"
-
 #ifdef DEBUGFS
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +27,7 @@
 /*
  * Pull in the definition of the e2fsck context structure
  */
+#include "config.h"
 #include "e2fsck.h"
 #endif
 

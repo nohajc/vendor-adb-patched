@@ -61,8 +61,6 @@
 #include <openssl/pem.h>
 #include <openssl/thread.h>
 
-#include "internal.h"
-
 #ifndef OPENSSL_NO_STDIO
 
 static int by_file_ctrl(X509_LOOKUP *ctx, int cmd, const char *argc,
@@ -126,6 +124,8 @@ int X509_load_cert_file(X509_LOOKUP *ctx, const char *file, int type)
     int i, count = 0;
     X509 *x = NULL;
 
+    if (file == NULL)
+        return (1);
     in = BIO_new(BIO_s_file());
 
     if ((in == NULL) || (BIO_read_filename(in, file) <= 0)) {
@@ -169,11 +169,6 @@ int X509_load_cert_file(X509_LOOKUP *ctx, const char *file, int type)
         OPENSSL_PUT_ERROR(X509, X509_R_BAD_X509_FILETYPE);
         goto err;
     }
-
-    if (ret == 0) {
-        OPENSSL_PUT_ERROR(X509, X509_R_NO_CERTIFICATE_FOUND);
-    }
-
  err:
     if (x != NULL)
         X509_free(x);
@@ -189,6 +184,8 @@ int X509_load_crl_file(X509_LOOKUP *ctx, const char *file, int type)
     int i, count = 0;
     X509_CRL *x = NULL;
 
+    if (file == NULL)
+        return (1);
     in = BIO_new(BIO_s_file());
 
     if ((in == NULL) || (BIO_read_filename(in, file) <= 0)) {
@@ -232,11 +229,6 @@ int X509_load_crl_file(X509_LOOKUP *ctx, const char *file, int type)
         OPENSSL_PUT_ERROR(X509, X509_R_BAD_X509_FILETYPE);
         goto err;
     }
-
-    if (ret == 0) {
-        OPENSSL_PUT_ERROR(X509, X509_R_NO_CRL_FOUND);
-    }
-
  err:
     if (x != NULL)
         X509_CRL_free(x);
@@ -252,7 +244,6 @@ int X509_load_cert_crl_file(X509_LOOKUP *ctx, const char *file, int type)
     BIO *in;
     size_t i;
     int count = 0;
-
     if (type != X509_FILETYPE_PEM)
         return X509_load_cert_file(ctx, file, type);
     in = BIO_new_file(file, "r");
@@ -269,24 +260,14 @@ int X509_load_cert_crl_file(X509_LOOKUP *ctx, const char *file, int type)
     for (i = 0; i < sk_X509_INFO_num(inf); i++) {
         itmp = sk_X509_INFO_value(inf, i);
         if (itmp->x509) {
-            if (!X509_STORE_add_cert(ctx->store_ctx, itmp->x509)) {
-                goto err;
-            }
+            X509_STORE_add_cert(ctx->store_ctx, itmp->x509);
             count++;
         }
         if (itmp->crl) {
-            if (!X509_STORE_add_crl(ctx->store_ctx, itmp->crl)) {
-                goto err;
-            }
+            X509_STORE_add_crl(ctx->store_ctx, itmp->crl);
             count++;
         }
     }
-
-    if (count == 0) {
-        OPENSSL_PUT_ERROR(X509, X509_R_NO_CERTIFICATE_OR_CRL_FOUND);
-    }
-
-err:
     sk_X509_INFO_pop_free(inf, X509_INFO_free);
     return count;
 }

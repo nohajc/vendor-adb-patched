@@ -19,7 +19,7 @@
 
 #include <string>
 
-bool IsFbeEnabled();
+bool fscrypt_is_native();
 
 static const char* fscrypt_unencrypted_folder = "/unencrypted";
 static const char* fscrypt_key_ref = "/unencrypted/ref";

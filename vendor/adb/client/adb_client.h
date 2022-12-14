@@ -58,10 +58,6 @@ void adb_set_transport(TransportType type, const char* _Nullable serial, Transpo
 void adb_get_transport(TransportType* _Nullable type, const char* _Nullable* _Nullable serial,
                        TransportId* _Nullable transport_id);
 
-// Set the server's "one device" id. This is either null, or a pointer to a serial number
-// or a pointer to a usb device path, the argument must live to the end of the process.
-void adb_set_one_device(const char* _Nullable one_device);
-
 // Set the socket specification for the adb server.
 // This function can only be called once, and the argument must live to the end of the process.
 void adb_set_socket_spec(const char* _Nonnull socket_spec);

@@ -207,7 +207,7 @@ status_t BlurFilter::render(bool multiPass) {
 }
 
 string BlurFilter::getVertexShader() const {
-    return R"SHADER(#version 300 es
+    return R"SHADER(#version 310 es
         precision mediump float;
 
         in vec2 aPosition;
@@ -222,7 +222,7 @@ string BlurFilter::getVertexShader() const {
 }
 
 string BlurFilter::getFragmentShader() const {
-    return R"SHADER(#version 300 es
+    return R"SHADER(#version 310 es
         precision mediump float;
 
         uniform sampler2D uTexture;
@@ -244,7 +244,7 @@ string BlurFilter::getFragmentShader() const {
 }
 
 string BlurFilter::getMixFragShader() const {
-    string shader = R"SHADER(#version 300 es
+    string shader = R"SHADER(#version 310 es
         precision mediump float;
 
         in highp vec2 vUV;

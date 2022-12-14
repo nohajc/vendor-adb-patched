@@ -556,12 +556,6 @@ typedef enum OMX_EVENTTYPE
      */
     OMX_EventConfigUpdate,
 
-    /**
-     * Event fired by a tunneled decoder when the first frame is decoded and
-     * ready to be rendered.
-     */
-    OMX_EventOnFirstTunnelFrameReady,
-
     OMX_EventMax = 0x7FFFFFFF
 } OMX_EVENTTYPE;
 

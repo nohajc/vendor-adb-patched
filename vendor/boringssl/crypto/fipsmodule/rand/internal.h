@@ -16,6 +16,7 @@
 #define OPENSSL_HEADER_CRYPTO_RAND_INTERNAL_H
 
 #include <openssl/aes.h>
+#include <openssl/cpu.h>
 
 #include "../../internal.h"
 #include "../modes/internal.h"
@@ -44,9 +45,11 @@ void RAND_bytes_with_additional_data(uint8_t *out, size_t out_len,
 // for seeding a DRBG, to |out_entropy|. It sets |*out_used_cpu| to one if the
 // entropy came directly from the CPU and zero if it came from the OS. It
 // actively obtains entropy from the CPU/OS and so should not be called from
-// within the FIPS module.
+// within the FIPS module if |BORINGSSL_FIPS_PASSIVE_ENTROPY| is defined.
 void CRYPTO_get_seed_entropy(uint8_t *out_entropy, size_t out_entropy_len,
                              int *out_used_cpu);
+
+#if defined(BORINGSSL_FIPS_PASSIVE_ENTROPY)
 
 // RAND_load_entropy supplies |entropy_len| bytes of entropy to the module. The
 // |from_cpu| parameter is true iff the entropy was obtained directly from the
@@ -58,21 +61,22 @@ void RAND_load_entropy(const uint8_t *entropy, size_t entropy_len,
 // when the module has stopped because it has run out of entropy.
 void RAND_need_entropy(size_t bytes_needed);
 
+#endif  // BORINGSSL_FIPS_PASSIVE_ENTROPY
 #endif  // BORINGSSL_FIPS
 
 // CRYPTO_sysrand fills |len| bytes at |buf| with entropy from the operating
 // system.
 void CRYPTO_sysrand(uint8_t *buf, size_t len);
 
-// CRYPTO_sysrand_for_seed fills |len| bytes at |buf| with entropy from the
-// operating system. It may draw from the |GRND_RANDOM| pool on Android,
-// depending on the vendor's configuration.
-void CRYPTO_sysrand_for_seed(uint8_t *buf, size_t len);
-
 #if defined(OPENSSL_URANDOM)
 // CRYPTO_init_sysrand initializes long-lived resources needed to draw entropy
 // from the operating system.
 void CRYPTO_init_sysrand(void);
+
+// CRYPTO_sysrand_for_seed fills |len| bytes at |buf| with entropy from the
+// operating system. It may draw from the |GRND_RANDOM| pool on Android,
+// depending on the vendor's configuration.
+void CRYPTO_sysrand_for_seed(uint8_t *buf, size_t len);
 
 // CRYPTO_sysrand_if_available fills |len| bytes at |buf| with entropy from the
 // operating system, or early /dev/urandom data, and returns 1, _if_ the entropy
@@ -82,6 +86,10 @@ void CRYPTO_init_sysrand(void);
 int CRYPTO_sysrand_if_available(uint8_t *buf, size_t len);
 #else
 OPENSSL_INLINE void CRYPTO_init_sysrand(void) {}
+
+OPENSSL_INLINE void CRYPTO_sysrand_for_seed(uint8_t *buf, size_t len) {
+  CRYPTO_sysrand(buf, len);
+}
 
 OPENSSL_INLINE int CRYPTO_sysrand_if_available(uint8_t *buf, size_t len) {
   CRYPTO_sysrand(buf, len);
@@ -143,14 +151,15 @@ OPENSSL_EXPORT void CTR_DRBG_clear(CTR_DRBG_STATE *drbg);
 #if defined(OPENSSL_X86_64) && !defined(OPENSSL_NO_ASM)
 
 OPENSSL_INLINE int have_rdrand(void) {
-  return CRYPTO_is_RDRAND_capable();
+  return (OPENSSL_ia32cap_get()[1] & (1u << 30)) != 0;
 }
 
 // have_fast_rdrand returns true if RDRAND is supported and it's reasonably
 // fast. Concretely the latter is defined by whether the chip is Intel (fast) or
 // not (assumed slow).
 OPENSSL_INLINE int have_fast_rdrand(void) {
-  return CRYPTO_is_RDRAND_capable() && CRYPTO_is_intel_cpu();
+  const uint32_t *const ia32cap = OPENSSL_ia32cap_get();
+  return (ia32cap[1] & (1u << 30)) && (ia32cap[0] & (1u << 30));
 }
 
 // CRYPTO_rdrand writes eight bytes of random data from the hardware RNG to

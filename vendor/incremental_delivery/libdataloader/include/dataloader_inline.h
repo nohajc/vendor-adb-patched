@@ -22,9 +22,6 @@ namespace details {
 
 struct DataLoaderImpl : public ::DataLoader {
     DataLoaderImpl(DataLoaderPtr&& dataLoader) : mDataLoader(std::move(dataLoader)) {
-        getFeatures = [](DataLoader* self) -> DataLoaderFeatures {
-            return static_cast<DataLoaderImpl*>(self)->mDataLoader->getFeatures();
-        };
         onStart = [](DataLoader* self) -> bool {
             return static_cast<DataLoaderImpl*>(self)->mDataLoader->onStart();
         };
@@ -49,16 +46,6 @@ struct DataLoaderImpl : public ::DataLoader {
         onPageReads = [](DataLoader* self, const IncFsReadInfo pageReads[], int pageReadsCount) {
             return static_cast<DataLoaderImpl*>(self)->mDataLoader->onPageReads(
                     PageReads(pageReads, pageReadsCount));
-        };
-        onPendingReadsWithUid = [](DataLoader* self, const IncFsReadInfoWithUid pendingReads[],
-                                   int pendingReadsCount) {
-            return static_cast<DataLoaderImpl*>(self)->mDataLoader->onPendingReadsWithUid(
-                    PendingReadsWithUid(pendingReads, pendingReadsCount));
-        };
-        onPageReadsWithUid = [](DataLoader* self, const IncFsReadInfoWithUid pageReads[],
-                                int pageReadsCount) {
-            return static_cast<DataLoaderImpl*>(self)->mDataLoader->onPageReadsWithUid(
-                    PageReadsWithUid(pageReads, pageReadsCount));
         };
     }
 
@@ -112,7 +99,7 @@ private:
 } // namespace details
 
 inline void DataLoader::initialize(DataLoader::Factory&& factory) {
-    DataLoader_Initialize_WithFeatures(new details::DataLoaderFactoryImpl(std::move(factory)));
+    DataLoader_Initialize(new details::DataLoaderFactoryImpl(std::move(factory)));
 }
 
 inline DataLoaderParams::DataLoaderParams(DataLoaderType type, std::string&& packageName,

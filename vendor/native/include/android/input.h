@@ -54,7 +54,6 @@
 #include <sys/types.h>
 #include <android/keycodes.h>
 #include <android/looper.h>
-#include <jni.h>
 
 #if !defined(__INTRODUCED_IN)
 #define __INTRODUCED_IN(__api_level) /* nothing */
@@ -162,12 +161,6 @@ enum {
 
     /** Focus event */
     AINPUT_EVENT_TYPE_FOCUS = 3,
-
-    /** Capture event */
-    AINPUT_EVENT_TYPE_CAPTURE = 4,
-
-    /** Drag event */
-    AINPUT_EVENT_TYPE_DRAG = 5,
 };
 
 /**
@@ -677,7 +670,7 @@ enum {
     /**
      * Axis constant: The movement of y position of a motion event.
      *
-     * Same as {@link AMOTION_EVENT_AXIS_RELATIVE_X}, but for y position.
+     * Same as {@link RELATIVE_X}, but for y position.
      */
     AMOTION_EVENT_AXIS_RELATIVE_Y = 28,
     /**
@@ -858,10 +851,6 @@ enum {
     AINPUT_SOURCE_TOUCH_NAVIGATION = 0x00200000 | AINPUT_SOURCE_CLASS_NONE,
     /** joystick */
     AINPUT_SOURCE_JOYSTICK = 0x01000000 | AINPUT_SOURCE_CLASS_JOYSTICK,
-    /** HDMI */
-    AINPUT_SOURCE_HDMI = 0x02000000 | AINPUT_SOURCE_CLASS_BUTTON,
-    /** sensor */
-    AINPUT_SOURCE_SENSOR = 0x04000000 | AINPUT_SOURCE_CLASS_NONE,
     /** rotary encoder */
     AINPUT_SOURCE_ROTARY_ENCODER = 0x00400000 | AINPUT_SOURCE_CLASS_NONE,
 
@@ -941,16 +930,6 @@ int32_t AInputEvent_getDeviceId(const AInputEvent* event);
 /** Get the input event source. */
 int32_t AInputEvent_getSource(const AInputEvent* event);
 
-/**
- * Releases interface objects created by {@link AKeyEvent_fromJava()}
- * and {@link AMotionEvent_fromJava()}.
- * After returning, the specified AInputEvent* object becomes invalid and should no longer be used.
- * The underlying Java object remains valid and does not change its state.
- *
- * Available since API level 31.
- */
-void AInputEvent_release(const AInputEvent* event) __INTRODUCED_IN(31);
-
 /*** Accessors for key events only. ***/
 
 /** Get the key event action. */
@@ -996,15 +975,6 @@ int64_t AKeyEvent_getDownTime(const AInputEvent* key_event);
  * java.lang.System.nanoTime() time base.
  */
 int64_t AKeyEvent_getEventTime(const AInputEvent* key_event);
-
-/**
- * Creates a native AInputEvent* object that is a copy of the specified Java android.view.KeyEvent.
- * The result may be used with generic and KeyEvent-specific AInputEvent_* functions. The object
- * returned by this function must be disposed using {@link AInputEvent_release()}.
- *
- * Available since API level 31.
- */
-const AInputEvent* AKeyEvent_fromJava(JNIEnv* env, jobject keyEvent) __INTRODUCED_IN(31);
 
 /*** Accessors for motion events only. ***/
 
@@ -1321,15 +1291,6 @@ float AMotionEvent_getHistoricalOrientation(const AInputEvent* motion_event, siz
 float AMotionEvent_getHistoricalAxisValue(const AInputEvent* motion_event,
         int32_t axis, size_t pointer_index, size_t history_index);
 
-/**
- * Creates a native AInputEvent* object that is a copy of the specified Java
- * android.view.MotionEvent. The result may be used with generic and MotionEvent-specific
- * AInputEvent_* functions. The object returned by this function must be disposed using
- * {@link AInputEvent_release()}.
- *
- * Available since API level 31.
- */
-const AInputEvent* AMotionEvent_fromJava(JNIEnv* env, jobject motionEvent) __INTRODUCED_IN(31);
 
 struct AInputQueue;
 /**

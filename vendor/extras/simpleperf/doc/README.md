@@ -9,11 +9,27 @@ Simpleperf is part of the Android Open Source Project.
 The source code is [here](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/).
 The latest document is [here](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/README.md).
 
-[TOC]
+## Table of Contents
+
+- [Simpleperf](#simpleperf)
+  - [Table of Contents](#table-of-contents)
+  - [Introduction](#introduction)
+  - [Tools in simpleperf](#tools-in-simpleperf)
+  - [Android application profiling](#android-application-profiling)
+  - [Android platform profiling](#android-platform-profiling)
+  - [Executable commands reference](#executable-commands-reference)
+  - [Scripts reference](#scripts-reference)
+  - [Answers to common issues](#answers-to-common-issues)
+    - [Why we suggest profiling on Android >= N devices?](#why-we-suggest-profiling-on-android--n-devices)
+    - [Suggestions about recording call graphs](#suggestions-about-recording-call-graphs)
+    - [Why we can't always get complete DWARF-based call graphs](#why-we-cant-always-get-complete-dwarf-based-call-graphs)
+    - [How to solve missing symbols in report?](#how-to-solve-missing-symbols-in-report)
+    - [Fix broken callchain stopped at C functions](#fix-broken-callchain-stopped-at-c-functions)
+    - [Show annotated source code and disassembly](#show-annotated-source-code-and-disassembly)
+  - [Bugs and contribution](#bugs-and-contribution)
+
 
 ## Introduction
-
-An introduction slide deck is [here](./introduction.pdf).
 
 Simpleperf contains two parts: the simpleperf executable and Python scripts.
 
@@ -25,26 +41,26 @@ the Android profiling environment:
    needed symbols, device info and recording time.
 
 2. It delivers new features for recording.
-   1) When recording dwarf based call graph, simpleperf unwinds the stack before writing a sample
+   a. When recording dwarf based call graph, simpleperf unwinds the stack before writing a sample
       to file. This is to save storage space on the device.
-   2) Support tracing both on CPU time and off CPU time with --trace-offcpu option.
-   3) Support recording callgraphs of JITed and interpreted Java code on Android >= P.
+   b. Support tracing both on CPU time and off CPU time with --trace-offcpu option.
+   c. Support recording callgraphs of JITed and interpreted Java code on Android >= P.
 
 3. It relates closely to the Android platform.
-   1) Is aware of Android environment, like using system properties to enable profiling, using
+   a. Is aware of Android environment, like using system properties to enable profiling, using
       run-as to profile in application's context.
-   2) Supports reading symbols and debug information from the .gnu_debugdata section, because
+   b. Supports reading symbols and debug information from the .gnu_debugdata section, because
       system libraries are built with .gnu_debugdata section starting from Android O.
-   3) Supports profiling shared libraries embedded in apk files.
-   4) It uses the standard Android stack unwinder, so its results are consistent with all other
+   c. Supports profiling shared libraries embedded in apk files.
+   d. It uses the standard Android stack unwinder, so its results are consistent with all other
       Android tools.
 
 4. It builds executables and shared libraries for different usages.
-   1) Builds static executables on the device. Since static executables don't rely on any library,
+   a. Builds static executables on the device. Since static executables don't rely on any library,
       simpleperf executables can be pushed on any Android device and used to record profiling data.
-   2) Builds executables on different hosts: Linux, Mac and Windows. These executables can be used
+   b. Builds executables on different hosts: Linux, Mac and Windows. These executables can be used
       to report on hosts.
-   3) Builds report shared libraries on different hosts. The report library is used by different
+   c. Builds report shared libraries on different hosts. The report library is used by different
       Python scripts to parse profiling data.
 
 Detailed documentation for the simpleperf executable is [here](#executable-commands-reference).
@@ -95,22 +111,20 @@ See [executable_commands_reference.md](./executable_commands_reference.md).
 
 See [scripts_reference.md](./scripts_reference.md).
 
-## View the profile
-
-See [view_the_profile.md](./view_the_profile.md).
 
 ## Answers to common issues
 
 ### Why we suggest profiling on Android >= N devices?
-
+```
 1. Running on a device reflects a real running situation, so we suggest
-   profiling on real devices instead of emulators.
+profiling on real devices instead of emulators.
 2. To profile Java code, we need ART running in oat mode, which is only
-   available >= L for rooted devices, and >= N for non-rooted devices.
+available >= L for rooted devices, and >= N for non-rooted devices.
 3. Old Android versions are likely to be shipped with old kernels (< 3.18),
-   which may not support profiling features like recording dwarf based call graphs.
+which may not support profiling features like recording dwarf based call graphs.
 4. Old Android versions are likely to be shipped with Arm32 chips. In Arm32
-   mode, recording stack frame based call graphs doesn't work well.
+mode, recording stack frame based call graphs doesn't work well.
+```
 
 ### Suggestions about recording call graphs
 
@@ -142,7 +156,9 @@ reasonable results when given unstripped binaries properly. If it doesn't work w
 try stack frame based call graphs instead.
 
 Simpleperf may need unstripped native binaries on the device to generate good dwarf based call
-graphs. It can be supported by downloading unstripped native libraries on device, as [here](#fix-broken-callchain-stopped-at-c-functions).
+graphs. It can be supported in two ways:
+1. Use unstripped native binaries when building the apk, as [here](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/demo/SimpleperfExampleWithNative/app/profiling.gradle).
+2. Download unstripped native libraries on device, as [here](#fix-broken-callchain-stopped-at-c-functions).
 
 ### Why we can't always get complete DWARF-based call graphs?
 
@@ -164,7 +180,7 @@ solution is to build binary_cache on host.
 
 ```sh
 # Collect binaries needed by perf.data in binary_cache/.
-$ ./binary_cache_builder.py -lib NATIVE_LIB_DIR,...
+$ python binary_cache_builder.py -lib NATIVE_LIB_DIR,...
 ```
 
 The NATIVE_LIB_DIRs passed in -lib option are the directories containing unstripped native
@@ -172,11 +188,11 @@ libraries on host. After running it, the native libraries containing symbol tabl
 in binary_cache/ for use when reporting.
 
 ```sh
-$ ./report.py --symfs binary_cache
+$ python report.py --symfs binary_cache
 
 # report_html.py searches binary_cache/ automatically, so you don't need to
 # pass it any argument.
-$ ./report_html.py
+$ python report_html.py
 ```
 
 ### Fix broken callchain stopped at C functions
@@ -199,7 +215,7 @@ $ adb shell simpleperf record xxx --symfs /data/local/tmp/native_libs
 To use app_profiler.py:
 
 ```sh
-$ ./app_profiler.py -lib <unstripped_dir>
+$ python app_profiler.py -lib <unstripped_dir>
 ```
 
 ### Show annotated source code and disassembly
@@ -209,21 +225,23 @@ disassembly with event count annotation. Simpleperf supports showing annotated s
 disassembly for C++ code and fully compiled Java code. Simpleperf supports two ways to do it:
 
 1. Through report_html.py:
-   1) Generate perf.data and pull it on host.
-   2) Generate binary_cache, containing elf files with debug information. Use -lib option to add
+
+  a. Generate perf.data and pull it on host.
+  b. Generate binary_cache, containing elf files with debug information. Use -lib option to add
      libs with debug info. Do it with
      `binary_cache_builder.py -i perf.data -lib <dir_of_lib_with_debug_info>`.
-   3) Use report_html.py to generate report.html with annotated source code and disassembly,
+  c. Use report_html.py to generate report.html with annotated source code and disassembly,
      as described [here](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/scripts_reference.md#report_html_py).
 
 2. Through pprof.
-   1) Generate perf.data and binary_cache as above.
-   2) Use pprof_proto_generator.py to generate pprof proto file. `pprof_proto_generator.py`.
-   3) Use pprof to report a function with annotated source code, as described [here](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/scripts_reference.md#pprof_proto_generator_py).
+
+  a. Generate perf.data and binary_cache as above.
+  b. Use pprof_proto_generator.py to generate pprof proto file. `pprof_proto_generator.py`.
+  c. Use pprof to report a function with annotated source code, as described [here](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/scripts_reference.md#pprof_proto_generator_py).
 
 ## Bugs and contribution
 
-Bugs and feature requests can be submitted at https://github.com/android/ndk/issues.
+Bugs and feature requests can be submitted at http://github.com/android-ndk/ndk/issues.
 Patches can be uploaded to android-review.googlesource.com as [here](https://source.android.com/setup/contribute/),
 or sent to email addresses listed [here](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/OWNERS).
 

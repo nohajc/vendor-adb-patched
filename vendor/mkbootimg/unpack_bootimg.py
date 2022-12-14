@@ -19,7 +19,7 @@
 Extracts the kernel, ramdisk, second bootloader, dtb and recovery dtbo images.
 """
 
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from argparse import ArgumentParser, FileType, RawDescriptionHelpFormatter
 from struct import unpack
 import os
 import shlex
@@ -53,21 +53,17 @@ def cstr(s):
 
 
 def format_os_version(os_version):
-    if os_version == 0:
-        return None
     a = os_version >> 14
     b = os_version >> 7 & ((1<<7) - 1)
     c = os_version & ((1<<7) - 1)
-    return f'{a}.{b}.{c}'
+    return '{}.{}.{}'.format(a, b, c)
 
 
 def format_os_patch_level(os_patch_level):
-    if os_patch_level == 0:
-        return None
     y = os_patch_level >> 4
     y += 2000
     m = os_patch_level & ((1<<4) - 1)
-    return f'{y:04d}-{m:02d}'
+    return '{:04d}-{:02d}'.format(y, m)
 
 
 def decode_os_version_patch_level(os_version_patch_level):
@@ -134,10 +130,8 @@ class BootImageInfoFormatter:
     def format_mkbootimg_argument(self):
         args = []
         args.extend(['--header_version', str(self.header_version)])
-        if self.os_version:
-            args.extend(['--os_version', self.os_version])
-        if self.os_patch_level:
-            args.extend(['--os_patch_level', self.os_patch_level])
+        args.extend(['--os_version', self.os_version])
+        args.extend(['--os_patch_level', self.os_patch_level])
 
         args.extend(['--kernel', os.path.join(self.image_dir, 'kernel')])
         args.extend(['--ramdisk', os.path.join(self.image_dir, 'ramdisk')])
@@ -181,12 +175,12 @@ class BootImageInfoFormatter:
         return args
 
 
-def unpack_boot_image(boot_img, output_dir):
+def unpack_boot_image(args):
     """extracts kernel, ramdisk, second bootloader and recovery dtbo"""
     info = BootImageInfoFormatter()
-    info.boot_magic = unpack('8s', boot_img.read(8))[0].decode()
+    info.boot_magic = unpack('8s', args.boot_img.read(8))[0].decode()
 
-    kernel_ramdisk_second_info = unpack('9I', boot_img.read(9 * 4))
+    kernel_ramdisk_second_info = unpack('9I', args.boot_img.read(9 * 4))
     # header_version is always at [8] regardless of the value of header_version.
     info.header_version = kernel_ramdisk_second_info[8]
 
@@ -199,7 +193,7 @@ def unpack_boot_image(boot_img, output_dir):
         info.second_load_address = kernel_ramdisk_second_info[5]
         info.tags_load_address = kernel_ramdisk_second_info[6]
         info.page_size = kernel_ramdisk_second_info[7]
-        os_version_patch_level = unpack('I', boot_img.read(1 * 4))[0]
+        os_version_patch_level = unpack('I', args.boot_img.read(1 * 4))[0]
     else:
         info.kernel_size = kernel_ramdisk_second_info[0]
         info.ramdisk_size = kernel_ramdisk_second_info[1]
@@ -212,31 +206,31 @@ def unpack_boot_image(boot_img, output_dir):
 
     if info.header_version < 3:
         info.product_name = cstr(unpack('16s',
-                                        boot_img.read(16))[0].decode())
-        info.cmdline = cstr(unpack('512s', boot_img.read(512))[0].decode())
-        boot_img.read(32)  # ignore SHA
+                                        args.boot_img.read(16))[0].decode())
+        info.cmdline = cstr(unpack('512s', args.boot_img.read(512))[0].decode())
+        args.boot_img.read(32)  # ignore SHA
         info.extra_cmdline = cstr(unpack('1024s',
-                                         boot_img.read(1024))[0].decode())
+                                         args.boot_img.read(1024))[0].decode())
     else:
         info.cmdline = cstr(unpack('1536s',
-                                   boot_img.read(1536))[0].decode())
+                                   args.boot_img.read(1536))[0].decode())
 
     if info.header_version in {1, 2}:
-        info.recovery_dtbo_size = unpack('I', boot_img.read(1 * 4))[0]
-        info.recovery_dtbo_offset = unpack('Q', boot_img.read(8))[0]
-        info.boot_header_size = unpack('I', boot_img.read(4))[0]
+        info.recovery_dtbo_size = unpack('I', args.boot_img.read(1 * 4))[0]
+        info.recovery_dtbo_offset = unpack('Q', args.boot_img.read(8))[0]
+        info.boot_header_size = unpack('I', args.boot_img.read(4))[0]
     else:
         info.recovery_dtbo_size = 0
 
     if info.header_version == 2:
-        info.dtb_size = unpack('I', boot_img.read(4))[0]
-        info.dtb_load_address = unpack('Q', boot_img.read(8))[0]
+        info.dtb_size = unpack('I', args.boot_img.read(4))[0]
+        info.dtb_load_address = unpack('Q', args.boot_img.read(8))[0]
     else:
         info.dtb_size = 0
         info.dtb_load_address = 0
 
     if info.header_version >= 4:
-        info.boot_signature_size = unpack('I', boot_img.read(4))[0]
+        info.boot_signature_size = unpack('I', args.boot_img.read(4))[0]
     else:
         info.boot_signature_size = 0
 
@@ -284,10 +278,10 @@ def unpack_boot_image(boot_img, output_dir):
         image_info_list.append((boot_signature_offset, info.boot_signature_size,
                                 'boot_signature'))
 
-    create_out_dir(output_dir)
+    create_out_dir(args.out)
     for offset, size, name in image_info_list:
-        extract_image(offset, size, boot_img, os.path.join(output_dir, name))
-    info.image_dir = output_dir
+        extract_image(offset, size, args.boot_img, os.path.join(args.out, name))
+    info.image_dir = args.out
 
     return info
 
@@ -353,8 +347,7 @@ class VendorBootImageInfoFormatter:
         args.extend(['--vendor_cmdline', self.cmdline])
         args.extend(['--board', self.product_name])
 
-        if self.dtb_size > 0:
-            args.extend(['--dtb', os.path.join(self.image_dir, 'dtb')])
+        args.extend(['--dtb', os.path.join(self.image_dir, 'dtb')])
 
         if self.header_version > 3:
             args.extend(['--vendor_bootconfig',
@@ -378,20 +371,20 @@ class VendorBootImageInfoFormatter:
         return args
 
 
-def unpack_vendor_boot_image(boot_img, output_dir):
+def unpack_vendor_boot_image(args):
     info = VendorBootImageInfoFormatter()
-    info.boot_magic = unpack('8s', boot_img.read(8))[0].decode()
-    info.header_version = unpack('I', boot_img.read(4))[0]
-    info.page_size = unpack('I', boot_img.read(4))[0]
-    info.kernel_load_address = unpack('I', boot_img.read(4))[0]
-    info.ramdisk_load_address = unpack('I', boot_img.read(4))[0]
-    info.vendor_ramdisk_size = unpack('I', boot_img.read(4))[0]
-    info.cmdline = cstr(unpack('2048s', boot_img.read(2048))[0].decode())
-    info.tags_load_address = unpack('I', boot_img.read(4))[0]
-    info.product_name = cstr(unpack('16s', boot_img.read(16))[0].decode())
-    info.header_size = unpack('I', boot_img.read(4))[0]
-    info.dtb_size = unpack('I', boot_img.read(4))[0]
-    info.dtb_load_address = unpack('Q', boot_img.read(8))[0]
+    info.boot_magic = unpack('8s', args.boot_img.read(8))[0].decode()
+    info.header_version = unpack('I', args.boot_img.read(4))[0]
+    info.page_size = unpack('I', args.boot_img.read(4))[0]
+    info.kernel_load_address = unpack('I', args.boot_img.read(4))[0]
+    info.ramdisk_load_address = unpack('I', args.boot_img.read(4))[0]
+    info.vendor_ramdisk_size = unpack('I', args.boot_img.read(4))[0]
+    info.cmdline = cstr(unpack('2048s', args.boot_img.read(2048))[0].decode())
+    info.tags_load_address = unpack('I', args.boot_img.read(4))[0]
+    info.product_name = cstr(unpack('16s', args.boot_img.read(16))[0].decode())
+    info.header_size = unpack('I', args.boot_img.read(4))[0]
+    info.dtb_size = unpack('I', args.boot_img.read(4))[0]
+    info.dtb_load_address = unpack('Q', args.boot_img.read(8))[0]
 
     # Convenient shorthand.
     page_size = info.page_size
@@ -405,10 +398,10 @@ def unpack_vendor_boot_image(boot_img, output_dir):
     image_info_list = []
 
     if info.header_version > 3:
-        info.vendor_ramdisk_table_size = unpack('I', boot_img.read(4))[0]
-        vendor_ramdisk_table_entry_num = unpack('I', boot_img.read(4))[0]
-        vendor_ramdisk_table_entry_size = unpack('I', boot_img.read(4))[0]
-        info.vendor_bootconfig_size = unpack('I', boot_img.read(4))[0]
+        info.vendor_ramdisk_table_size = unpack('I', args.boot_img.read(4))[0]
+        vendor_ramdisk_table_entry_num = unpack('I', args.boot_img.read(4))[0]
+        vendor_ramdisk_table_entry_size = unpack('I', args.boot_img.read(4))[0]
+        info.vendor_bootconfig_size = unpack('I', args.boot_img.read(4))[0]
         num_vendor_ramdisk_table_pages = get_number_of_pages(
             info.vendor_ramdisk_table_size, page_size)
         vendor_ramdisk_table_offset = page_size * (
@@ -419,16 +412,16 @@ def unpack_vendor_boot_image(boot_img, output_dir):
         for idx in range(vendor_ramdisk_table_entry_num):
             entry_offset = vendor_ramdisk_table_offset + (
                 vendor_ramdisk_table_entry_size * idx)
-            boot_img.seek(entry_offset)
-            ramdisk_size = unpack('I', boot_img.read(4))[0]
-            ramdisk_offset = unpack('I', boot_img.read(4))[0]
-            ramdisk_type = unpack('I', boot_img.read(4))[0]
+            args.boot_img.seek(entry_offset)
+            ramdisk_size = unpack('I', args.boot_img.read(4))[0]
+            ramdisk_offset = unpack('I', args.boot_img.read(4))[0]
+            ramdisk_type = unpack('I', args.boot_img.read(4))[0]
             ramdisk_name = cstr(unpack(
                 f'{VENDOR_RAMDISK_NAME_SIZE}s',
-                boot_img.read(VENDOR_RAMDISK_NAME_SIZE))[0].decode())
+                args.boot_img.read(VENDOR_RAMDISK_NAME_SIZE))[0].decode())
             board_id = unpack(
                 f'{VENDOR_RAMDISK_TABLE_ENTRY_BOARD_ID_SIZE}I',
-                boot_img.read(
+                args.boot_img.read(
                     4 * VENDOR_RAMDISK_TABLE_ENTRY_BOARD_ID_SIZE))
             output_ramdisk_name = f'vendor_ramdisk{idx:02}'
 
@@ -452,17 +445,16 @@ def unpack_vendor_boot_image(boot_img, output_dir):
 
     dtb_offset = page_size * (num_boot_header_pages + num_boot_ramdisk_pages
                              ) # header + vendor_ramdisk
-    if info.dtb_size > 0:
-        image_info_list.append((dtb_offset, info.dtb_size, 'dtb'))
+    image_info_list.append((dtb_offset, info.dtb_size, 'dtb'))
 
-    create_out_dir(output_dir)
+    create_out_dir(args.out)
     for offset, size, name in image_info_list:
-        extract_image(offset, size, boot_img, os.path.join(output_dir, name))
-    info.image_dir = output_dir
+        extract_image(offset, size, args.boot_img, os.path.join(args.out, name))
+    info.image_dir = args.out
 
     if info.header_version > 3:
         vendor_ramdisk_by_name_dir = os.path.join(
-            output_dir, 'vendor-ramdisk-by-name')
+            args.out, 'vendor-ramdisk-by-name')
         create_out_dir(vendor_ramdisk_by_name_dir)
         for src, dst in vendor_ramdisk_symlinks:
             src_pathname = os.path.join('..', src)
@@ -475,26 +467,19 @@ def unpack_vendor_boot_image(boot_img, output_dir):
     return info
 
 
-def unpack_bootimg(boot_img, output_dir):
-    """Unpacks the |boot_img| to |output_dir|, and returns the 'info' object."""
-    with open(boot_img, 'rb') as image_file:
-        boot_magic = unpack('8s', image_file.read(8))[0].decode()
-        image_file.seek(0)
-        if boot_magic == 'ANDROID!':
-            info = unpack_boot_image(image_file, output_dir)
-        elif boot_magic == 'VNDRBOOT':
-            info = unpack_vendor_boot_image(image_file, output_dir)
-        else:
-            raise ValueError(f'Not an Android boot image, magic: {boot_magic}')
+def unpack_image(args):
+    boot_magic = unpack('8s', args.boot_img.read(8))[0].decode()
+    args.boot_img.seek(0)
+    if boot_magic == 'ANDROID!':
+        info = unpack_boot_image(args)
+    elif boot_magic == 'VNDRBOOT':
+        info = unpack_vendor_boot_image(args)
+    else:
+        raise ValueError(f'Not an Android boot image, magic: {boot_magic}')
 
-    return info
-
-
-def print_bootimg_info(info, output_format, null_separator):
-    """Format and print boot image info."""
-    if output_format == 'mkbootimg':
+    if args.format == 'mkbootimg':
         mkbootimg_args = info.format_mkbootimg_argument()
-        if null_separator:
+        if args.null:
             print('\0'.join(mkbootimg_args) + '\0', end='')
         else:
             print(shlex.join(mkbootimg_args))
@@ -540,7 +525,7 @@ def parse_cmdline():
         description='Unpacks boot, recovery or vendor_boot image.',
         epilog=get_unpack_usage(),
     )
-    parser.add_argument('--boot_img', required=True,
+    parser.add_argument('--boot_img', type=FileType('rb'), required=True,
                         help='path to the boot, recovery or vendor_boot image')
     parser.add_argument('--out', default='out',
                         help='output directory of the unpacked images')
@@ -555,8 +540,7 @@ def parse_cmdline():
 def main():
     """parse arguments and unpack boot image"""
     args = parse_cmdline()
-    info = unpack_bootimg(args.boot_img, args.out)
-    print_bootimg_info(info, args.format, args.null)
+    unpack_image(args)
 
 
 if __name__ == '__main__':

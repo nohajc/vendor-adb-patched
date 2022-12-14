@@ -26,7 +26,7 @@
 
 #include <private/android_filesystem_config.h>
 
-static bool checkGroup(char* buf, gid_t gidToCheck) {
+static bool groupIsLog(char* buf) {
     char* ptr;
     static const char ws[] = " \n";
 
@@ -36,7 +36,7 @@ static bool checkGroup(char* buf, gid_t gidToCheck) {
         if (errno != 0) {
             return false;
         }
-        if (Gid == gidToCheck) {
+        if (Gid == AID_LOG) {
             return true;
         }
     }
@@ -54,12 +54,17 @@ static bool UserIsPrivileged(int id) {
 // This function introduces races especially since status
 // can change 'shape' while reading, the net result is err
 // on lack of permission.
-static bool checkSupplementaryGroup(uid_t uid, gid_t gid, pid_t pid, gid_t gidToCheck) {
+bool clientHasLogCredentials(uid_t uid, gid_t gid, pid_t pid) {
+    if (UserIsPrivileged(uid) || UserIsPrivileged(gid)) {
+        return true;
+    }
+
+    // FYI We will typically be here for 'adb logcat'
     char filename[256];
     snprintf(filename, sizeof(filename), "/proc/%u/status", pid);
 
     bool ret;
-    bool foundGroup = false;
+    bool foundLog = false;
     bool foundGid = false;
     bool foundUid = false;
 
@@ -78,7 +83,8 @@ static bool checkSupplementaryGroup(uid_t uid, gid_t gid, pid_t pid, gid_t gidTo
     // doubt, but we expect the falses  should be reduced significantly as
     // three times is a charm.
     //
-    for (int retry = 3; !(ret = foundGid && foundUid && foundGroup) && retry; --retry) {
+    for (int retry = 3; !(ret = foundGid && foundUid && foundLog) && retry;
+         --retry) {
         FILE* file = fopen(filename, "re");
         if (!file) {
             continue;
@@ -92,8 +98,8 @@ static bool checkSupplementaryGroup(uid_t uid, gid_t gid, pid_t pid, gid_t gidTo
             static const char gid_string[] = "Gid:\t";
 
             if (strncmp(groups_string, line, sizeof(groups_string) - 1) == 0) {
-                if (checkGroup(line + sizeof(groups_string) - 1, gidToCheck)) {
-                    foundGroup = true;
+                if (groupIsLog(line + sizeof(groups_string) - 1)) {
+                    foundLog = true;
                 }
             } else if (strncmp(uid_string, line, sizeof(uid_string) - 1) == 0) {
                 uid_t u[4] = { (uid_t)-1, (uid_t)-1, (uid_t)-1, (uid_t)-1 };
@@ -124,22 +130,6 @@ static bool checkSupplementaryGroup(uid_t uid, gid_t gid, pid_t pid, gid_t gidTo
     }
 
     return ret;
-}
-
-bool clientCanWriteSecurityLog(uid_t uid, gid_t gid, pid_t pid) {
-    if (UserIsPrivileged(uid) || UserIsPrivileged(gid)) {
-        return true;
-    }
-    return checkSupplementaryGroup(uid, gid, pid, AID_SECURITY_LOG_WRITER) ||
-           checkSupplementaryGroup(uid, gid, pid, AID_LOG);
-}
-
-bool clientHasLogCredentials(uid_t uid, gid_t gid, pid_t pid) {
-    if (UserIsPrivileged(uid) || UserIsPrivileged(gid)) {
-        return true;
-    }
-    // FYI We will typically be here for 'adb logcat'
-    return checkSupplementaryGroup(uid, gid, pid, AID_LOG);
 }
 
 bool clientHasLogCredentials(SocketClient* cli) {

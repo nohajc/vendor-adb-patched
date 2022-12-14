@@ -25,7 +25,7 @@
 #include "FrameTracer.h"
 
 #include <android-base/stringprintf.h>
-#include <perfetto/common/builtin_clock.pbzero.h>
+#include <perfetto/trace/clock_snapshot.pbzero.h>
 
 #include <algorithm>
 #include <mutex>
@@ -34,6 +34,7 @@ PERFETTO_DEFINE_DATA_SOURCE_STATIC_MEMBERS(android::FrameTracer::FrameTracerData
 
 namespace android {
 
+using Clock = perfetto::protos::pbzero::ClockSnapshot::Clock;
 void FrameTracer::initialize() {
     std::call_once(mInitializationFlag, [this]() {
         perfetto::TracingInitArgs args;
@@ -135,7 +136,7 @@ void FrameTracer::traceLocked(FrameTracerDataSource::TraceContext& ctx, int32_t 
                               uint64_t bufferID, uint64_t frameNumber, nsecs_t timestamp,
                               FrameEvent::BufferEventType type, nsecs_t duration) {
     auto packet = ctx.NewTracePacket();
-    packet->set_timestamp_clock_id(perfetto::protos::pbzero::BUILTIN_CLOCK_MONOTONIC);
+    packet->set_timestamp_clock_id(Clock::MONOTONIC);
     packet->set_timestamp(timestamp);
     auto* event = packet->set_graphics_frame_event()->set_buffer_event();
     event->set_buffer_id(static_cast<uint32_t>(bufferID));

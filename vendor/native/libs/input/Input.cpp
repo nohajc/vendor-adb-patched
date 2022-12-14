@@ -17,97 +17,20 @@
 #define LOG_TAG "Input"
 //#define LOG_NDEBUG 0
 
-#include <attestation/HmacKeyManager.h>
 #include <cutils/compiler.h>
-#include <inttypes.h>
 #include <limits.h>
 #include <string.h>
 
-#include <android-base/properties.h>
-#include <android-base/stringprintf.h>
-#include <gui/constants.h>
 #include <input/Input.h>
 #include <input/InputDevice.h>
 #include <input/InputEventLabels.h>
 
-#ifdef __linux__
-#include <binder/Parcel.h>
-#endif
 #ifdef __ANDROID__
+#include <binder/Parcel.h>
 #include <sys/random.h>
 #endif
 
-using android::base::StringPrintf;
-
 namespace android {
-
-namespace {
-
-// When per-window-input-rotation is enabled, InputFlinger works in the un-rotated display
-// coordinates and SurfaceFlinger includes the display rotation in the input window transforms.
-bool isPerWindowInputRotationEnabled() {
-    static const bool PER_WINDOW_INPUT_ROTATION =
-            base::GetBoolProperty("persist.debug.per_window_input_rotation", false);
-
-    return PER_WINDOW_INPUT_ROTATION;
-}
-
-float transformAngle(const ui::Transform& transform, float angleRadians) {
-    // Construct and transform a vector oriented at the specified clockwise angle from vertical.
-    // Coordinate system: down is increasing Y, right is increasing X.
-    float x = sinf(angleRadians);
-    float y = -cosf(angleRadians);
-    vec2 transformedPoint = transform.transform(x, y);
-
-    // Determine how the origin is transformed by the matrix so that we
-    // can transform orientation vectors.
-    const vec2 origin = transform.transform(0, 0);
-
-    transformedPoint.x -= origin.x;
-    transformedPoint.y -= origin.y;
-
-    // Derive the transformed vector's clockwise angle from vertical.
-    // The return value of atan2f is in range [-pi, pi] which conforms to the orientation API.
-    return atan2f(transformedPoint.x, -transformedPoint.y);
-}
-
-// Rotates the given point to the specified orientation. If the display width and height are
-// provided, the point is rotated in the screen space. Otherwise, the point is rotated about the
-// origin. This helper is used to avoid the extra overhead of creating new Transforms.
-vec2 rotatePoint(uint32_t orientation, float x, float y, int32_t displayWidth = 0,
-                 int32_t displayHeight = 0) {
-    if (orientation == ui::Transform::ROT_0) {
-        return {x, y};
-    }
-
-    vec2 xy(x, y);
-    if (orientation == ui::Transform::ROT_90) {
-        xy.x = displayHeight - y;
-        xy.y = x;
-    } else if (orientation == ui::Transform::ROT_180) {
-        xy.x = displayWidth - x;
-        xy.y = displayHeight - y;
-    } else if (orientation == ui::Transform::ROT_270) {
-        xy.x = y;
-        xy.y = displayWidth - x;
-    }
-    return xy;
-}
-
-vec2 applyTransformWithoutTranslation(const ui::Transform& transform, float x, float y) {
-    const vec2 transformedXy = transform.transform(x, y);
-    const vec2 transformedOrigin = transform.transform(0, 0);
-    return transformedXy - transformedOrigin;
-}
-
-bool shouldDisregardWindowTranslation(uint32_t source) {
-    // Pointer events are the only type of events that refer to absolute coordinates on the display,
-    // so we should apply the entire window transform. For other types of events, we should make
-    // sure to not apply the window translation/offset.
-    return (source & AINPUT_SOURCE_CLASS_POINTER) == 0;
-}
-
-} // namespace
 
 const char* motionClassificationToString(MotionClassification classification) {
     switch (classification) {
@@ -158,12 +81,6 @@ const char* inputEventTypeToString(int32_t type) {
         }
         case AINPUT_EVENT_TYPE_FOCUS: {
             return "FOCUS";
-        }
-        case AINPUT_EVENT_TYPE_CAPTURE: {
-            return "CAPTURE";
-        }
-        case AINPUT_EVENT_TYPE_DRAG: {
-            return "DRAG";
         }
     }
     return "UNKNOWN";
@@ -218,11 +135,11 @@ int32_t InputEvent::nextId() {
 // --- KeyEvent ---
 
 const char* KeyEvent::getLabel(int32_t keyCode) {
-    return InputEventLookup::getLabelByKeyCode(keyCode);
+    return getLabelByKeyCode(keyCode);
 }
 
 int32_t KeyEvent::getKeyCodeFromLabel(const char* label) {
-    return InputEventLookup::getKeyCodeByLabel(label);
+    return getKeyCodeByLabel(label);
 }
 
 void KeyEvent::initialize(int32_t id, int32_t deviceId, uint32_t source, int32_t displayId,
@@ -321,8 +238,6 @@ void PointerCoords::scale(float globalScaleFactor, float windowXScale, float win
     scaleAxisValue(*this, AMOTION_EVENT_AXIS_TOUCH_MINOR, globalScaleFactor);
     scaleAxisValue(*this, AMOTION_EVENT_AXIS_TOOL_MAJOR, globalScaleFactor);
     scaleAxisValue(*this, AMOTION_EVENT_AXIS_TOOL_MINOR, globalScaleFactor);
-    scaleAxisValue(*this, AMOTION_EVENT_AXIS_RELATIVE_X, windowXScale);
-    scaleAxisValue(*this, AMOTION_EVENT_AXIS_RELATIVE_Y, windowYScale);
 }
 
 void PointerCoords::scale(float globalScaleFactor) {
@@ -334,7 +249,7 @@ void PointerCoords::applyOffset(float xOffset, float yOffset) {
     setAxisValue(AMOTION_EVENT_AXIS_Y, getY() + yOffset);
 }
 
-#ifdef __linux__
+#ifdef __ANDROID__
 status_t PointerCoords::readFromParcel(Parcel* parcel) {
     bits = parcel->readInt64();
 
@@ -386,25 +301,6 @@ void PointerCoords::copyFrom(const PointerCoords& other) {
     }
 }
 
-void PointerCoords::transform(const ui::Transform& transform) {
-    const vec2 xy = transform.transform(getXYValue());
-    setAxisValue(AMOTION_EVENT_AXIS_X, xy.x);
-    setAxisValue(AMOTION_EVENT_AXIS_Y, xy.y);
-
-    if (BitSet64::hasBit(bits, AMOTION_EVENT_AXIS_RELATIVE_X) ||
-        BitSet64::hasBit(bits, AMOTION_EVENT_AXIS_RELATIVE_Y)) {
-        const ui::Transform rotation(transform.getOrientation());
-        const vec2 relativeXy = rotation.transform(getAxisValue(AMOTION_EVENT_AXIS_RELATIVE_X),
-                                                   getAxisValue(AMOTION_EVENT_AXIS_RELATIVE_Y));
-        setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_X, relativeXy.x);
-        setAxisValue(AMOTION_EVENT_AXIS_RELATIVE_Y, relativeXy.y);
-    }
-
-    if (BitSet64::hasBit(bits, AMOTION_EVENT_AXIS_ORIENTATION)) {
-        const float val = getAxisValue(AMOTION_EVENT_AXIS_ORIENTATION);
-        setAxisValue(AMOTION_EVENT_AXIS_ORIENTATION, transformAngle(transform, val));
-    }
-}
 
 // --- PointerProperties ---
 
@@ -424,12 +320,11 @@ void PointerProperties::copyFrom(const PointerProperties& other) {
 void MotionEvent::initialize(int32_t id, int32_t deviceId, uint32_t source, int32_t displayId,
                              std::array<uint8_t, 32> hmac, int32_t action, int32_t actionButton,
                              int32_t flags, int32_t edgeFlags, int32_t metaState,
-                             int32_t buttonState, MotionClassification classification,
-                             const ui::Transform& transform, float xPrecision, float yPrecision,
-                             float rawXCursorPosition, float rawYCursorPosition,
-                             uint32_t displayOrientation, int32_t displayWidth,
-                             int32_t displayHeight, nsecs_t downTime, nsecs_t eventTime,
-                             size_t pointerCount, const PointerProperties* pointerProperties,
+                             int32_t buttonState, MotionClassification classification, float xScale,
+                             float yScale, float xOffset, float yOffset, float xPrecision,
+                             float yPrecision, float rawXCursorPosition, float rawYCursorPosition,
+                             nsecs_t downTime, nsecs_t eventTime, size_t pointerCount,
+                             const PointerProperties* pointerProperties,
                              const PointerCoords* pointerCoords) {
     InputEvent::initialize(id, deviceId, source, displayId, hmac);
     mAction = action;
@@ -439,14 +334,14 @@ void MotionEvent::initialize(int32_t id, int32_t deviceId, uint32_t source, int3
     mMetaState = metaState;
     mButtonState = buttonState;
     mClassification = classification;
-    mTransform = transform;
+    mXScale = xScale;
+    mYScale = yScale;
+    mXOffset = xOffset;
+    mYOffset = yOffset;
     mXPrecision = xPrecision;
     mYPrecision = yPrecision;
     mRawXCursorPosition = rawXCursorPosition;
     mRawYCursorPosition = rawYCursorPosition;
-    mDisplayOrientation = displayOrientation;
-    mDisplayWidth = displayWidth;
-    mDisplayHeight = displayHeight;
     mDownTime = downTime;
     mPointerProperties.clear();
     mPointerProperties.appendArray(pointerProperties, pointerCount);
@@ -465,14 +360,14 @@ void MotionEvent::copyFrom(const MotionEvent* other, bool keepHistory) {
     mMetaState = other->mMetaState;
     mButtonState = other->mButtonState;
     mClassification = other->mClassification;
-    mTransform = other->mTransform;
+    mXScale = other->mXScale;
+    mYScale = other->mYScale;
+    mXOffset = other->mXOffset;
+    mYOffset = other->mYOffset;
     mXPrecision = other->mXPrecision;
     mYPrecision = other->mYPrecision;
     mRawXCursorPosition = other->mRawXCursorPosition;
     mRawYCursorPosition = other->mRawYCursorPosition;
-    mDisplayOrientation = other->mDisplayOrientation;
-    mDisplayWidth = other->mDisplayWidth;
-    mDisplayHeight = other->mDisplayHeight;
     mDownTime = other->mDownTime;
     mPointerProperties = other->mPointerProperties;
 
@@ -481,7 +376,7 @@ void MotionEvent::copyFrom(const MotionEvent* other, bool keepHistory) {
         mSamplePointerCoords = other->mSamplePointerCoords;
     } else {
         mSampleEventTimes.clear();
-        mSampleEventTimes.push_back(other->getEventTime());
+        mSampleEventTimes.push(other->getEventTime());
         mSamplePointerCoords.clear();
         size_t pointerCount = other->getPointerCount();
         size_t historySize = other->getHistorySize();
@@ -493,25 +388,23 @@ void MotionEvent::copyFrom(const MotionEvent* other, bool keepHistory) {
 void MotionEvent::addSample(
         int64_t eventTime,
         const PointerCoords* pointerCoords) {
-    mSampleEventTimes.push_back(eventTime);
+    mSampleEventTimes.push(eventTime);
     mSamplePointerCoords.appendArray(pointerCoords, getPointerCount());
 }
 
 float MotionEvent::getXCursorPosition() const {
-    vec2 vals = mTransform.transform(getRawXCursorPosition(), getRawYCursorPosition());
-    return vals.x;
+    const float rawX = getRawXCursorPosition();
+    return rawX * mXScale + mXOffset;
 }
 
 float MotionEvent::getYCursorPosition() const {
-    vec2 vals = mTransform.transform(getRawXCursorPosition(), getRawYCursorPosition());
-    return vals.y;
+    const float rawY = getRawYCursorPosition();
+    return rawY * mYScale + mYOffset;
 }
 
 void MotionEvent::setCursorPosition(float x, float y) {
-    ui::Transform inverse = mTransform.inverse();
-    vec2 vals = inverse.transform(x, y);
-    mRawXCursorPosition = vals.x;
-    mRawYCursorPosition = vals.y;
+    mRawXCursorPosition = (x - mXOffset) / mXScale;
+    mRawYCursorPosition = (y - mYOffset) / mYScale;
 }
 
 const PointerCoords* MotionEvent::getRawPointerCoords(size_t pointerIndex) const {
@@ -519,11 +412,18 @@ const PointerCoords* MotionEvent::getRawPointerCoords(size_t pointerIndex) const
 }
 
 float MotionEvent::getRawAxisValue(int32_t axis, size_t pointerIndex) const {
-    return getHistoricalRawAxisValue(axis, pointerIndex, getHistorySize());
+    return getRawPointerCoords(pointerIndex)->getAxisValue(axis);
 }
 
 float MotionEvent::getAxisValue(int32_t axis, size_t pointerIndex) const {
-    return getHistoricalAxisValue(axis, pointerIndex, getHistorySize());
+    float value = getRawPointerCoords(pointerIndex)->getAxisValue(axis);
+    switch (axis) {
+    case AMOTION_EVENT_AXIS_X:
+        return value * mXScale + mXOffset;
+    case AMOTION_EVENT_AXIS_Y:
+        return value * mYScale + mYOffset;
+    }
+    return value;
 }
 
 const PointerCoords* MotionEvent::getHistoricalRawPointerCoords(
@@ -532,57 +432,20 @@ const PointerCoords* MotionEvent::getHistoricalRawPointerCoords(
 }
 
 float MotionEvent::getHistoricalRawAxisValue(int32_t axis, size_t pointerIndex,
-                                             size_t historicalIndex) const {
-    const PointerCoords* coords = getHistoricalRawPointerCoords(pointerIndex, historicalIndex);
-
-    if (!isPerWindowInputRotationEnabled()) return coords->getAxisValue(axis);
-
-    if (axis == AMOTION_EVENT_AXIS_X || axis == AMOTION_EVENT_AXIS_Y) {
-        // For compatibility, convert raw coordinates into "oriented screen space". Once app
-        // developers are educated about getRaw, we can consider removing this.
-        const vec2 xy = shouldDisregardWindowTranslation(mSource)
-                ? rotatePoint(mDisplayOrientation, coords->getX(), coords->getY())
-                : rotatePoint(mDisplayOrientation, coords->getX(), coords->getY(), mDisplayWidth,
-                              mDisplayHeight);
-        static_assert(AMOTION_EVENT_AXIS_X == 0 && AMOTION_EVENT_AXIS_Y == 1);
-        return xy[axis];
-    }
-
-    if (axis == AMOTION_EVENT_AXIS_RELATIVE_X || axis == AMOTION_EVENT_AXIS_RELATIVE_Y) {
-        // For compatibility, since we convert raw coordinates into "oriented screen space", we
-        // need to convert the relative axes into the same orientation for consistency.
-        const vec2 relativeXy = rotatePoint(mDisplayOrientation,
-                                            coords->getAxisValue(AMOTION_EVENT_AXIS_RELATIVE_X),
-                                            coords->getAxisValue(AMOTION_EVENT_AXIS_RELATIVE_Y));
-        return axis == AMOTION_EVENT_AXIS_RELATIVE_X ? relativeXy.x : relativeXy.y;
-    }
-
-    return coords->getAxisValue(axis);
+        size_t historicalIndex) const {
+    return getHistoricalRawPointerCoords(pointerIndex, historicalIndex)->getAxisValue(axis);
 }
 
 float MotionEvent::getHistoricalAxisValue(int32_t axis, size_t pointerIndex,
-                                          size_t historicalIndex) const {
-    const PointerCoords* coords = getHistoricalRawPointerCoords(pointerIndex, historicalIndex);
-
-    if (axis == AMOTION_EVENT_AXIS_X || axis == AMOTION_EVENT_AXIS_Y) {
-        const vec2 xy = shouldDisregardWindowTranslation(mSource)
-                ? applyTransformWithoutTranslation(mTransform, coords->getX(), coords->getY())
-                : mTransform.transform(coords->getXYValue());
-        static_assert(AMOTION_EVENT_AXIS_X == 0 && AMOTION_EVENT_AXIS_Y == 1);
-        return xy[axis];
+        size_t historicalIndex) const {
+    float value = getHistoricalRawPointerCoords(pointerIndex, historicalIndex)->getAxisValue(axis);
+    switch (axis) {
+    case AMOTION_EVENT_AXIS_X:
+        return value * mXScale + mXOffset;
+    case AMOTION_EVENT_AXIS_Y:
+        return value * mYScale + mYOffset;
     }
-
-    if (axis == AMOTION_EVENT_AXIS_RELATIVE_X || axis == AMOTION_EVENT_AXIS_RELATIVE_Y) {
-        const vec2 relativeXy =
-                applyTransformWithoutTranslation(mTransform,
-                                                 coords->getAxisValue(
-                                                         AMOTION_EVENT_AXIS_RELATIVE_X),
-                                                 coords->getAxisValue(
-                                                         AMOTION_EVENT_AXIS_RELATIVE_Y));
-        return axis == AMOTION_EVENT_AXIS_RELATIVE_X ? relativeXy.x : relativeXy.y;
-    }
-
-    return coords->getAxisValue(axis);
+    return value;
 }
 
 ssize_t MotionEvent::findPointerIndex(int32_t pointerId) const {
@@ -596,80 +459,99 @@ ssize_t MotionEvent::findPointerIndex(int32_t pointerId) const {
 }
 
 void MotionEvent::offsetLocation(float xOffset, float yOffset) {
-    float currXOffset = mTransform.tx();
-    float currYOffset = mTransform.ty();
-    mTransform.set(currXOffset + xOffset, currYOffset + yOffset);
+    mXOffset += xOffset;
+    mYOffset += yOffset;
 }
 
 void MotionEvent::scale(float globalScaleFactor) {
-    mTransform.set(mTransform.tx() * globalScaleFactor, mTransform.ty() * globalScaleFactor);
+    mXOffset *= globalScaleFactor;
+    mYOffset *= globalScaleFactor;
     mXPrecision *= globalScaleFactor;
     mYPrecision *= globalScaleFactor;
 
     size_t numSamples = mSamplePointerCoords.size();
     for (size_t i = 0; i < numSamples; i++) {
-        mSamplePointerCoords.editItemAt(i).scale(globalScaleFactor, globalScaleFactor,
-                                                 globalScaleFactor);
+        mSamplePointerCoords.editItemAt(i).scale(globalScaleFactor);
     }
 }
 
-void MotionEvent::transform(const std::array<float, 9>& matrix) {
-    // We want to preserve the raw axes values stored in the PointerCoords, so we just update the
-    // transform using the values passed in.
-    ui::Transform newTransform;
-    newTransform.set(matrix);
-    mTransform = newTransform * mTransform;
-
-    // We need to update the AXIS_ORIENTATION value here to maintain the old behavior where the
-    // orientation angle is not affected by the initial transformation set in the MotionEvent.
-    std::for_each(mSamplePointerCoords.begin(), mSamplePointerCoords.end(),
-                  [&newTransform](PointerCoords& c) {
-                      float orientation = c.getAxisValue(AMOTION_EVENT_AXIS_ORIENTATION);
-                      c.setAxisValue(AMOTION_EVENT_AXIS_ORIENTATION,
-                                     transformAngle(newTransform, orientation));
-                  });
+static void transformPoint(const float matrix[9], float x, float y, float *outX, float *outY) {
+    // Apply perspective transform like Skia.
+    float newX = matrix[0] * x + matrix[1] * y + matrix[2];
+    float newY = matrix[3] * x + matrix[4] * y + matrix[5];
+    float newZ = matrix[6] * x + matrix[7] * y + matrix[8];
+    if (newZ) {
+        newZ = 1.0f / newZ;
+    }
+    *outX = newX * newZ;
+    *outY = newY * newZ;
 }
 
-void MotionEvent::applyTransform(const std::array<float, 9>& matrix) {
-    ui::Transform transform;
-    transform.set(matrix);
+static float transformAngle(const float matrix[9], float angleRadians,
+        float originX, float originY) {
+    // Construct and transform a vector oriented at the specified clockwise angle from vertical.
+    // Coordinate system: down is increasing Y, right is increasing X.
+    float x = sinf(angleRadians);
+    float y = -cosf(angleRadians);
+    transformPoint(matrix, x, y, &x, &y);
+    x -= originX;
+    y -= originY;
+
+    // Derive the transformed vector's clockwise angle from vertical.
+    float result = atan2f(x, -y);
+    if (result < - M_PI_2) {
+        result += M_PI;
+    } else if (result > M_PI_2) {
+        result -= M_PI;
+    }
+    return result;
+}
+
+void MotionEvent::transform(const float matrix[9]) {
+    // The tricky part of this implementation is to preserve the value of
+    // rawX and rawY.  So we apply the transformation to the first point
+    // then derive an appropriate new X/Y offset that will preserve rawX
+     // and rawY for that point.
+    float oldXOffset = mXOffset;
+    float oldYOffset = mYOffset;
+    float newX, newY;
+    float scaledRawX = getRawX(0) * mXScale;
+    float scaledRawY = getRawY(0) * mYScale;
+    transformPoint(matrix, scaledRawX + oldXOffset, scaledRawY + oldYOffset, &newX, &newY);
+    mXOffset = newX - scaledRawX;
+    mYOffset = newY - scaledRawY;
+
+    // Determine how the origin is transformed by the matrix so that we
+    // can transform orientation vectors.
+    float originX, originY;
+    transformPoint(matrix, 0, 0, &originX, &originY);
+
+    // Apply the transformation to cursor position.
+    if (isValidCursorPosition(mRawXCursorPosition, mRawYCursorPosition)) {
+        float x = mRawXCursorPosition * mXScale + oldXOffset;
+        float y = mRawYCursorPosition * mYScale + oldYOffset;
+        transformPoint(matrix, x, y, &x, &y);
+        mRawXCursorPosition = (x - mXOffset) / mXScale;
+        mRawYCursorPosition = (y - mYOffset) / mYScale;
+    }
 
     // Apply the transformation to all samples.
-    std::for_each(mSamplePointerCoords.begin(), mSamplePointerCoords.end(),
-                  [&transform](PointerCoords& c) { c.transform(transform); });
+    size_t numSamples = mSamplePointerCoords.size();
+    for (size_t i = 0; i < numSamples; i++) {
+        PointerCoords& c = mSamplePointerCoords.editItemAt(i);
+        float x = c.getAxisValue(AMOTION_EVENT_AXIS_X) * mXScale + oldXOffset;
+        float y = c.getAxisValue(AMOTION_EVENT_AXIS_Y) * mYScale + oldYOffset;
+        transformPoint(matrix, x, y, &x, &y);
+        c.setAxisValue(AMOTION_EVENT_AXIS_X, (x - mXOffset) / mXScale);
+        c.setAxisValue(AMOTION_EVENT_AXIS_Y, (y - mYOffset) / mYScale);
 
-    if (mRawXCursorPosition != AMOTION_EVENT_INVALID_CURSOR_POSITION &&
-        mRawYCursorPosition != AMOTION_EVENT_INVALID_CURSOR_POSITION) {
-        const vec2 cursor = transform.transform(mRawXCursorPosition, mRawYCursorPosition);
-        mRawXCursorPosition = cursor.x;
-        mRawYCursorPosition = cursor.y;
+        float orientation = c.getAxisValue(AMOTION_EVENT_AXIS_ORIENTATION);
+        c.setAxisValue(AMOTION_EVENT_AXIS_ORIENTATION,
+                transformAngle(matrix, orientation, originX, originY));
     }
 }
 
-#ifdef __linux__
-static status_t readFromParcel(ui::Transform& transform, const Parcel& parcel) {
-    float dsdx, dtdx, tx, dtdy, dsdy, ty;
-    status_t status = parcel.readFloat(&dsdx);
-    status |= parcel.readFloat(&dtdx);
-    status |= parcel.readFloat(&tx);
-    status |= parcel.readFloat(&dtdy);
-    status |= parcel.readFloat(&dsdy);
-    status |= parcel.readFloat(&ty);
-
-    transform.set({dsdx, dtdx, tx, dtdy, dsdy, ty, 0, 0, 1});
-    return status;
-}
-
-static status_t writeToParcel(const ui::Transform& transform, Parcel& parcel) {
-    status_t status = parcel.writeFloat(transform.dsdx());
-    status |= parcel.writeFloat(transform.dtdx());
-    status |= parcel.writeFloat(transform.tx());
-    status |= parcel.writeFloat(transform.dtdy());
-    status |= parcel.writeFloat(transform.dsdy());
-    status |= parcel.writeFloat(transform.ty());
-    return status;
-}
-
+#ifdef __ANDROID__
 status_t MotionEvent::readFromParcel(Parcel* parcel) {
     size_t pointerCount = parcel->readInt32();
     size_t sampleCount = parcel->readInt32();
@@ -695,24 +577,20 @@ status_t MotionEvent::readFromParcel(Parcel* parcel) {
     mMetaState = parcel->readInt32();
     mButtonState = parcel->readInt32();
     mClassification = static_cast<MotionClassification>(parcel->readByte());
-
-    result = android::readFromParcel(mTransform, *parcel);
-    if (result != OK) {
-        return result;
-    }
+    mXScale = parcel->readFloat();
+    mYScale = parcel->readFloat();
+    mXOffset = parcel->readFloat();
+    mYOffset = parcel->readFloat();
     mXPrecision = parcel->readFloat();
     mYPrecision = parcel->readFloat();
     mRawXCursorPosition = parcel->readFloat();
     mRawYCursorPosition = parcel->readFloat();
-    mDisplayOrientation = parcel->readUint32();
-    mDisplayWidth = parcel->readInt32();
-    mDisplayHeight = parcel->readInt32();
     mDownTime = parcel->readInt64();
 
     mPointerProperties.clear();
     mPointerProperties.setCapacity(pointerCount);
     mSampleEventTimes.clear();
-    mSampleEventTimes.reserve(sampleCount);
+    mSampleEventTimes.setCapacity(sampleCount);
     mSamplePointerCoords.clear();
     mSamplePointerCoords.setCapacity(sampleCount * pointerCount);
 
@@ -725,7 +603,7 @@ status_t MotionEvent::readFromParcel(Parcel* parcel) {
 
     while (sampleCount > 0) {
         sampleCount--;
-        mSampleEventTimes.push_back(parcel->readInt64());
+        mSampleEventTimes.push(parcel->readInt64());
         for (size_t i = 0; i < pointerCount; i++) {
             mSamplePointerCoords.push();
             status_t status = mSamplePointerCoords.editTop().readFromParcel(parcel);
@@ -757,18 +635,14 @@ status_t MotionEvent::writeToParcel(Parcel* parcel) const {
     parcel->writeInt32(mMetaState);
     parcel->writeInt32(mButtonState);
     parcel->writeByte(static_cast<int8_t>(mClassification));
-
-    status_t result = android::writeToParcel(mTransform, *parcel);
-    if (result != OK) {
-        return result;
-    }
+    parcel->writeFloat(mXScale);
+    parcel->writeFloat(mYScale);
+    parcel->writeFloat(mXOffset);
+    parcel->writeFloat(mYOffset);
     parcel->writeFloat(mXPrecision);
     parcel->writeFloat(mYPrecision);
     parcel->writeFloat(mRawXCursorPosition);
     parcel->writeFloat(mRawYCursorPosition);
-    parcel->writeUint32(mDisplayOrientation);
-    parcel->writeInt32(mDisplayWidth);
-    parcel->writeInt32(mDisplayHeight);
     parcel->writeInt64(mDownTime);
 
     for (size_t i = 0; i < pointerCount; i++) {
@@ -779,7 +653,7 @@ status_t MotionEvent::writeToParcel(Parcel* parcel) const {
 
     const PointerCoords* pc = mSamplePointerCoords.array();
     for (size_t h = 0; h < sampleCount; h++) {
-        parcel->writeInt64(mSampleEventTimes[h]);
+        parcel->writeInt64(mSampleEventTimes.itemAt(h));
         for (size_t i = 0; i < pointerCount; i++) {
             status_t status = (pc++)->writeToParcel(parcel);
             if (status) {
@@ -809,44 +683,30 @@ bool MotionEvent::isTouchEvent(uint32_t source, int32_t action) {
 }
 
 const char* MotionEvent::getLabel(int32_t axis) {
-    return InputEventLookup::getAxisLabel(axis);
+    return getAxisLabel(axis);
 }
 
 int32_t MotionEvent::getAxisFromLabel(const char* label) {
-    return InputEventLookup::getAxisByLabel(label);
+    return getAxisByLabel(label);
 }
 
-std::string MotionEvent::actionToString(int32_t action) {
+const char* MotionEvent::actionToString(int32_t action) {
     // Convert MotionEvent action to string
     switch (action & AMOTION_EVENT_ACTION_MASK) {
         case AMOTION_EVENT_ACTION_DOWN:
             return "DOWN";
-        case AMOTION_EVENT_ACTION_UP:
-            return "UP";
         case AMOTION_EVENT_ACTION_MOVE:
             return "MOVE";
+        case AMOTION_EVENT_ACTION_UP:
+            return "UP";
         case AMOTION_EVENT_ACTION_CANCEL:
             return "CANCEL";
-        case AMOTION_EVENT_ACTION_OUTSIDE:
-            return "OUTSIDE";
         case AMOTION_EVENT_ACTION_POINTER_DOWN:
             return "POINTER_DOWN";
         case AMOTION_EVENT_ACTION_POINTER_UP:
             return "POINTER_UP";
-        case AMOTION_EVENT_ACTION_HOVER_MOVE:
-            return "HOVER_MOVE";
-        case AMOTION_EVENT_ACTION_SCROLL:
-            return "SCROLL";
-        case AMOTION_EVENT_ACTION_HOVER_ENTER:
-            return "HOVER_ENTER";
-        case AMOTION_EVENT_ACTION_HOVER_EXIT:
-            return "HOVER_EXIT";
-        case AMOTION_EVENT_ACTION_BUTTON_PRESS:
-            return "BUTTON_PRESS";
-        case AMOTION_EVENT_ACTION_BUTTON_RELEASE:
-            return "BUTTON_RELEASE";
     }
-    return android::base::StringPrintf("%" PRId32, action);
+    return "UNKNOWN";
 }
 
 // --- FocusEvent ---
@@ -862,36 +722,6 @@ void FocusEvent::initialize(const FocusEvent& from) {
     InputEvent::initialize(from);
     mHasFocus = from.mHasFocus;
     mInTouchMode = from.mInTouchMode;
-}
-
-// --- CaptureEvent ---
-
-void CaptureEvent::initialize(int32_t id, bool pointerCaptureEnabled) {
-    InputEvent::initialize(id, ReservedInputDeviceId::VIRTUAL_KEYBOARD_ID, AINPUT_SOURCE_UNKNOWN,
-                           ADISPLAY_ID_NONE, INVALID_HMAC);
-    mPointerCaptureEnabled = pointerCaptureEnabled;
-}
-
-void CaptureEvent::initialize(const CaptureEvent& from) {
-    InputEvent::initialize(from);
-    mPointerCaptureEnabled = from.mPointerCaptureEnabled;
-}
-
-// --- DragEvent ---
-
-void DragEvent::initialize(int32_t id, float x, float y, bool isExiting) {
-    InputEvent::initialize(id, ReservedInputDeviceId::VIRTUAL_KEYBOARD_ID, AINPUT_SOURCE_UNKNOWN,
-                           ADISPLAY_ID_NONE, INVALID_HMAC);
-    mIsExiting = isExiting;
-    mX = x;
-    mY = y;
-}
-
-void DragEvent::initialize(const DragEvent& from) {
-    InputEvent::initialize(from);
-    mIsExiting = from.mIsExiting;
-    mX = from.mX;
-    mY = from.mY;
 }
 
 // --- PooledInputEventFactory ---
@@ -930,24 +760,6 @@ FocusEvent* PooledInputEventFactory::createFocusEvent() {
     return event;
 }
 
-CaptureEvent* PooledInputEventFactory::createCaptureEvent() {
-    if (mCaptureEventPool.empty()) {
-        return new CaptureEvent();
-    }
-    CaptureEvent* event = mCaptureEventPool.front().release();
-    mCaptureEventPool.pop();
-    return event;
-}
-
-DragEvent* PooledInputEventFactory::createDragEvent() {
-    if (mDragEventPool.empty()) {
-        return new DragEvent();
-    }
-    DragEvent* event = mDragEventPool.front().release();
-    mDragEventPool.pop();
-    return event;
-}
-
 void PooledInputEventFactory::recycle(InputEvent* event) {
     switch (event->getType()) {
     case AINPUT_EVENT_TYPE_KEY:
@@ -965,19 +777,6 @@ void PooledInputEventFactory::recycle(InputEvent* event) {
     case AINPUT_EVENT_TYPE_FOCUS:
         if (mFocusEventPool.size() < mMaxPoolSize) {
             mFocusEventPool.push(std::unique_ptr<FocusEvent>(static_cast<FocusEvent*>(event)));
-            return;
-        }
-        break;
-    case AINPUT_EVENT_TYPE_CAPTURE:
-        if (mCaptureEventPool.size() < mMaxPoolSize) {
-            mCaptureEventPool.push(
-                    std::unique_ptr<CaptureEvent>(static_cast<CaptureEvent*>(event)));
-            return;
-        }
-        break;
-    case AINPUT_EVENT_TYPE_DRAG:
-        if (mDragEventPool.size() < mMaxPoolSize) {
-            mDragEventPool.push(std::unique_ptr<DragEvent>(static_cast<DragEvent*>(event)));
             return;
         }
         break;

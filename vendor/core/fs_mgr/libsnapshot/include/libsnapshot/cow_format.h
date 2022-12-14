@@ -26,8 +26,8 @@ static constexpr uint32_t kCowVersionMinor = 0;
 
 static constexpr uint32_t kCowVersionManifest = 2;
 
-static constexpr size_t BLOCK_SZ = 4096;
-static constexpr size_t BLOCK_SHIFT = (__builtin_ffs(BLOCK_SZ) - 1);
+static constexpr uint32_t BLOCK_SZ = 4096;
+static constexpr uint32_t BLOCK_SHIFT = (__builtin_ffs(BLOCK_SZ) - 1);
 
 // This header appears as the first sequence of bytes in the COW. All fields
 // in the layout are little-endian encoded. The on-disk layout is:
@@ -138,8 +138,6 @@ struct CowOperation {
     // For Label operations, this is the value of the applied label.
     //
     // For Cluster operations, this is the length of the following data region
-    //
-    // For Xor operations, this is the byte location in the source image.
     uint64_t source;
 } __attribute__((packed));
 
@@ -150,16 +148,12 @@ static constexpr uint8_t kCowReplaceOp = 2;
 static constexpr uint8_t kCowZeroOp = 3;
 static constexpr uint8_t kCowLabelOp = 4;
 static constexpr uint8_t kCowClusterOp = 5;
-static constexpr uint8_t kCowXorOp = 6;
 static constexpr uint8_t kCowSequenceOp = 7;
 static constexpr uint8_t kCowFooterOp = -1;
 
-enum CowCompressionAlgorithm : uint8_t {
-    kCowCompressNone = 0,
-    kCowCompressGz = 1,
-    kCowCompressBrotli = 2,
-    kCowCompressLz4 = 3
-};
+static constexpr uint8_t kCowCompressNone = 0;
+static constexpr uint8_t kCowCompressGz = 1;
+static constexpr uint8_t kCowCompressBrotli = 2;
 
 static constexpr uint8_t kCowReadAheadNotStarted = 0;
 static constexpr uint8_t kCowReadAheadInProgress = 1;

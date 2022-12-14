@@ -28,33 +28,19 @@ using aidl::CompositeEffect;
 class CommandCompose : public Command {
     std::string getDescription() const override { return "Compose vibration."; }
 
-    std::string getUsageSummary() const override {
-        return "[options] <delay> <primitive> <scale> ...";
-    }
+    std::string getUsageSummary() const override { return "<delay> <primitive> <scale> ..."; }
 
     UsageDetails getUsageDetails() const override {
         UsageDetails details{
-                {"-b", {"Block for duration of vibration."}},
                 {"<delay>", {"In milliseconds"}},
                 {"<primitive>", {"Primitive ID."}},
-                {"<scale>", {"0.0 (inclusive) - 1.0 (inclusive)."}},
+                {"<scale>", {"0.0 (exclusive) - 1.0 (inclusive)."}},
                 {"...", {"May repeat multiple times."}},
         };
         return details;
     }
 
     Status doArgs(Args &args) override {
-        while (args.get<std::string>().value_or("").find("-") == 0) {
-            auto opt = *args.pop<std::string>();
-            if (opt == "--") {
-                break;
-            } else if (opt == "-b") {
-                mBlocking = true;
-            } else {
-                std::cerr << "Invalid Option '" << opt << "'!" << std::endl;
-                return USAGE;
-            }
-        }
         while (!args.empty()) {
             CompositeEffect effect;
             if (auto delay = args.pop<decltype(effect.delayMs)>()) {
@@ -64,15 +50,16 @@ class CommandCompose : public Command {
                 std::cerr << "Missing or Invalid Delay!" << std::endl;
                 return USAGE;
             }
-            if (auto primitive = args.pop<decltype(effect.primitive)>()) {
-                effect.primitive = *primitive;
+            // TODO: Use range validation when supported by AIDL
+            if (auto primitive = args.pop<std::underlying_type_t<decltype(effect.primitive)>>()) {
+                effect.primitive = static_cast<decltype(effect.primitive)>(*primitive);
                 std::cout << "Primitive: " << toString(effect.primitive) << std::endl;
             } else {
                 std::cerr << "Missing or Invalid Primitive!" << std::endl;
                 return USAGE;
             }
             if (auto scale = args.pop<decltype(effect.scale)>();
-                scale && *scale >= 0.0 && scale <= 1.0) {
+                scale && *scale > 0.0 && scale <= 1.0) {
                 effect.scale = *scale;
                 std::cout << "Scale: " << effect.scale << std::endl;
             } else {
@@ -89,33 +76,21 @@ class CommandCompose : public Command {
     }
 
     Status doMain(Args && /*args*/) override {
-        auto hal = getHal<aidl::IVibrator>();
-
-        if (!hal) {
+        std::string statusStr;
+        Status ret;
+        if (auto hal = getHal<aidl::IVibrator>()) {
+            auto status = hal->call(&aidl::IVibrator::compose, mComposite, nullptr);
+            statusStr = status.getDescription();
+            ret = status.isOk() ? OK : ERROR;
+        } else {
             return UNAVAILABLE;
         }
 
-        ABinderProcess_setThreadPoolMaxThreadCount(1);
-        ABinderProcess_startThreadPool();
+        std::cout << "Status: " << statusStr << std::endl;
 
-        std::shared_ptr<VibratorCallback> callback;
-
-        if (mBlocking) {
-            callback = ndk::SharedRefBase::make<VibratorCallback>();
-        }
-
-        auto status = hal->call(&aidl::IVibrator::compose, mComposite, callback);
-
-        if (status.isOk() && callback) {
-            callback->waitForComplete();
-        }
-
-        std::cout << "Status: " << status.getDescription() << std::endl;
-
-        return status.isOk() ? OK : ERROR;
+        return ret;
     }
 
-    bool mBlocking;
     std::vector<CompositeEffect> mComposite;
 };
 

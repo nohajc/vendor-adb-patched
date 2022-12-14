@@ -34,8 +34,8 @@ struct DisplayColorProfileCreationArgs;
  */
 class Display : public virtual Output {
 public:
-    // Gets the DisplayId for the display
-    virtual DisplayId getId() const = 0;
+    // Gets the HWC DisplayId for the display if there is one
+    virtual const std::optional<DisplayId>& getId() const = 0;
 
     // True if the display is secure
     virtual bool isSecure() const = 0;

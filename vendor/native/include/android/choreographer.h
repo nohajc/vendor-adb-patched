@@ -33,11 +33,6 @@ extern "C" {
 #endif
 
 struct AChoreographer;
-/**
- * Opaque type that provides access to an AChoreographer object.
- *
- * A pointer can be obtained using {@link AChoreographer_getInstance()}.
- */
 typedef struct AChoreographer AChoreographer;
 
 /**
@@ -132,10 +127,6 @@ void AChoreographer_postFrameCallbackDelayed64(AChoreographer* choreographer,
  * Display properties would be required by this callback, then it is recommended
  * to listen directly to DisplayManager.DisplayListener#onDisplayChanged events
  * instead.
- *
- * As of API level 31, this api is guaranteed to have a consistent view with DisplayManager;
- * Display#getRefreshRate is guaranteed to not return a stale refresh rate when invoked from this
- * callback.
  *
  * Available since API level 30.
  */

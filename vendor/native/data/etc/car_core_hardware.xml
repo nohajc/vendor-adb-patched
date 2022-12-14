@@ -34,18 +34,15 @@
     <feature name="android.hardware.microphone" />
     <!-- Feature to specify if the device is a car -->
     <feature name="android.hardware.type.automotive" />
-    <!-- Indicate support for the Android security model per the CDD. -->
-    <feature name="android.hardware.security.model.compatible" />
 
     <!-- basic system services -->
-    <feature name="android.software.telecom" />
+    <feature name="android.software.connectionservice" />
     <feature name="android.software.voice_recognizers" notLowRam="true" />
     <feature name="android.software.home_screen" />
     <feature name="android.software.companion_device_setup" />
     <feature name="android.software.autofill" />
     <feature name="android.software.cant_save_state" />
     <feature name="android.software.secure_lock_screen" />
-    <feature name="android.software.input_methods" />
 
     <!-- devices with GPS must include android.hardware.location.gps.xml -->
     <!-- devices with an autofocus camera and/or flash must include either

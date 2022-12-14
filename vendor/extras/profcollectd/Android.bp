@@ -59,7 +59,6 @@ filegroup {
     name: "profcollectd_aidl",
     srcs: [
         "binder/com/android/server/profcollect/IProfCollectd.aidl",
-        "binder/com/android/server/profcollect/IProviderStatusCallback.aidl",
     ],
     path: "binder",
 }

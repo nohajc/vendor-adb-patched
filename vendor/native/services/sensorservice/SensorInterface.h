@@ -26,7 +26,6 @@ namespace android {
 // ---------------------------------------------------------------------------
 class SensorDevice;
 class SensorFusion;
-class SensorService;
 
 class SensorInterface : public VirtualLightRefBase {
 public:
@@ -66,7 +65,6 @@ public:
 
     virtual const Sensor& getSensor() const override { return mSensor; }
     virtual void autoDisable(void* /*ident*/, int /*handle*/) override { }
-
 protected:
     SensorDevice& mSensorDevice;
     Sensor mSensor;
@@ -102,17 +100,6 @@ protected:
     SensorFusion& mSensorFusion;
 };
 
-// ---------------------------------------------------------------------------
-
-class ProximitySensor : public HardwareSensor {
-public:
-    explicit ProximitySensor(const sensor_t& sensor, SensorService& service);
-
-    status_t activate(void* ident, bool enabled) override;
-
-private:
-    SensorService& mSensorService;
-};
 
 // ---------------------------------------------------------------------------
 }; // namespace android

@@ -6,5 +6,3 @@
 /build
 /captures
 .externalNativeBuild
-.cxx
-release

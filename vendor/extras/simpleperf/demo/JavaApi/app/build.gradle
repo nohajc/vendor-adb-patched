@@ -1,13 +1,13 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 30
+    compileSdkVersion 29
     defaultConfig {
         applicationId "simpleperf.demo.java_api"
         // Simpleperf profiles interpreted/jitted Java code on Android >= P.
         // https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/README.md#prepare-an-android-application
         minSdkVersion 28
-        targetSdkVersion 30
+        targetSdkVersion 29
         versionCode 1
         versionName "1.0"
     }

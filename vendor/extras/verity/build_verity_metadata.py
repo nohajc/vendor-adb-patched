@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python
 #
 # Copyright (C) 2013 The Android Open Source Project
 #
@@ -29,9 +29,9 @@ BLOCK_SIZE = 4096
 METADATA_SIZE = BLOCK_SIZE * 8
 
 def run(cmd):
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     output, _ = p.communicate()
-    print(output)
+    print output
     if p.returncode:
         exit(-1)
 
@@ -43,12 +43,12 @@ def build_metadata_block(verity_table, signature, verity_disable=False):
     magic = MAGIC_DISABLE if verity_disable else MAGIC_NUMBER
     block = struct.pack("II256sI", magic, VERSION, signature, table_len)
     block += verity_table
-    block = block.ljust(METADATA_SIZE, b'\x00')
+    block = block.ljust(METADATA_SIZE, '\x00')
     return block
 
 def sign_verity_table(table, signer_path, key_path, signer_args=None):
-    with tempfile.NamedTemporaryFile(mode='wb', suffix='.table') as table_file:
-        with tempfile.NamedTemporaryFile(mode='rb', suffix='.sig') as signature_file:
+    with tempfile.NamedTemporaryFile(suffix='.table') as table_file:
+        with tempfile.NamedTemporaryFile(suffix='.sig') as signature_file:
             table_file.write(table)
             table_file.flush()
             if signer_args is None:
@@ -56,7 +56,7 @@ def sign_verity_table(table, signer_path, key_path, signer_args=None):
             else:
               args_list = shlex.split(signer_args)
               cmd = [signer_path] + args_list + [table_file.name, key_path, signature_file.name]
-            print(cmd)
+            print cmd
             run(cmd)
             return signature_file.read()
 
@@ -70,7 +70,7 @@ def build_verity_table(block_device, data_blocks, root_hash, salt):
                 data_blocks,
                 root_hash,
                 salt)
-    return table.encode()
+    return table
 
 def build_verity_metadata(data_blocks, metadata_image, root_hash, salt,
         block_device, signer_path, signing_key, signer_args=None,
@@ -109,9 +109,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.dest == 'size':
-        print(get_verity_metadata_size(args.partition_size))
+        print get_verity_metadata_size(args.partition_size)
     else:
-        build_verity_metadata(args.blocks // 4096, args.metadata_image,
+        build_verity_metadata(args.blocks / 4096, args.metadata_image,
                               args.root_hash, args.salt, args.block_device,
                               args.signer_path, args.signing_key,
                               args.signer_args, args.verity_disable)

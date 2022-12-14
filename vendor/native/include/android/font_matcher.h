@@ -36,7 +36,7 @@
  *  // Simple font query for the ASCII character.
  *  std::vector<uint16_t> text = { 'A' };
  *  AFontMatcher* matcher = AFontMatcher_create("sans-serif");
- *  AFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
+ *  ASystemFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
  *  // runLength will be 1 and the font will points a valid font file.
  *  AFontMatcher_destroy(matcher);
  *
@@ -44,17 +44,17 @@
  *  std::vector<uint16_t> text = { 0x9AA8 };
  *  AFontMatcher* matcher = AFontMatcher_create("sans-serif");
  *  AFontMatcher_setLocales(matcher, "zh-CN,ja-JP");
- *  AFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
+ *  ASystemFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
  *  // runLength will be 1 and the font will points a Simplified Chinese font.
  *  AFontMatcher_setLocales(matcher, "ja-JP,zh-CN");
- *  AFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
+ *  ASystemFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
  *  // runLength will be 1 and the font will points a Japanese font.
  *  AFontMatcher_destroy(matcher);
  *
  *  // Querying font for text/color emoji
  *  std::vector<uint16_t> text = { 0xD83D, 0xDC68, 0x200D, 0x2764, 0xFE0F, 0x200D, 0xD83D, 0xDC68 };
  *  AFontMatcher* matcher = AFontMatcher_create("sans-serif");
- *  AFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
+ *  ASystemFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
  *  // runLength will be 8 and the font will points a color emoji font.
  *  AFontMatcher_destroy(matcher);
  *
@@ -62,7 +62,7 @@
  *  // 0x05D0 is a Hebrew character and 0x0E01 is a Thai character.
  *  std::vector<uint16_t> text = { 0x05D0, 0x0E01 };
  *  AFontMatcher* matcher = AFontMatcher_create("sans-serif");
- *  AFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
+ *  ASystemFont* font = AFontMatcher_match(text.data(), text.length(), &runLength);
  *  // runLength will be 1 and the font will points a Hebrew font.
  *  AFontMatcher_destroy(matcher);
  * \endcode
@@ -147,7 +147,7 @@ void AFontMatcher_destroy(AFontMatcher* _Nonnull matcher) __INTRODUCED_IN(29);
 /**
  * Set font style to matcher.
  *
- * If this function is not called, the matcher performs with {@link AFONT_WEIGHT_NORMAL}
+ * If this function is not called, the matcher performs with {@link ASYSTEM_FONT_WEIGHT_NORMAL}
  * with non-italic style.
  *
  * Available since API level 29.
@@ -207,7 +207,7 @@ void AFontMatcher_setFamilyVariant(
  * \param textLength a length of the given text buffer. This must not be zero.
  * \param runLengthOut if not null, the font run length will be filled.
  * \return a font to be used for given text and params. You need to release the returned font by
- *         AFont_close when it is no longer needed.
+ *         ASystemFont_close when it is no longer needed.
  */
 AFont* _Nonnull AFontMatcher_match(
         const AFontMatcher* _Nonnull matcher,

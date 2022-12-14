@@ -12,10 +12,7 @@ cc_benchmark {
     srcs: [
         "InputDispatcher_benchmarks.cpp",
     ],
-    defaults: [
-        "inputflinger_defaults",
-        "libinputdispatcher_defaults",
-    ],
+    defaults: ["inputflinger_defaults"],
     shared_libs: [
         "libbase",
         "libbinder",
@@ -28,10 +25,8 @@ cc_benchmark {
         "libstatslog",
         "libui",
         "libutils",
-        "lib-platform-compat-native-api",
     ],
     static_libs: [
-        "libattestation",
         "libinputdispatcher",
     ],
 }

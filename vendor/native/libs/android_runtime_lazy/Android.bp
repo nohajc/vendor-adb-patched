@@ -42,13 +42,12 @@ package {
 cc_library {
     name: "libandroid_runtime_lazy",
     vendor_available: true,
-    recovery_available: true,
     double_loadable: true,
     host_supported: true,
     target: {
         darwin: {
             enabled: false,
-        },
+        }
     },
 
     cflags: [

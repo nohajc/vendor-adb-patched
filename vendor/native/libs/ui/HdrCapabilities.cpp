@@ -23,6 +23,10 @@ namespace android {
 #pragma clang diagnostic ignored "-Wundefined-reinterpret-cast"
 #endif
 
+HdrCapabilities::~HdrCapabilities() = default;
+HdrCapabilities::HdrCapabilities(HdrCapabilities&& other) noexcept = default;
+HdrCapabilities& HdrCapabilities::operator=(HdrCapabilities&& other) noexcept = default;
+
 size_t HdrCapabilities::getFlattenedSize() const {
     return  sizeof(mMaxLuminance) +
             sizeof(mMaxAverageLuminance) +

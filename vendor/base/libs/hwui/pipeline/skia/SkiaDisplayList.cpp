@@ -47,13 +47,7 @@ void SkiaDisplayList::syncContents(const WebViewSyncData& data) {
     }
 }
 
-void SkiaDisplayList::onRemovedFromTree() {
-    for (auto& functor : mChildFunctors) {
-        functor->onRemovedFromTree();
-    }
-}
-
-bool SkiaDisplayList::reuseDisplayList(RenderNode* node) {
+bool SkiaDisplayList::reuseDisplayList(RenderNode* node, renderthread::CanvasContext* context) {
     reset();
     node->attachAvailableList(this);
     return true;
@@ -178,7 +172,7 @@ void SkiaDisplayList::reset() {
     new (&allocator) LinearAllocator();
 }
 
-void SkiaDisplayList::output(std::ostream& output, uint32_t level) const {
+void SkiaDisplayList::output(std::ostream& output, uint32_t level) {
     DumpOpsCanvas canvas(output, level, *this);
     mDisplayList.draw(&canvas);
 }

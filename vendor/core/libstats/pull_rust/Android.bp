@@ -22,10 +22,6 @@ rust_bindgen {
     name: "libstatspull_bindgen",
     wrapper_src: "statslog.h",
     crate_name: "statspull_bindgen",
-    visibility: [
-        "//frameworks/proto_logging/stats/stats_log_api_gen",
-        "//packages/modules/Virtualization/libs/statslog_virtualization",
-    ],
     source_stem: "bindings",
     bindgen_flags: [
         "--size_t-is-usize",
@@ -48,11 +44,6 @@ rust_bindgen {
             ],
         },
     },
-    min_sdk_version: "apex_inherit",
-    apex_available: [
-        "//apex_available:platform",
-        "com.android.virt",
-    ],
 }
 
 rust_library {
@@ -65,14 +56,4 @@ rust_library {
         "libstatslog_rust_header",
         "libstatspull_bindgen",
     ],
-}
-
-rust_test {
-    name: "libstatspull_bindgen_test",
-    srcs: [":libstatspull_bindgen"],
-    crate_name: "statspull_bindgen_test",
-    test_suites: ["general-tests"],
-    auto_gen_config: true,
-    clippy_lints: "none",
-    lints: "none",
 }

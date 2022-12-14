@@ -136,19 +136,7 @@ public:
         OP_PHONE_CALL_MICROPHONE = 100,
         OP_PHONE_CALL_CAMERA = 101,
         OP_RECORD_AUDIO_HOTWORD = 102,
-        // Ops 103-105 are currently unused in native, and intentionally omitted
-        OP_RECORD_AUDIO_OUTPUT = 106,
-        OP_SCHEDULE_EXACT_ALARM = 107,
-        OP_FINE_LOCATION_SOURCE = 108,
-        OP_COARSE_LOCATION_SOURCE = 109,
-        OP_MANAGE_MEDIA = 110,
-        OP_BLUETOOTH_CONNECT = 111,
-        OP_UWB_RANGING = 112,
-        OP_ACTIVITY_RECOGNITION_SOURCE = 113,
-        OP_BLUETOOTH_ADVERTISE = 114,
-        OP_RECORD_INCOMING_PHONE_AUDIO = 115,
-        OP_NEARBY_WIFI_DEVICES = 116,
-        _NUM_OP = 117
+        _NUM_OP = 103
     };
 
     AppOpsManager();

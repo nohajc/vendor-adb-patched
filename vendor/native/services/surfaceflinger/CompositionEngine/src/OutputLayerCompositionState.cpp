@@ -67,19 +67,7 @@ void OutputLayerCompositionState::dump(std::string& out) const {
     dumpVal(out, "sourceCrop", sourceCrop);
     dumpVal(out, "bufferTransform", toString(bufferTransform), bufferTransform);
     dumpVal(out, "dataspace", toString(dataspace), dataspace);
-    dumpVal(out, "override buffer", overrideInfo.buffer.get());
-    dumpVal(out, "override acquire fence", overrideInfo.acquireFence.get());
-    dumpVal(out, "override display frame", overrideInfo.displayFrame);
-    dumpVal(out, "override dataspace", toString(overrideInfo.dataspace), overrideInfo.dataspace);
-    dumpVal(out, "override display space", to_string(overrideInfo.displaySpace));
-    std::string damageRegionString;
-    overrideInfo.damageRegion.dump(damageRegionString, "");
-    dumpVal(out, "override damage region", damageRegionString);
-    std::string visibleRegionString;
-    overrideInfo.visibleRegion.dump(visibleRegionString, "");
-    dumpVal(out, "override visible region", visibleRegionString);
-    dumpVal(out, "override peekThroughLayer", overrideInfo.peekThroughLayer);
-    dumpVal(out, "override disableBackgroundBlur", overrideInfo.disableBackgroundBlur);
+    dumpVal(out, "z-index", z);
 
     if (hwc) {
         dumpHwc(*hwc, out);

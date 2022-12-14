@@ -33,6 +33,7 @@ public :
     ExternalVibration(int32_t uid, std::string pkg, const audio_attributes_t& attrs,
             sp<IExternalVibrationController> controller);
     virtual ~ExternalVibration() = default;
+    ExternalVibration(const ExternalVibration&) = default;
 
     bool operator==(const ExternalVibration&) const;
 

@@ -191,7 +191,7 @@ sp<GraphicBuffer> EGLConsumer::getDebugTexImageBuffer() {
         // continues to use it.
         sp<GraphicBuffer> buffer =
                 new GraphicBuffer(kDebugData.width, kDebugData.height, PIXEL_FORMAT_RGBA_8888,
-                                  DEFAULT_USAGE_FLAGS | GraphicBuffer::USAGE_SW_WRITE_RARELY,
+                                  GraphicBuffer::USAGE_SW_WRITE_RARELY,
                                   "[EGLConsumer debug texture]");
         uint32_t* bits;
         buffer->lock(GraphicBuffer::USAGE_SW_WRITE_RARELY, reinterpret_cast<void**>(&bits));
@@ -593,10 +593,6 @@ status_t EGLConsumer::doGLFenceWaitLocked(SurfaceTexture& st) const {
 }
 
 void EGLConsumer::onFreeBufferLocked(int slotIndex) {
-    if (mEglSlots[slotIndex].mEglImage != nullptr &&
-        mEglSlots[slotIndex].mEglImage == mCurrentTextureImage) {
-        mCurrentTextureImage.clear();
-    }
     mEglSlots[slotIndex].mEglImage.clear();
 }
 

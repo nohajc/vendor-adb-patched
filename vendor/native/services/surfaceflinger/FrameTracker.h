@@ -66,7 +66,7 @@ public:
 
     // setActualPresentFence sets the fence that is used to get the time
     // at which the current frame became visible to the user.
-    void setActualPresentFence(const std::shared_ptr<FenceTime>& fence);
+    void setActualPresentFence(std::shared_ptr<FenceTime>&& fence);
 
     // setDisplayRefreshPeriod sets the display refresh period in nanoseconds.
     // This is used to compute frame presentation duration statistics relative

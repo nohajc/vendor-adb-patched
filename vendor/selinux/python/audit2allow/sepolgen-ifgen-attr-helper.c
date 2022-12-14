@@ -26,9 +26,6 @@
 #include <sepol/policydb/avtab.h>
 #include <sepol/policydb/util.h>
 
-#include <selinux/selinux.h>
-
-#include <limits.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -56,7 +53,7 @@ static int perm_name(hashtab_key_t key, hashtab_datum_t datum, void *data)
 	return 0;
 }
 
-static int render_access_mask(uint32_t av, avtab_key_t *key, policydb_t *policydbp,
+int render_access_mask(uint32_t av, avtab_key_t *key, policydb_t *policydbp,
 		       FILE *fp)
 {
 	struct val_to_name v;
@@ -111,7 +108,7 @@ struct callback_data
 	FILE *fp;
 };
 
-static int output_avrule(avtab_key_t *key, avtab_datum_t *datum, void *args)
+int output_avrule(avtab_key_t *key, avtab_datum_t *datum, void *args)
 {
 	struct callback_data *cb_data = (struct callback_data *)args;
 
@@ -150,35 +147,7 @@ static policydb_t *load_policy(const char *filename)
 	policydb_t *policydb;
 	struct policy_file pf;
 	FILE *fp;
-	char pathname[PATH_MAX];
-	int suffix_ver;
 	int ret;
-
-	/* no explicit policy name given, try loaded policy on a SELinux enabled system */
-	if (!filename) {
-		filename = selinux_current_policy_path();
-	}
-
-	/*
-	 * Fallback to default store paths with version suffixes,
-	 * starting from the maximum supported policy version.
-	 */
-	if (!filename) {
-		for (suffix_ver = sepol_policy_kern_vers_max(); suffix_ver > 0; suffix_ver--) {
-			snprintf(pathname, sizeof(pathname), "%s.%d", selinux_binary_policy_path(), suffix_ver);
-
-			if (access(pathname, F_OK) == 0) {
-				filename = pathname;
-				break;
-			}
-		}
-
-		if (!filename) {
-			fprintf(stderr, "Can't find any policy at '%s'\n",
-				selinux_binary_policy_path());
-			return NULL;
-		}
-	}
 
 	fp = fopen(filename, "r");
 	if (fp == NULL) {
@@ -217,9 +186,9 @@ static policydb_t *load_policy(const char *filename)
 
 }
 
-static void usage(char *progname)
+void usage(char *progname)
 {
-	printf("usage: %s out_file [policy_file]\n", progname);
+	printf("usage: %s policy_file out_file\n", progname);
 }
 
 int main(int argc, char **argv)
@@ -228,18 +197,18 @@ int main(int argc, char **argv)
 	struct callback_data cb_data;
 	FILE *fp;
 
-	if (argc != 2 && argc != 3) {
+	if (argc != 3) {
 		usage(argv[0]);
 		return -1;
 	}
 
 	/* Open the policy. */
-	p = load_policy(argv[2]);
+	p = load_policy(argv[1]);
 	if (p == NULL)
 		return -1;
 
 	/* Open the output policy. */
-	fp = fopen(argv[1], "w");
+	fp = fopen(argv[2], "w");
 	if (fp == NULL) {
 		fprintf(stderr, "error opening output file\n");
 		policydb_destroy(p);

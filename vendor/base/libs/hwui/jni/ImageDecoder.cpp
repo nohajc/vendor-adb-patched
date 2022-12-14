@@ -27,9 +27,9 @@
 #include <hwui/ImageDecoder.h>
 #include <HardwareBitmapUploader.h>
 
-#include <FrontBufferedStream.h>
 #include <SkAndroidCodec.h>
 #include <SkEncodedImageFormat.h>
+#include <SkFrontBufferedStream.h>
 #include <SkStream.h>
 
 #include <androidfw/Asset.h>
@@ -135,16 +135,19 @@ static jobject native_create(JNIEnv* env, std::unique_ptr<SkStream> stream,
         return throw_exception(env, kSourceException, "", jexception, source);
     }
 
-    auto androidCodec = SkAndroidCodec::MakeFromCodec(std::move(codec));
+    auto androidCodec = SkAndroidCodec::MakeFromCodec(std::move(codec),
+            SkAndroidCodec::ExifOrientationBehavior::kRespect);
     if (!androidCodec.get()) {
         return throw_exception(env, kSourceMalformedData, "", nullptr, source);
     }
 
+    const auto& info = androidCodec->getInfo();
+    const int width = info.width();
+    const int height = info.height();
     const bool isNinePatch = peeker->mPatch != nullptr;
-    ImageDecoder* decoder = new ImageDecoder(std::move(androidCodec), std::move(peeker),
-                                             SkCodec::kYes_ZeroInitialized);
+    ImageDecoder* decoder = new ImageDecoder(std::move(androidCodec), std::move(peeker));
     return env->NewObject(gImageDecoder_class, gImageDecoder_constructorMethodID,
-                          reinterpret_cast<jlong>(decoder), decoder->width(), decoder->height(),
+                          reinterpret_cast<jlong>(decoder), width, height,
                           animated, isNinePatch);
 }
 
@@ -191,7 +194,8 @@ static jobject ImageDecoder_nCreateInputStream(JNIEnv* env, jobject /*clazz*/,
     }
 
     std::unique_ptr<SkStream> bufferedStream(
-            skia::FrontBufferedStream::Make(std::move(stream), SkCodec::MinBufferedBytesNeeded()));
+        SkFrontBufferedStream::Make(std::move(stream),
+        SkCodec::MinBufferedBytesNeeded()));
     return native_create(env, std::move(bufferedStream), source, preferAnimation);
 }
 
@@ -466,7 +470,7 @@ static jobject ImageDecoder_nDecodeBitmap(JNIEnv* env, jobject /*clazz*/, jlong 
 static jobject ImageDecoder_nGetSampledSize(JNIEnv* env, jobject /*clazz*/, jlong nativePtr,
                                             jint sampleSize) {
     auto* decoder = reinterpret_cast<ImageDecoder*>(nativePtr);
-    SkISize size = decoder->getSampledDimensions(sampleSize);
+    SkISize size = decoder->mCodec->getSampledDimensions(sampleSize);
     return env->NewObject(gSize_class, gSize_constructorMethodID, size.width(), size.height());
 }
 

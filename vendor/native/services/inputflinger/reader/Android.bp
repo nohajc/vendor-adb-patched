@@ -24,7 +24,6 @@ package {
 cc_library_headers {
     name: "libinputreader_headers",
     export_include_dirs: [
-        "controller",
         "include",
         "mapper",
         "mapper/accumulator",
@@ -36,7 +35,6 @@ filegroup {
     srcs: [
         "EventHub.cpp",
         "InputDevice.cpp",
-        "controller/PeripheralController.cpp",
         "mapper/accumulator/CursorButtonAccumulator.cpp",
         "mapper/accumulator/CursorScrollAccumulator.cpp",
         "mapper/accumulator/SingleTouchMotionAccumulator.cpp",
@@ -48,7 +46,6 @@ filegroup {
         "mapper/KeyboardInputMapper.cpp",
         "mapper/MultiTouchInputMapper.cpp",
         "mapper/RotaryEncoderInputMapper.cpp",
-        "mapper/SensorInputMapper.cpp",
         "mapper/SingleTouchInputMapper.cpp",
         "mapper/SwitchInputMapper.cpp",
         "mapper/TouchInputMapper.cpp",
@@ -68,16 +65,10 @@ cc_defaults {
         "libcutils",
         "libinput",
         "liblog",
-        "libstatslog",
         "libui",
         "libutils",
-        "InputFlingerProperties",
-    ],
-    static_libs: [
-        "libc++fs",
     ],
     header_libs: [
-        "libbatteryservice_headers",
         "libinputreader_headers",
     ],
 }

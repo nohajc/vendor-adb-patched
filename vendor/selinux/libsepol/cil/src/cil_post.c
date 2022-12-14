@@ -27,7 +27,6 @@
  * either expressed or implied, of Tresys Technology, LLC.
  */
 
-#include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -50,12 +49,6 @@
 
 #define GEN_REQUIRE_ATTR "cil_gen_require" /* Also in libsepol/src/module_to_cil.c */
 #define TYPEATTR_INFIX "_typeattr_"        /* Also in libsepol/src/module_to_cil.c */
-
-struct fc_data {
-	unsigned int meta;
-	size_t stem_len;
-	size_t str_len;
-};
 
 static int __cil_expr_to_bitmap(struct cil_list *expr, ebitmap_t *out, int max, struct cil_db *db);
 static int __cil_expr_list_to_bitmap(struct cil_list *expr_list, ebitmap_t *out, int max, struct cil_db *db);
@@ -163,9 +156,9 @@ static int cil_verify_is_list(struct cil_list *list, enum cil_flavor flavor)
 	return CIL_TRUE;
 }
 
-static void cil_post_fc_fill_data(struct fc_data *fc, const char *path)
+void cil_post_fc_fill_data(struct fc_data *fc, char *path)
 {
-	size_t c = 0;
+	int c = 0;
 	fc->meta = 0;
 	fc->stem_len = 0;
 	fc->str_len = 0;
@@ -186,13 +179,6 @@ static void cil_post_fc_fill_data(struct fc_data *fc, const char *path)
 			break;
 		case '\\':
 			c++;
-			if (path[c] == '\0') {
-				if (!fc->meta) {
-					fc->stem_len++;
-				}
-				fc->str_len++;
-				return;
-			}
 			/* FALLTHRU */
 		default:
 			if (!fc->meta) {
@@ -213,8 +199,8 @@ int cil_post_filecon_compare(const void *a, const void *b)
 	struct fc_data *a_data = cil_malloc(sizeof(*a_data));
 	struct fc_data *b_data = cil_malloc(sizeof(*b_data));
 	char *a_path = cil_malloc(strlen(a_filecon->path_str) + 1);
-	char *b_path = cil_malloc(strlen(b_filecon->path_str) + 1);
 	a_path[0] = '\0';
+	char *b_path = cil_malloc(strlen(b_filecon->path_str) + 1);
 	b_path[0] = '\0';
 	strcat(a_path, a_filecon->path_str);
 	strcat(b_path, b_filecon->path_str);
@@ -1315,7 +1301,7 @@ static int __cil_expr_to_bitmap(struct cil_list *expr, ebitmap_t *out, int max, 
 	flavor = expr->flavor;
 
 	if (curr->flavor == CIL_OP) {
-		enum cil_flavor op = (enum cil_flavor)(uintptr_t)curr->data;
+		enum cil_flavor op = (enum cil_flavor)curr->data;
 
 		if (op == CIL_ALL) {
 			ebitmap_init(&b1); /* all zeros */
@@ -1494,13 +1480,9 @@ static void __mark_neverallow_attrs(struct cil_list *expr_list)
 {
 	struct cil_list_item *curr;
 
-	if (!expr_list) {
-		return;
-	}
-
 	cil_list_for_each(curr, expr_list) {
 		if (curr->flavor == CIL_DATUM) {
-			if (FLAVOR(curr->data) == CIL_TYPEATTRIBUTE) {
+			if (NODE(curr->data)->flavor == CIL_TYPEATTRIBUTE) {
 				struct cil_typeattribute *attr = curr->data;
 				if (strstr(DATUM(attr)->name, TYPEATTR_INFIX)) {
 					__mark_neverallow_attrs(attr->expr_list);
@@ -2141,10 +2123,6 @@ static int __evaluate_classperms_list(struct cil_list *classperms, struct cil_db
 				}
 			} else { /* MAP */
 				struct cil_list_item *i = NULL;
-				rc = __evaluate_classperms(cp, db);
-				if (rc != SEPOL_OK) {
-					goto exit;
-				}
 				cil_list_for_each(i, cp->perms) {
 					struct cil_perm *cmp = i->data;
 					rc = __evaluate_classperms_list(cmp->classperms, db);
@@ -2280,10 +2258,8 @@ static int __cil_post_report_conflict(struct cil_tree_node *node, uint32_t *fini
 static int __cil_post_process_context_rules(struct cil_sort *sort, int (*compar)(const void *, const void *), int (*concompar)(const void *, const void *), struct cil_db *db, enum cil_flavor flavor, const char *flavor_str)
 {
 	uint32_t count = sort->count;
-	uint32_t i = 0, j, removed = 0;
-	int conflicting = 0;
+	uint32_t i, j = 0, removed = 0;
 	int rc = SEPOL_OK;
-	enum cil_log_level log_level = cil_get_log_level();
 
 	if (count < 2) {
 		return SEPOL_OK;
@@ -2291,43 +2267,36 @@ static int __cil_post_process_context_rules(struct cil_sort *sort, int (*compar)
 
 	qsort(sort->array, sort->count, sizeof(sort->array), compar);
 
-	for (j=1; j<count; j++) {
+	for (i=1; i<count; i++) {
 		if (compar(&sort->array[i], &sort->array[j]) != 0) {
-			i++;
-			if (conflicting >= 4) {
-				/* 2 rules were written when conflicting == 1 */
-				cil_log(CIL_WARN, "  Only first 4 of %d conflicting rules shown\n", conflicting);
-			}
-			conflicting = 0;
+			j++;
 		} else {
 			removed++;
-			if (!db->multiple_decls || concompar(&sort->array[i], &sort->array[j]) != 0) {
-				conflicting++;
-				if (log_level >= CIL_WARN) {
-					struct cil_list_item li;
-					int rc2;
-					li.flavor = flavor;
-					if (conflicting == 1) {
-						cil_log(CIL_WARN, "Found conflicting %s rules\n", flavor_str);
-						rc = SEPOL_ERR;
-						li.data = sort->array[i];
-						rc2 = cil_tree_walk(db->ast->root, __cil_post_report_conflict,
-											NULL, NULL, &li);
-						if (rc2 != SEPOL_OK) goto exit;
-					}
-					if (conflicting < 4 || log_level > CIL_WARN) {
-						li.data = sort->array[j];
-						rc2 = cil_tree_walk(db->ast->root, __cil_post_report_conflict,
-											NULL, NULL, &li);
-						if (rc2 != SEPOL_OK) goto exit;
-					}
-				}
+			if (!db->multiple_decls ||
+			   concompar(&sort->array[i], &sort->array[j]) != 0) {
+				struct cil_list_item li;
+				int rc2;
+				cil_log(CIL_WARN, "Found conflicting %s rules\n",
+					flavor_str);
+				rc = SEPOL_ERR;
+				li.flavor = flavor;
+				li.data = sort->array[i];
+				rc2 = cil_tree_walk(db->ast->root,
+						    __cil_post_report_conflict,
+						    NULL, NULL, &li);
+				if (rc2 != SEPOL_OK) goto exit;
+				li.data = sort->array[j];
+				rc2 = cil_tree_walk(db->ast->root,
+						    __cil_post_report_conflict,
+						    NULL, NULL, &li);
+				if (rc2 != SEPOL_OK) goto exit;
 			}
 		}
-		if (i != j && !conflicting) {
-			sort->array[i] = sort->array[j];
+		if (i != j) {
+			sort->array[j] = sort->array[i];
 		}
 	}
+
 	sort->count = count - removed;
 
 exit:

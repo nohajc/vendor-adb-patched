@@ -99,17 +99,6 @@ impl ThreadState {
         }
     }
 
-    /// Determine whether the current thread is currently executing an incoming transaction.
-    ///
-    /// \return true if the current thread is currently executing an incoming transaction, and false
-    /// otherwise.
-    pub fn is_handling_transaction() -> bool {
-        unsafe {
-            // Safety: Safe FFI
-            sys::AIBinder_isHandlingTransaction()
-        }
-    }
-
     /// This function makes the client's security context available to the
     /// service calling this function. This can be used for access control.
     /// It does not suffer from the TOCTOU issues of get_calling_pid.
@@ -124,8 +113,7 @@ impl ThreadState {
     /// kernel is too old to support this feature.
     pub fn with_calling_sid<T, F>(check_permission: F) -> T
     where
-        for<'a> F: FnOnce(Option<&'a std::ffi::CStr>) -> T,
-    {
+        for<'a> F: FnOnce(Option<&'a std::ffi::CStr>) -> T {
         // Safety: AIBinder_getCallingSid returns a c-string pointer
         // that is valid for a transaction. Also, the string returned
         // is thread local. By restricting the lifetime of the CStr

@@ -272,7 +272,7 @@ std::string CounterSummaries::GetRateComment(const CounterSummary& s, char sep) 
     event_name = it->second.first;
     rate_desc = it->second.second;
   }
-  if (event_name.empty() && (GetTargetArch() == ARCH_ARM || GetTargetArch() == ARCH_ARM64)) {
+  if (event_name.empty() && (GetBuildArch() == ARCH_ARM || GetBuildArch() == ARCH_ARM64)) {
     if (auto it = ARM_EVENT_RATE_MAP.find(miss_event_name); it != ARM_EVENT_RATE_MAP.end()) {
       event_name = it->second.first;
       rate_desc = it->second.second;
@@ -383,7 +383,6 @@ class StatCommand : public Command {
 "--per-thread     Print counters for each thread.\n"
 "-p pid1,pid2,... Stat events on existing processes. Mutually exclusive with -a.\n"
 "-t tid1,tid2,... Stat events on existing threads. Mutually exclusive with -a.\n"
-"--print-hw-counter    Test and print CPU PMU hardware counters available on the device.\n"
 "--sort key1,key2,...  Select keys used to sort the report, used when --per-thread\n"
 "                      or --per-core appears. The appearance order of keys decides\n"
 "                      the order of keys used to sort the report.\n"
@@ -434,7 +433,6 @@ class StatCommand : public Command {
  private:
   bool ParseOptions(const std::vector<std::string>& args,
                     std::vector<std::string>* non_option_args);
-  bool PrintHardwareCounters();
   bool AddDefaultMeasuredEventTypes();
   void SetEventSelectionFlags();
   void MonitorEachThread();
@@ -465,7 +463,6 @@ class StatCommand : public Command {
   // used to sort report
   std::vector<std::string> sort_keys_;
   std::optional<SummaryComparator> summary_comparator_;
-  bool print_hw_counter_ = false;
 };
 
 bool StatCommand::Run(const std::vector<std::string>& args) {
@@ -478,9 +475,6 @@ bool StatCommand::Run(const std::vector<std::string>& args) {
   std::vector<std::string> workload_args;
   if (!ParseOptions(args, &workload_args)) {
     return false;
-  }
-  if (print_hw_counter_) {
-    return PrintHardwareCounters();
   }
   if (!app_package_name_.empty() && !in_app_context_) {
     if (!IsRoot()) {
@@ -690,7 +684,6 @@ bool StatCommand::ParseOptions(const std::vector<std::string>& args,
       return false;
     }
   }
-  print_hw_counter_ = options.PullBoolValue("--print-hw-counter");
 
   if (auto value = options.PullValue("--sort"); value) {
     sort_keys_ = Split(*value->str_value, ",");
@@ -736,54 +729,6 @@ bool StatCommand::ParseOptions(const std::vector<std::string>& args,
       return false;
     }
   }
-  return true;
-}
-
-bool StatCommand::PrintHardwareCounters() {
-  size_t available_counters = 0;
-  const EventType* event = FindEventTypeByName("cpu-cycles", true);
-  if (event == nullptr) {
-    return false;
-  }
-  perf_event_attr attr = CreateDefaultPerfEventAttr(*event);
-  while (true) {
-    auto workload = Workload::CreateWorkload({"sleep", "0.1"});
-    if (!workload) {
-      return false;
-    }
-    std::vector<std::unique_ptr<EventFd>> event_fds;
-    for (size_t i = 0; i <= available_counters; i++) {
-      EventFd* group_event_fd = event_fds.empty() ? nullptr : event_fds[0].get();
-      auto event_fd =
-          EventFd::OpenEventFile(attr, workload->GetPid(), -1, group_event_fd, "cpu-cycles", false);
-      if (!event_fd) {
-        break;
-      }
-      event_fds.emplace_back(std::move(event_fd));
-    }
-    if (event_fds.size() != available_counters + 1) {
-      break;
-    }
-    if (!workload->Start() || !workload->WaitChildProcess(true, nullptr)) {
-      return false;
-    }
-    bool always_running = true;
-    for (auto& event_fd : event_fds) {
-      PerfCounter counter;
-      if (!event_fd->ReadCounter(&counter)) {
-        return false;
-      }
-      if (counter.time_enabled == 0 || counter.time_enabled > counter.time_running) {
-        always_running = false;
-        break;
-      }
-    }
-    if (!always_running) {
-      break;
-    }
-    available_counters++;
-  }
-  printf("There are %zu CPU PMU hardware counters available on this device.\n", available_counters);
   return true;
 }
 

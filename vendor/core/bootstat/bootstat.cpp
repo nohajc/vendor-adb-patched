@@ -58,7 +58,7 @@ struct AtomInfo {
 };
 
 // Maps BootEvent used inside bootstat into statsd atom defined in
-// frameworks/proto_logging/stats/atoms.proto.
+// frameworks/base/cmds/statsd/src/atoms.proto.
 const std::unordered_map<std::string_view, AtomInfo> kBootEventToAtomInfo = {
     // ELAPSED_TIME
     {"ro.boottime.init",
@@ -439,42 +439,6 @@ const std::map<std::string, int32_t> kBootReasonMap = {
     {"reboot,forcedsilent", 191},
     {"reboot,forcednonsilent", 192},
     {"reboot,thermal,tj", 193},
-    {"reboot,emergency", 194},
-    {"reboot,factory", 195},
-    {"reboot,fastboot", 196},
-    {"reboot,gsa,hard", 197},
-    {"reboot,gsa,soft", 198},
-    {"reboot,master_dc,fault_n", 199},
-    {"reboot,master_dc,reset", 200},
-    {"reboot,ocp", 201},
-    {"reboot,pin", 202},
-    {"reboot,rom_recovery", 203},
-    {"reboot,uvlo", 204},
-    {"reboot,uvlo,pmic,if", 205},
-    {"reboot,uvlo,pmic,main", 206},
-    {"reboot,uvlo,pmic,sub", 207},
-    {"reboot,warm", 208},
-    {"watchdog,aoc", 209},
-    {"watchdog,apc", 210},
-    {"watchdog,apc,bl,debug,early", 211},
-    {"watchdog,apc,bl,early", 212},
-    {"watchdog,apc,early", 213},
-    {"watchdog,apm", 214},
-    {"watchdog,gsa,hard", 215},
-    {"watchdog,gsa,soft", 216},
-    {"watchdog,pmucal", 217},
-    {"reboot,early,bl", 218},
-    {"watchdog,apc,gsa,crashed", 219},
-    {"watchdog,apc,bl31,crashed", 220},
-    {"watchdog,apc,pbl,crashed", 221},
-    {"reboot,memory_protect,hyp", 222},
-    {"reboot,tsd,pmic,main", 223},
-    {"reboot,tsd,pmic,sub", 224},
-    {"reboot,ocp,pmic,main", 225},
-    {"reboot,ocp,pmic,sub", 226},
-    {"reboot,sys_ldo_ok,pmic,main", 227},
-    {"reboot,sys_ldo_ok,pmic,sub", 228},
-    {"reboot,smpl_timeout,pmic,main", 229},
 };
 
 // Converts a string value representing the reason the system booted to an

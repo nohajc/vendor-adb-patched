@@ -168,13 +168,3 @@ TEST(cmd_debug_unwind, generate_report) {
   ASSERT_NE(output.find("unwinding_error_code: 4"), std::string::npos);
   ASSERT_NE(output.find("symbol_2: android.os.Handler.enqueueMessage"), std::string::npos);
 }
-
-TEST(cmd_debug_unwind, unwind_sample_for_small_map_range) {
-  CaptureStdout capture;
-  ASSERT_TRUE(capture.Start());
-  ASSERT_TRUE(DebugUnwindCmd()->Run(
-      {"-i", GetTestData("debug_unwind_small_map_range.data"), "--unwind-sample"}));
-  std::string output = capture.Finish();
-  ASSERT_NE(output.find("dso_3: /apex/com.android.art/lib64/libart.so"), std::string::npos)
-      << output;
-}

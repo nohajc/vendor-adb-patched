@@ -34,10 +34,10 @@ class KeyCharacterMap;
 class KeyMap {
 public:
     std::string keyLayoutFile;
-    std::shared_ptr<KeyLayoutMap> keyLayoutMap;
+    sp<KeyLayoutMap> keyLayoutMap;
 
     std::string keyCharacterMapFile;
-    std::shared_ptr<KeyCharacterMap> keyCharacterMap;
+    sp<KeyCharacterMap> keyCharacterMap;
 
     KeyMap();
     ~KeyMap();
@@ -61,7 +61,9 @@ private:
     bool probeKeyMap(const InputDeviceIdentifier& deviceIdentifier, const std::string& name);
     status_t loadKeyLayout(const InputDeviceIdentifier& deviceIdentifier, const std::string& name);
     status_t loadKeyCharacterMap(const InputDeviceIdentifier& deviceIdentifier,
-                                 const std::string& name);
+            const std::string& name);
+    std::string getPath(const InputDeviceIdentifier& deviceIdentifier,
+            const std::string& name, InputDeviceConfigurationFileType type);
 };
 
 /**

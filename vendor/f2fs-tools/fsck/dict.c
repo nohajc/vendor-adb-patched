@@ -20,6 +20,7 @@
 
 #define DICT_NODEBUG
 
+#include "config.h"
 #include <stdlib.h>
 #include <stddef.h>
 #ifdef DICT_NODEBUG

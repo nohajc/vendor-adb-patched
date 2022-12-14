@@ -19,7 +19,6 @@
 #include <android-base/thread_annotations.h>
 #include <binder/IBinder.h>
 #include <gui/LayerState.h>
-#include <renderengine/RenderEngine.h>
 #include <ui/GraphicBuffer.h>
 #include <utils/RefBase.h>
 #include <utils/Singleton.h>
@@ -40,11 +39,7 @@ public:
     bool add(const client_cache_t& cacheId, const sp<GraphicBuffer>& buffer);
     void erase(const client_cache_t& cacheId);
 
-    std::shared_ptr<renderengine::ExternalTexture> get(const client_cache_t& cacheId);
-
-    // Always called immediately after setup. Will be set to non-null, and then should never be
-    // called again.
-    void setRenderEngine(renderengine::RenderEngine* renderEngine) { mRenderEngine = renderEngine; }
+    sp<GraphicBuffer> get(const client_cache_t& cacheId);
 
     void removeProcess(const wp<IBinder>& processToken);
 
@@ -58,13 +53,11 @@ public:
     void unregisterErasedRecipient(const client_cache_t& cacheId,
                                    const wp<ErasedRecipient>& recipient);
 
-    void dump(std::string& result);
-
 private:
     std::mutex mMutex;
 
     struct ClientCacheBuffer {
-        std::shared_ptr<renderengine::ExternalTexture> buffer;
+        sp<GraphicBuffer> buffer;
         std::set<wp<ErasedRecipient>> recipients;
     };
     std::map<wp<IBinder> /*caching process*/,
@@ -78,7 +71,6 @@ private:
     };
 
     sp<CacheDeathRecipient> mDeathRecipient;
-    renderengine::RenderEngine* mRenderEngine = nullptr;
 
     bool getBuffer(const client_cache_t& cacheId, ClientCacheBuffer** outClientCacheBuffer)
             REQUIRES(mMutex);

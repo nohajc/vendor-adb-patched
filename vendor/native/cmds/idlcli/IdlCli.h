@@ -25,47 +25,14 @@ namespace idlcli {
 class IdlCli : public CommandWithSubcommands<IdlCli> {
     std::string getDescription() const override { return "Invoke IDL APIs."; }
 
-    std::string getUsageSummary() const override { return "<idl> [options] [arguments]"; }
+    std::string getUsageSummary() const override { return "<idl> [arguments]"; }
 
     UsageDetails getUsageDetails() const override {
         UsageDetails details{
-                {"-n <name>", {"Get named service, rather than default."}},
                 {"<idl>", CommandRegistry<IdlCli>::List()},
         };
         return details;
     }
-
-    Status doArgs(Args &args) override {
-        while (args.get<std::string>().value_or("").find("-") == 0) {
-            auto opt = *args.pop<std::string>();
-            if (opt == "--") {
-                break;
-            } else if (opt == "-n") {
-                if (auto name = args.pop<decltype(mName)>()) {
-                    mName = *name;
-                } else {
-                    std::cerr << "Missing Value for Name!" << std::endl;
-                    return USAGE;
-                }
-            } else {
-                std::cerr << "Invalid Option '" << opt << "'!" << std::endl;
-                return USAGE;
-            }
-        }
-        return CommandWithSubcommands::doArgs(args);
-    }
-
-    IdlCli() {}
-
-    std::string mName;
-
-public:
-    static IdlCli &Get() {
-        static IdlCli instance;
-        return instance;
-    }
-
-    auto getName() { return mName; }
 };
 
 } // namespace idlcli

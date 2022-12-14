@@ -22,7 +22,7 @@
 
 #include <android-base/stringprintf.h>
 #include <libbpf.h>
-#include <bpf/WaitForProgsLoaded.h>
+#include <libbpf_android.h>
 #include <log/log.h>
 #include <unistd.h>
 #include <utils/Timers.h>

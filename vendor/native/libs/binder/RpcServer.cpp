@@ -16,7 +16,6 @@
 
 #define LOG_TAG "RpcServer"
 
-#include <inttypes.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -24,62 +23,53 @@
 #include <thread>
 #include <vector>
 
-#include <android-base/hex.h>
 #include <android-base/scopeguard.h>
 #include <binder/Parcel.h>
 #include <binder/RpcServer.h>
-#include <binder/RpcTransportRaw.h>
 #include <log/log.h>
-#include <utils/Compat.h>
 
-#include "BuildFlags.h"
-#include "FdTrigger.h"
-#include "OS.h"
 #include "RpcSocketAddress.h"
 #include "RpcState.h"
 #include "RpcWireFormat.h"
-#include "Utils.h"
 
 namespace android {
-
-constexpr size_t kSessionIdBytes = 32;
 
 using base::ScopeGuard;
 using base::unique_fd;
 
-RpcServer::RpcServer(std::unique_ptr<RpcTransportCtx> ctx) : mCtx(std::move(ctx)) {}
+RpcServer::RpcServer() {}
 RpcServer::~RpcServer() {
     (void)shutdown();
 }
 
-sp<RpcServer> RpcServer::make(std::unique_ptr<RpcTransportCtxFactory> rpcTransportCtxFactory) {
-    // Default is without TLS.
-    if (rpcTransportCtxFactory == nullptr)
-        rpcTransportCtxFactory = RpcTransportCtxFactoryRaw::make();
-    auto ctx = rpcTransportCtxFactory->newServerCtx();
-    if (ctx == nullptr) return nullptr;
-    return sp<RpcServer>::make(std::move(ctx));
+sp<RpcServer> RpcServer::make() {
+    return sp<RpcServer>::make();
 }
 
-status_t RpcServer::setupUnixDomainServer(const char* path) {
+void RpcServer::iUnderstandThisCodeIsExperimentalAndIWillNotUseItInProduction() {
+    mAgreedExperimental = true;
+}
+
+bool RpcServer::setupUnixDomainServer(const char* path) {
     return setupSocketServer(UnixSocketAddress(path));
 }
 
-status_t RpcServer::setupVsockServer(unsigned int port) {
+bool RpcServer::setupVsockServer(unsigned int port) {
     // realizing value w/ this type at compile time to avoid ubsan abort
     constexpr unsigned int kAnyCid = VMADDR_CID_ANY;
 
     return setupSocketServer(VsockSocketAddress(kAnyCid, port));
 }
 
-status_t RpcServer::setupInetServer(const char* address, unsigned int port,
-                                    unsigned int* assignedPort) {
+bool RpcServer::setupInetServer(unsigned int port, unsigned int* assignedPort) {
+    const char* kAddr = "127.0.0.1";
+
     if (assignedPort != nullptr) *assignedPort = 0;
-    auto aiStart = InetSocketAddress::getAddrInfo(address, port);
-    if (aiStart == nullptr) return UNKNOWN_ERROR;
+    auto aiStart = InetSocketAddress::getAddrInfo(kAddr, port);
+    if (aiStart == nullptr) return false;
     for (auto ai = aiStart.get(); ai != nullptr; ai = ai->ai_next) {
-        InetSocketAddress socketAddress(ai->ai_addr, ai->ai_addrlen, address, port);
-        if (status_t status = setupSocketServer(socketAddress); status != OK) {
+        InetSocketAddress socketAddress(ai->ai_addr, ai->ai_addrlen, kAddr, port);
+        if (!setupSocketServer(socketAddress)) {
             continue;
         }
 
@@ -90,7 +80,7 @@ status_t RpcServer::setupInetServer(const char* address, unsigned int port,
             int savedErrno = errno;
             ALOGE("Could not getsockname at %s: %s", socketAddress.toString().c_str(),
                   strerror(savedErrno));
-            return -savedErrno;
+            return false;
         }
         LOG_ALWAYS_FATAL_IF(len != sizeof(addr), "Wrong socket type: len %zu vs len %zu",
                             static_cast<size_t>(len), sizeof(addr));
@@ -103,11 +93,11 @@ status_t RpcServer::setupInetServer(const char* address, unsigned int port,
             *assignedPort = realPort;
         }
 
-        return OK;
+        return true;
     }
-    ALOGE("None of the socket address resolved for %s:%u can be set up as inet server.", address,
+    ALOGE("None of the socket address resolved for %s:%u can be set up as inet server.", kAddr,
           port);
-    return UNKNOWN_ERROR;
+    return false;
 }
 
 void RpcServer::setMaxThreads(size_t threads) {
@@ -120,49 +110,23 @@ size_t RpcServer::getMaxThreads() {
     return mMaxThreads;
 }
 
-void RpcServer::setProtocolVersion(uint32_t version) {
-    mProtocolVersion = version;
-}
-
-void RpcServer::setSupportedFileDescriptorTransportModes(
-        const std::vector<RpcSession::FileDescriptorTransportMode>& modes) {
-    mSupportedFileDescriptorTransportModes.reset();
-    for (RpcSession::FileDescriptorTransportMode mode : modes) {
-        mSupportedFileDescriptorTransportModes.set(static_cast<size_t>(mode));
-    }
-}
-
 void RpcServer::setRootObject(const sp<IBinder>& binder) {
-    RpcMutexLockGuard _l(mLock);
-    mRootObjectFactory = nullptr;
+    std::lock_guard<std::mutex> _l(mLock);
     mRootObjectWeak = mRootObject = binder;
 }
 
 void RpcServer::setRootObjectWeak(const wp<IBinder>& binder) {
-    RpcMutexLockGuard _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     mRootObject.clear();
-    mRootObjectFactory = nullptr;
     mRootObjectWeak = binder;
-}
-void RpcServer::setPerSessionRootObject(
-        std::function<sp<IBinder>(const void*, size_t)>&& makeObject) {
-    RpcMutexLockGuard _l(mLock);
-    mRootObject.clear();
-    mRootObjectWeak.clear();
-    mRootObjectFactory = std::move(makeObject);
 }
 
 sp<IBinder> RpcServer::getRootObject() {
-    RpcMutexLockGuard _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     bool hasWeak = mRootObjectWeak.unsafe_get();
     sp<IBinder> ret = mRootObjectWeak.promote();
     ALOGW_IF(hasWeak && ret == nullptr, "RpcServer root object is freed, returning nullptr");
     return ret;
-}
-
-std::vector<uint8_t> RpcServer::getCertificate(RpcCertificateFormat format) {
-    RpcMutexLockGuard _l(mLock);
-    return mCtx->getCertificate(format);
 }
 
 static void joinRpcServer(sp<RpcServer>&& thiz) {
@@ -170,36 +134,28 @@ static void joinRpcServer(sp<RpcServer>&& thiz) {
 }
 
 void RpcServer::start() {
-    RpcMutexLockGuard _l(mLock);
+    LOG_ALWAYS_FATAL_IF(!mAgreedExperimental, "no!");
+    std::lock_guard<std::mutex> _l(mLock);
     LOG_ALWAYS_FATAL_IF(mJoinThread.get(), "Already started!");
-    mJoinThread =
-            std::make_unique<RpcMaybeThread>(&joinRpcServer, sp<RpcServer>::fromExisting(this));
-    rpcJoinIfSingleThreaded(*mJoinThread);
+    mJoinThread = std::make_unique<std::thread>(&joinRpcServer, sp<RpcServer>::fromExisting(this));
 }
 
 void RpcServer::join() {
+    LOG_ALWAYS_FATAL_IF(!mAgreedExperimental, "no!");
 
     {
-        RpcMutexLockGuard _l(mLock);
+        std::lock_guard<std::mutex> _l(mLock);
         LOG_ALWAYS_FATAL_IF(!mServer.ok(), "RpcServer must be setup to join.");
         LOG_ALWAYS_FATAL_IF(mShutdownTrigger != nullptr, "Already joined");
         mJoinThreadRunning = true;
-        mShutdownTrigger = FdTrigger::make();
+        mShutdownTrigger = RpcSession::FdTrigger::make();
         LOG_ALWAYS_FATAL_IF(mShutdownTrigger == nullptr, "Cannot create join signaler");
     }
 
     status_t status;
     while ((status = mShutdownTrigger->triggerablePoll(mServer, POLLIN)) == OK) {
-        std::array<uint8_t, kRpcAddressSize> addr;
-        static_assert(addr.size() >= sizeof(sockaddr_storage), "kRpcAddressSize is too small");
-
-        socklen_t addrLen = addr.size();
-        unique_fd clientFd(
-                TEMP_FAILURE_RETRY(accept4(mServer.get(), reinterpret_cast<sockaddr*>(addr.data()),
-                                           &addrLen, SOCK_CLOEXEC | SOCK_NONBLOCK)));
-
-        LOG_ALWAYS_FATAL_IF(addrLen > static_cast<socklen_t>(sizeof(sockaddr_storage)),
-                            "Truncated address");
+        unique_fd clientFd(TEMP_FAILURE_RETRY(
+                accept4(mServer.get(), nullptr, nullptr /*length*/, SOCK_CLOEXEC)));
 
         if (clientFd < 0) {
             ALOGE("Could not accept4 socket: %s", strerror(errno));
@@ -208,50 +164,33 @@ void RpcServer::join() {
         LOG_RPC_DETAIL("accept4 on fd %d yields fd %d", mServer.get(), clientFd.get());
 
         {
-            RpcMutexLockGuard _l(mLock);
-            RpcMaybeThread thread =
-                    RpcMaybeThread(&RpcServer::establishConnection,
-                                   sp<RpcServer>::fromExisting(this), std::move(clientFd), addr,
-                                   addrLen, RpcSession::join);
-
-            auto& threadRef = mConnectingThreads[thread.get_id()];
-            threadRef = std::move(thread);
-            rpcJoinIfSingleThreaded(threadRef);
+            std::lock_guard<std::mutex> _l(mLock);
+            std::thread thread =
+                    std::thread(&RpcServer::establishConnection, sp<RpcServer>::fromExisting(this),
+                                std::move(clientFd));
+            mConnectingThreads[thread.get_id()] = std::move(thread);
         }
     }
     LOG_RPC_DETAIL("RpcServer::join exiting with %s", statusToString(status).c_str());
 
-    if constexpr (kEnableRpcThreads) {
-        RpcMutexLockGuard _l(mLock);
+    {
+        std::lock_guard<std::mutex> _l(mLock);
         mJoinThreadRunning = false;
-    } else {
-        // Multi-threaded builds clear this in shutdown(), but we need it valid
-        // so the loop above exits cleanly
-        mShutdownTrigger = nullptr;
     }
     mShutdownCv.notify_all();
 }
 
 bool RpcServer::shutdown() {
-    RpcMutexUniqueLock _l(mLock);
+    std::unique_lock<std::mutex> _l(mLock);
     if (mShutdownTrigger == nullptr) {
         LOG_RPC_DETAIL("Cannot shutdown. No shutdown trigger installed (already shutdown?)");
         return false;
     }
 
     mShutdownTrigger->trigger();
-
     for (auto& [id, session] : mSessions) {
         (void)id;
-        // server lock is a more general lock
-        RpcMutexLockGuard _lSession(session->mMutex);
         session->mShutdownTrigger->trigger();
-    }
-
-    if constexpr (!kEnableRpcThreads) {
-        // In single-threaded mode we're done here, everything else that
-        // needs to happen should be at the end of RpcServer::join()
-        return true;
     }
 
     while (mJoinThreadRunning || !mConnectingThreads.empty() || !mSessions.empty()) {
@@ -281,7 +220,7 @@ bool RpcServer::shutdown() {
 }
 
 std::vector<sp<RpcSession>> RpcServer::listSessions() {
-    RpcMutexLockGuard _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     std::vector<sp<RpcSession>> sessions;
     for (auto& [id, session] : mSessions) {
         (void)id;
@@ -291,95 +230,35 @@ std::vector<sp<RpcSession>> RpcServer::listSessions() {
 }
 
 size_t RpcServer::numUninitializedSessions() {
-    RpcMutexLockGuard _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     return mConnectingThreads.size();
 }
 
-void RpcServer::establishConnection(
-        sp<RpcServer>&& server, base::unique_fd clientFd, std::array<uint8_t, kRpcAddressSize> addr,
-        size_t addrLen,
-        std::function<void(sp<RpcSession>&&, RpcSession::PreJoinSetupResult&&)>&& joinFn) {
+void RpcServer::establishConnection(sp<RpcServer>&& server, base::unique_fd clientFd) {
+    // TODO(b/183988761): cannot trust this simple ID
+    LOG_ALWAYS_FATAL_IF(!server->mAgreedExperimental, "no!");
+
     // mShutdownTrigger can only be cleared once connection threads have joined.
     // It must be set before this thread is started
     LOG_ALWAYS_FATAL_IF(server->mShutdownTrigger == nullptr);
-    LOG_ALWAYS_FATAL_IF(server->mCtx == nullptr);
-
-    status_t status = OK;
-
-    int clientFdForLog = clientFd.get();
-    auto client = server->mCtx->newTransport(std::move(clientFd), server->mShutdownTrigger.get());
-    if (client == nullptr) {
-        ALOGE("Dropping accept4()-ed socket because sslAccept fails");
-        status = DEAD_OBJECT;
-        // still need to cleanup before we can return
-    } else {
-        LOG_RPC_DETAIL("Created RpcTransport %p for client fd %d", client.get(), clientFdForLog);
-    }
 
     RpcConnectionHeader header;
-    if (status == OK) {
-        iovec iov{&header, sizeof(header)};
-        status = client->interruptableReadFully(server->mShutdownTrigger.get(), &iov, 1,
-                                                std::nullopt, /*ancillaryFds=*/nullptr);
-        if (status != OK) {
-            ALOGE("Failed to read ID for client connecting to RPC server: %s",
-                  statusToString(status).c_str());
-            // still need to cleanup before we can return
-        }
+    status_t status = server->mShutdownTrigger->interruptableReadFully(clientFd.get(), &header,
+                                                                       sizeof(header));
+    bool idValid = status == OK;
+    if (!idValid) {
+        ALOGE("Failed to read ID for client connecting to RPC server: %s",
+              statusToString(status).c_str());
+        // still need to cleanup before we can return
     }
+    bool incoming = header.options & RPC_CONNECTION_OPTION_INCOMING;
 
-    std::vector<uint8_t> sessionId;
-    if (status == OK) {
-        if (header.sessionIdSize > 0) {
-            if (header.sessionIdSize == kSessionIdBytes) {
-                sessionId.resize(header.sessionIdSize);
-                iovec iov{sessionId.data(), sessionId.size()};
-                status = client->interruptableReadFully(server->mShutdownTrigger.get(), &iov, 1,
-                                                        std::nullopt, /*ancillaryFds=*/nullptr);
-                if (status != OK) {
-                    ALOGE("Failed to read session ID for client connecting to RPC server: %s",
-                          statusToString(status).c_str());
-                    // still need to cleanup before we can return
-                }
-            } else {
-                ALOGE("Malformed session ID. Expecting session ID of size %zu but got %" PRIu16,
-                      kSessionIdBytes, header.sessionIdSize);
-                status = BAD_VALUE;
-            }
-        }
-    }
-
-    bool incoming = false;
-    uint32_t protocolVersion = 0;
-    bool requestingNewSession = false;
-
-    if (status == OK) {
-        incoming = header.options & RPC_CONNECTION_OPTION_INCOMING;
-        protocolVersion = std::min(header.version,
-                                   server->mProtocolVersion.value_or(RPC_WIRE_PROTOCOL_VERSION));
-        requestingNewSession = sessionId.empty();
-
-        if (requestingNewSession) {
-            RpcNewSessionResponse response{
-                    .version = protocolVersion,
-            };
-
-            iovec iov{&response, sizeof(response)};
-            status = client->interruptableWriteFully(server->mShutdownTrigger.get(), &iov, 1,
-                                                     std::nullopt, nullptr);
-            if (status != OK) {
-                ALOGE("Failed to send new session response: %s", statusToString(status).c_str());
-                // still need to cleanup before we can return
-            }
-        }
-    }
-
-    RpcMaybeThread thisThread;
+    std::thread thisThread;
     sp<RpcSession> session;
     {
-        RpcMutexUniqueLock _l(server->mLock);
+        std::unique_lock<std::mutex> _l(server->mLock);
 
-        auto threadId = server->mConnectingThreads.find(rpc_this_thread::get_id());
+        auto threadId = server->mConnectingThreads.find(std::this_thread::get_id());
         LOG_ALWAYS_FATAL_IF(threadId == server->mConnectingThreads.end(),
                             "Must establish connection on owned thread");
         thisThread = std::move(threadId->second);
@@ -390,67 +269,37 @@ void RpcServer::establishConnection(
         };
         server->mConnectingThreads.erase(threadId);
 
-        if (status != OK || server->mShutdownTrigger->isTriggered()) {
+        if (!idValid || server->mShutdownTrigger->isTriggered()) {
             return;
         }
 
-        if (requestingNewSession) {
+        RpcAddress sessionId = RpcAddress::fromRawEmbedded(&header.sessionId);
+
+        if (sessionId.isZero()) {
             if (incoming) {
                 ALOGE("Cannot create a new session with an incoming connection, would leak");
                 return;
             }
 
-            // Uniquely identify session at the application layer. Even if a
-            // client/server use the same certificates, if they create multiple
-            // sessions, we still want to distinguish between them.
-            sessionId.resize(kSessionIdBytes);
+            sessionId = RpcAddress::zero();
             size_t tries = 0;
             do {
                 // don't block if there is some entropy issue
                 if (tries++ > 5) {
-                    ALOGE("Cannot find new address: %s",
-                          base::HexString(sessionId.data(), sessionId.size()).c_str());
+                    ALOGE("Cannot find new address: %s", sessionId.toString().c_str());
                     return;
                 }
 
-                auto status = getRandomBytes(sessionId.data(), sessionId.size());
-                if (status != OK) {
-                    ALOGE("Failed to read random session ID: %s", strerror(-status));
-                    return;
-                }
+                sessionId = RpcAddress::random(true /*forServer*/);
             } while (server->mSessions.end() != server->mSessions.find(sessionId));
 
-            session = sp<RpcSession>::make(nullptr);
-            session->setMaxIncomingThreads(server->mMaxThreads);
-            if (!session->setProtocolVersion(protocolVersion)) return;
-
-            if (header.fileDescriptorTransportMode <
-                        server->mSupportedFileDescriptorTransportModes.size() &&
-                server->mSupportedFileDescriptorTransportModes.test(
-                        header.fileDescriptorTransportMode)) {
-                session->setFileDescriptorTransportMode(
-                        static_cast<RpcSession::FileDescriptorTransportMode>(
-                                header.fileDescriptorTransportMode));
-            } else {
-                ALOGE("Rejecting connection: FileDescriptorTransportMode is not supported: %hhu",
-                      header.fileDescriptorTransportMode);
-                return;
-            }
-
-            // if null, falls back to server root
-            sp<IBinder> sessionSpecificRoot;
-            if (server->mRootObjectFactory != nullptr) {
-                sessionSpecificRoot = server->mRootObjectFactory(addr.data(), addrLen);
-                if (sessionSpecificRoot == nullptr) {
-                    ALOGE("Warning: server returned null from root object factory");
-                }
-            }
-
+            session = RpcSession::make();
+            session->setMaxThreads(server->mMaxThreads);
             if (!session->setForServer(server,
                                        sp<RpcServer::EventListener>::fromExisting(
                                                static_cast<RpcServer::EventListener*>(
                                                        server.get())),
-                                       sessionId, sessionSpecificRoot)) {
+                                       sessionId)) {
                 ALOGE("Failed to attach server to session");
                 return;
             }
@@ -460,14 +309,14 @@ void RpcServer::establishConnection(
             auto it = server->mSessions.find(sessionId);
             if (it == server->mSessions.end()) {
                 ALOGE("Cannot add thread, no record of session with ID %s",
-                      base::HexString(sessionId.data(), sessionId.size()).c_str());
+                      sessionId.toString().c_str());
                 return;
             }
             session = it->second;
         }
 
         if (incoming) {
-            LOG_ALWAYS_FATAL_IF(OK != session->addOutgoingConnection(std::move(client), true),
+            LOG_ALWAYS_FATAL_IF(!session->addOutgoingConnection(std::move(clientFd), true),
                                 "server state must already be initialized");
             return;
         }
@@ -476,30 +325,29 @@ void RpcServer::establishConnection(
         session->preJoinThreadOwnership(std::move(thisThread));
     }
 
-    auto setupResult = session->preJoinSetup(std::move(client));
+    auto setupResult = session->preJoinSetup(std::move(clientFd));
 
     // avoid strong cycle
     server = nullptr;
 
-    joinFn(std::move(session), std::move(setupResult));
+    RpcSession::join(std::move(session), std::move(setupResult));
 }
 
-status_t RpcServer::setupSocketServer(const RpcSocketAddress& addr) {
+bool RpcServer::setupSocketServer(const RpcSocketAddress& addr) {
     LOG_RPC_DETAIL("Setting up socket server %s", addr.toString().c_str());
     LOG_ALWAYS_FATAL_IF(hasServer(), "Each RpcServer can only have one server.");
 
-    unique_fd serverFd(TEMP_FAILURE_RETRY(
-            socket(addr.addr()->sa_family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)));
+    unique_fd serverFd(
+            TEMP_FAILURE_RETRY(socket(addr.addr()->sa_family, SOCK_STREAM | SOCK_CLOEXEC, 0)));
     if (serverFd == -1) {
-        int savedErrno = errno;
-        ALOGE("Could not create socket: %s", strerror(savedErrno));
-        return -savedErrno;
+        ALOGE("Could not create socket: %s", strerror(errno));
+        return false;
     }
 
     if (0 != TEMP_FAILURE_RETRY(bind(serverFd.get(), addr.addr(), addr.addrSize()))) {
         int savedErrno = errno;
         ALOGE("Could not bind socket at %s: %s", addr.toString().c_str(), strerror(savedErrno));
-        return -savedErrno;
+        return false;
     }
 
     // Right now, we create all threads at once, making accept4 slow. To avoid hanging the client,
@@ -509,30 +357,29 @@ status_t RpcServer::setupSocketServer(const RpcSocketAddress& addr) {
     if (0 != TEMP_FAILURE_RETRY(listen(serverFd.get(), 50 /*backlog*/))) {
         int savedErrno = errno;
         ALOGE("Could not listen socket at %s: %s", addr.toString().c_str(), strerror(savedErrno));
-        return -savedErrno;
+        return false;
     }
 
     LOG_RPC_DETAIL("Successfully setup socket server %s", addr.toString().c_str());
 
-    if (status_t status = setupExternalServer(std::move(serverFd)); status != OK) {
+    if (!setupExternalServer(std::move(serverFd))) {
         ALOGE("Another thread has set up server while calling setupSocketServer. Race?");
-        return status;
+        return false;
     }
-    return OK;
+    return true;
 }
 
-void RpcServer::onSessionAllIncomingThreadsEnded(const sp<RpcSession>& session) {
-    const std::vector<uint8_t>& id = session->mId;
-    LOG_ALWAYS_FATAL_IF(id.empty(), "Server sessions must be initialized with ID");
-    LOG_RPC_DETAIL("Dropping session with address %s",
-                   base::HexString(id.data(), id.size()).c_str());
+void RpcServer::onSessionLockedAllIncomingThreadsEnded(const sp<RpcSession>& session) {
+    auto id = session->mId;
+    LOG_ALWAYS_FATAL_IF(id == std::nullopt, "Server sessions must be initialized with ID");
+    LOG_RPC_DETAIL("Dropping session with address %s", id->toString().c_str());
 
-    RpcMutexLockGuard _l(mLock);
-    auto it = mSessions.find(id);
+    std::lock_guard<std::mutex> _l(mLock);
+    auto it = mSessions.find(*id);
     LOG_ALWAYS_FATAL_IF(it == mSessions.end(), "Bad state, unknown session id %s",
-                        base::HexString(id.data(), id.size()).c_str());
+                        id->toString().c_str());
     LOG_ALWAYS_FATAL_IF(it->second != session, "Bad state, session has id mismatch %s",
-                        base::HexString(id.data(), id.size()).c_str());
+                        id->toString().c_str());
     (void)mSessions.erase(it);
 }
 
@@ -541,23 +388,26 @@ void RpcServer::onSessionIncomingThreadEnded() {
 }
 
 bool RpcServer::hasServer() {
-    RpcMutexLockGuard _l(mLock);
+    LOG_ALWAYS_FATAL_IF(!mAgreedExperimental, "no!");
+    std::lock_guard<std::mutex> _l(mLock);
     return mServer.ok();
 }
 
 unique_fd RpcServer::releaseServer() {
-    RpcMutexLockGuard _l(mLock);
+    LOG_ALWAYS_FATAL_IF(!mAgreedExperimental, "no!");
+    std::lock_guard<std::mutex> _l(mLock);
     return std::move(mServer);
 }
 
-status_t RpcServer::setupExternalServer(base::unique_fd serverFd) {
-    RpcMutexLockGuard _l(mLock);
+bool RpcServer::setupExternalServer(base::unique_fd serverFd) {
+    LOG_ALWAYS_FATAL_IF(!mAgreedExperimental, "no!");
+    std::lock_guard<std::mutex> _l(mLock);
     if (mServer.ok()) {
         ALOGE("Each RpcServer can only have one server.");
-        return INVALID_OPERATION;
+        return false;
     }
     mServer = std::move(serverFd);
-    return OK;
+    return true;
 }
 
 } // namespace android

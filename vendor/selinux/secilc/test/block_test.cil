@@ -84,7 +84,7 @@
 )
 
 
-;; Inheriting the abstract block causes the allow rule to be in the policy
+;; Inherting the abstract block causes the allow rule to be in the policy
 (type t5)
 (block b5
   (blockabstract b5)

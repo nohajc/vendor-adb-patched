@@ -62,7 +62,7 @@
 #  define UNUSED(x) UNUSED_ ## x
 #endif
 
-static FILE *out_file;
+FILE *out_file;
 
 #define STACK_SIZE 16
 #define DEFAULT_LEVEL "systemlow"
@@ -107,8 +107,8 @@ static void cil_printf(const char *fmt, ...) {
 __attribute__ ((format(printf, 2, 3)))
 static void cil_println(int indent, const char *fmt, ...)
 {
-	va_list argptr;
 	cil_indent(indent);
+	va_list argptr;
 	va_start(argptr, fmt);
 	if (vfprintf(out_file, fmt, argptr) < 0) {
 		log_err("Failed to write to output");
@@ -235,14 +235,12 @@ static void role_list_destroy(void)
 
 static void attr_list_destroy(struct list **attr_list)
 {
-	struct list_node *curr;
-	struct attr_list_node *attr;
-
 	if (attr_list == NULL || *attr_list == NULL) {
 		return;
 	}
 
-	curr = (*attr_list)->head;
+	struct list_node *curr = (*attr_list)->head;
+	struct attr_list_node *attr;
 
 	while (curr != NULL) {
 		attr = curr->data;
@@ -430,7 +428,7 @@ static int stack_init(struct stack **stack)
 		goto exit;
 	}
 
-	s->stack = mallocarray(STACK_SIZE, sizeof(*s->stack));
+	s->stack = malloc(sizeof(*s->stack) * STACK_SIZE);
 	if (s->stack == NULL) {
 		goto exit;
 	}
@@ -453,7 +451,7 @@ static int stack_push(struct stack *stack, void *ptr)
 	void *new_stack;
 
 	if (stack->pos + 1 == stack->size) {
-		new_stack = reallocarray(stack->stack, stack->size * 2, sizeof(*stack->stack));
+		new_stack = realloc(stack->stack, sizeof(*stack->stack) * (stack->size * 2));
 		if (new_stack == NULL) {
 			goto exit;
 		}
@@ -573,7 +571,7 @@ static int avrule_to_cil(int indent, struct policydb *pdb, uint32_t type, const 
 		rule = "auditallow";
 		break;
 	case AVRULE_AUDITDENY:
-		rule = "auditdeny";
+		rule = "auditdenty";
 		break;
 	case AVRULE_DONTAUDIT:
 		rule = "dontaudit";
@@ -719,9 +717,9 @@ exit:
 	return rc;
 }
 
-static unsigned int num_digits(unsigned int n)
+static int num_digits(int n)
 {
-	unsigned int num = 1;
+	int num = 1;
 	while (n >= 10) {
 		n /= 10;
 		num++;
@@ -831,8 +829,8 @@ static int cil_print_attr_strs(int indent, struct policydb *pdb, int is_type, vo
 		pos = &ts->types;
 		neg = &ts->negset;
 		flags = ts->flags;
-		has_positive = pos && !ebitmap_is_empty(pos);
-		has_negative = neg && !ebitmap_is_empty(neg);
+		has_positive = pos && (ebitmap_length(pos) > 0);
+		has_negative = neg && (ebitmap_length(neg) > 0);
 	} else {
 		kind = "role";
 		val_to_name = pdb->p_role_val_to_name;
@@ -840,7 +838,7 @@ static int cil_print_attr_strs(int indent, struct policydb *pdb, int is_type, vo
 		pos = &rs->roles;
 		neg = NULL;
 		flags = rs->flags;
-		has_positive = pos && !ebitmap_is_empty(pos);
+		has_positive = pos && (ebitmap_length(pos) > 0);
 		has_negative = 0;
 	}
 
@@ -947,7 +945,7 @@ static char *search_attr_list(struct list *attr_list, int is_type, void *set)
 	return NULL;
 }
 
-static int set_to_names(struct policydb *pdb, int is_type, void *set, struct list *attr_list, char ***names, unsigned int *num_names)
+static int set_to_names(struct policydb *pdb, int is_type, void *set, struct list *attr_list, char ***names, int *num_names)
 {
 	char *attr_name = NULL;
 	int rc = 0;
@@ -984,12 +982,12 @@ exit:
 	return rc;
 }
 
-static int ebitmap_to_names(struct ebitmap *map, char **vals_to_names, char ***names, unsigned int *num_names)
+static int ebitmap_to_names(struct ebitmap *map, char **vals_to_names, char ***names, int *num_names)
 {
 	int rc = 0;
 	struct ebitmap_node *node;
 	uint32_t i;
-	unsigned int num;
+	uint32_t num;
 	char **name_arr;
 
 	num = 0;
@@ -1008,7 +1006,7 @@ static int ebitmap_to_names(struct ebitmap *map, char **vals_to_names, char ***n
 		goto exit;
 	}
 
-	name_arr = mallocarray(num, sizeof(*name_arr));
+	name_arr = malloc(sizeof(*name_arr) * num);
 	if (name_arr == NULL) {
 		log_err("Out of memory");
 		rc = -1;
@@ -1028,7 +1026,7 @@ exit:
 	return rc;
 }
 
-static int process_roleset(struct policydb *pdb, struct role_set *rs, struct list *attr_list, char ***names, unsigned int *num_names)
+static int process_roleset(struct policydb *pdb, struct role_set *rs, struct list *attr_list, char ***names, int *num_names)
 {
 	int rc = 0;
 
@@ -1051,14 +1049,14 @@ exit:
 	return rc;
 }
 
-static int process_typeset(struct policydb *pdb, struct type_set *ts, struct list *attr_list, char ***names, unsigned int *num_names)
+static int process_typeset(struct policydb *pdb, struct type_set *ts, struct list *attr_list, char ***names, int *num_names)
 {
 	int rc = 0;
 
 	*names = NULL;
 	*num_names = 0;
 
-	if (!ebitmap_is_empty(&ts->negset) || ts->flags != 0) {
+	if (ebitmap_length(&ts->negset) > 0 || ts->flags != 0) {
 		rc = set_to_names(pdb, 1, ts, attr_list, names, num_names);
 		if (rc != 0) {
 			goto exit;
@@ -1074,7 +1072,7 @@ exit:
 	return rc;
 }
 
-static void names_destroy(char ***names, unsigned int *num_names)
+static void names_destroy(char ***names, int *num_names)
 {
 	free(*names);
 	*names = NULL;
@@ -1085,7 +1083,7 @@ static int roletype_role_in_ancestor_to_cil(struct policydb *pdb, struct stack *
 {
 	struct list_node *curr;
 	char **tnames = NULL;
-	unsigned int num_tnames, i;
+	int num_tnames, i;
 	struct role_list_node *role_node = NULL;
 	int rc;
 	struct type_set *ts;
@@ -1126,24 +1124,26 @@ exit:
 }
 
 
-static int name_list_to_string(char **names, unsigned int num_names, char **string)
+static int name_list_to_string(char **names, int num_names, char **string)
 {
 	// create a space separated string of the names
 	int rc = -1;
 	size_t len = 0;
-	unsigned int i;
+	int i;
 	char *str;
 	char *strpos;
 
 	for (i = 0; i < num_names; i++) {
-		if (__builtin_add_overflow(len, strlen(names[i]), &len)) {
+		len += strlen(names[i]);
+		if (len < strlen(names[i])) {
 			log_err("Overflow");
 			return -1;
 		}
 	}
 
 	// add spaces + null terminator
-	if (__builtin_add_overflow(len, (size_t)num_names, &len)) {
+	len += num_names;
+	if (len < (size_t)num_names) {
 		log_err("Overflow");
 		return -1;
 	}
@@ -1184,7 +1184,7 @@ static int avrule_list_to_cil(int indent, struct policydb *pdb, struct avrule *a
 	struct avrule *avrule;
 	char **snames = NULL;
 	char **tnames = NULL;
-	unsigned int s, t, num_snames, num_tnames;
+	int s, t, num_snames, num_tnames;
 	struct type_set *ts;
 
 	for (avrule = avrule_list; avrule != NULL; avrule = avrule->next) {
@@ -1257,9 +1257,9 @@ static int cond_expr_to_cil(int indent, struct policydb *pdb, struct cond_expr *
 	char *new_val = NULL;
 	char *val1 = NULL;
 	char *val2 = NULL;
-	unsigned int num_params;
+	int num_params;
 	const char *op;
-	const char *sep;
+	const char *fmt_str;
 	const char *type;
 
 	rc = stack_init(&stack);
@@ -1308,11 +1308,11 @@ static int cond_expr_to_cil(int indent, struct policydb *pdb, struct cond_expr *
 					rc = -1;
 					goto exit;
 				}
-				sep = "";
+				fmt_str = "(%s %s)";
 			} else {
 				val2 = stack_pop(stack);
 				val1 = stack_pop(stack);
-				sep = " ";
+				fmt_str = "(%s %s %s)";
 			}
 
 			if (val1 == NULL || val2 == NULL) {
@@ -1334,7 +1334,10 @@ static int cond_expr_to_cil(int indent, struct policydb *pdb, struct cond_expr *
 				goto exit;
 			}
 
-			rlen = snprintf(new_val, len, "(%s %s%s%s)", op, val1, sep, val2);
+			// although we always supply val2 and there isn't always a 2nd
+			// value, it should only be used when there are actually two values
+			// in the format strings
+			rlen = snprintf(new_val, len, fmt_str, op, val1, val2);
 			if (rlen < 0 || rlen >= len) {
 				log_err("Failed to generate conditional expression");
 				rc = -1;
@@ -1429,11 +1432,11 @@ static int role_trans_to_cil(int indent, struct policydb *pdb, struct role_trans
 	int rc = 0;
 	struct role_trans_rule *rule;
 	char **role_names = NULL;
-	unsigned int num_role_names = 0;
-	unsigned int role;
+	int num_role_names = 0;
+	int role;
 	char **type_names = NULL;
-	unsigned int num_type_names = 0;
-	unsigned int type;
+	int num_type_names = 0;
+	int type;
 	uint32_t i;
 	struct ebitmap_node *node;
 	struct type_set *ts;
@@ -1479,10 +1482,10 @@ static int role_allows_to_cil(int indent, struct policydb *pdb, struct role_allo
 	int rc = -1;
 	struct role_allow_rule *rule;
 	char **roles = NULL;
-	unsigned int num_roles = 0;
+	int num_roles = 0;
 	char **new_roles = NULL;
-	unsigned int num_new_roles = 0;
-	unsigned int i, j;
+	int num_new_roles = 0;
+	int i,j;
 	struct role_set *rs;
 
 	for (rule = rules; rule != NULL; rule = rule->next) {
@@ -1522,11 +1525,11 @@ static int range_trans_to_cil(int indent, struct policydb *pdb, struct range_tra
 	int rc = -1;
 	struct range_trans_rule *rule;
 	char **stypes = NULL;
-	unsigned int num_stypes = 0;
-	unsigned int stype;
+	int num_stypes = 0;
+	int stype;
 	char **ttypes = NULL;
-	unsigned int num_ttypes = 0;
-	unsigned int ttype;
+	int num_ttypes = 0;
+	int ttype;
 	struct ebitmap_node *node;
 	uint32_t i;
 	struct type_set *ts;
@@ -1591,11 +1594,11 @@ static int filename_trans_to_cil(int indent, struct policydb *pdb, struct filena
 {
 	int rc = -1;
 	char **stypes = NULL;
-	unsigned int num_stypes = 0;
-	unsigned int stype;
+	int num_stypes = 0;
+	int stype;
 	char **ttypes = NULL;
-	unsigned int num_ttypes = 0;
-	unsigned int ttype;
+	int num_ttypes = 0;
+	int ttype;
 	struct type_set *ts;
 	struct filename_trans_rule *rule;
 
@@ -1708,12 +1711,12 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 	char *val2 = NULL;
 	uint32_t num_params;
 	const char *op;
-	const char *sep;
+	const char *fmt_str;
 	const char *attr1;
 	const char *attr2;
 	char *names = NULL;
 	char **name_list = NULL;
-	unsigned int num_names = 0;
+	int num_names = 0;
 	struct type_set *ts;
 
 	rc = stack_init(&stack);
@@ -1742,7 +1745,7 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 			case CEXPR_ROLE:                 attr1 = "r1"; attr2 = "r2"; break;
 			case CEXPR_ROLE | CEXPR_TARGET:  attr1 = "r2"; attr2 = "";   break;
 			case CEXPR_ROLE | CEXPR_XTARGET: attr1 = "r3"; attr2 = "";   break;
-			case CEXPR_TYPE:                 attr1 = "t1"; attr2 = "t2"; break;
+			case CEXPR_TYPE:                 attr1 = "t1"; attr2 = "";   break;
 			case CEXPR_TYPE | CEXPR_TARGET:  attr1 = "t2"; attr2 = "";   break;
 			case CEXPR_TYPE | CEXPR_XTARGET: attr1 = "t3"; attr2 = "";   break;
 			case CEXPR_L1L2:                 attr1 = "l1"; attr2 = "l2"; break;
@@ -1790,31 +1793,20 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 						goto exit;
 					}
 				}
-				if (num_names == 0) {
-					names = strdup("NO_IDENTIFIER");
-				} else {
-					rc = name_list_to_string(name_list, num_names, &names);
-					if (rc != 0) {
-						goto exit;
-					}
+				rc = name_list_to_string(name_list, num_names, &names);
+				if (rc != 0) {
+					goto exit;
 				}
 
 				// length of values/oper + 2 spaces + 2 parens + null terminator
 				len = strlen(op) + strlen(attr1) +  strlen(names) + 2 + 2 + 1;
-				if (num_names > 1) {
-					len += 2; // 2 more parens
-				}
 				new_val = malloc(len);
 				if (new_val == NULL) {
 					log_err("Out of memory");
 					rc = -1;
 					goto exit;
 				}
-				if (num_names > 1) {
-					rlen = snprintf(new_val, len, "(%s %s (%s))", op, attr1, names);
-				} else {
-					rlen = snprintf(new_val, len, "(%s %s %s)", op, attr1, names);
-				}
+				rlen = snprintf(new_val, len, "(%s %s %s)", op, attr1, names);
 				if (rlen < 0 || rlen >= len) {
 					log_err("Failed to generate constraint expression");
 					rc = -1;
@@ -1846,11 +1838,11 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 					rc = -1;
 					goto exit;
 				}
-				sep = "";
+				fmt_str = "(%s %s)";
 			} else {
 				val2 = stack_pop(stack);
 				val1 = stack_pop(stack);
-				sep = " ";
+				fmt_str = "(%s %s %s)";
 			}
 
 			if (val1 == NULL || val2 == NULL) {
@@ -1872,7 +1864,10 @@ static int constraint_expr_to_string(struct policydb *pdb, struct constraint_exp
 				goto exit;
 			}
 
-			rlen = snprintf(new_val, len, "(%s %s%s%s)", op, val1, sep, val2);
+			// although we always supply val2 and there isn't always a 2nd
+			// value, it should only be used when there are actually two values
+			// in the format strings
+			rlen = snprintf(new_val, len, fmt_str, op, val1, val2);
 			if (rlen < 0 || rlen >= len) {
 				log_err("Failed to generate constraint expression");
 				rc = -1;
@@ -2074,7 +2069,7 @@ static int class_order_to_cil(int indent, struct policydb *pdb, struct ebitmap o
 	struct ebitmap_node *node;
 	uint32_t i;
 
-	if (ebitmap_is_empty(&order)) {
+	if (ebitmap_cardinality(&order) == 0) {
 		return 0;
 	}
 
@@ -2095,9 +2090,9 @@ static int role_to_cil(int indent, struct policydb *pdb, struct avrule_block *UN
 	int rc = -1;
 	struct ebitmap_node *node;
 	uint32_t i;
-	unsigned int j;
+	int j;
 	char **types = NULL;
-	unsigned int num_types = 0;
+	int num_types = 0;
 	struct role_datum *role = datum;
 	struct type_set *ts;
 	struct list *attr_list = NULL;
@@ -2180,7 +2175,7 @@ static int role_to_cil(int indent, struct policydb *pdb, struct avrule_block *UN
 			cil_println(indent, "(roleattribute %s)", key);
 		}
 
-		if (!ebitmap_is_empty(&role->roles)) {
+		if (ebitmap_cardinality(&role->roles) > 0) {
 			cil_indent(indent);
 			cil_printf("(roleattributeset %s (", key);
 			ebitmap_for_each_positive_bit(&role->roles, node, i) {
@@ -2274,7 +2269,7 @@ static int type_to_cil(int indent, struct policydb *pdb, struct avrule_block *UN
 			cil_printf(")\n");
 		}
 
-		if (!ebitmap_is_empty(&type->types)) {
+		if (ebitmap_cardinality(&type->types) > 0) {
 			cil_indent(indent);
 			cil_printf("(typeattributeset %s (", key);
 			ebitmap_to_cil(pdb, &type->types, SYM_TYPES);
@@ -2377,7 +2372,7 @@ static int sens_to_cil(int indent, struct policydb *pdb, struct avrule_block *UN
 		}
 	}
 
-	if (!ebitmap_is_empty(&level->level->cat)) {
+	if (ebitmap_cardinality(&level->level->cat) > 0) {
 		cil_indent(indent);
 		cil_printf("(sensitivitycategory %s (", key);
 		ebitmap_to_cil(pdb, &level->level->cat, SYM_CATS);
@@ -2392,7 +2387,7 @@ static int sens_order_to_cil(int indent, struct policydb *pdb, struct ebitmap or
 	struct ebitmap_node *node;
 	uint32_t i;
 
-	if (ebitmap_is_empty(&order)) {
+	if (ebitmap_cardinality(&order) == 0) {
 		return 0;
 	}
 
@@ -2432,7 +2427,7 @@ static int cat_order_to_cil(int indent, struct policydb *pdb, struct ebitmap ord
 	struct ebitmap_node *node;
 	uint32_t i;
 
-	if (ebitmap_is_empty(&order)) {
+	if (ebitmap_cardinality(&order) == 0) {
 		rc = 0;
 		goto exit;
 	}
@@ -2483,7 +2478,7 @@ static int level_to_cil(struct policydb *pdb, struct mls_level *level)
 
 	cil_printf("(%s", pdb->p_sens_val_to_name[level->sens - 1]);
 
-	if (!ebitmap_is_empty(map)) {
+	if (ebitmap_cardinality(map) > 0) {
 		cil_printf("(");
 		ebitmap_to_cil(pdb, map, SYM_CATS);
 		cil_printf(")");
@@ -2662,7 +2657,8 @@ static int ocontext_selinux_ibpkey_to_cil(struct policydb *pdb,
 
 		if (inet_ntop(AF_INET6, &subnet_prefix.s6_addr,
 			      subnet_prefix_str, INET6_ADDRSTRLEN) == NULL) {
-			log_err("ibpkeycon subnet_prefix is invalid: %m");
+			log_err("ibpkeycon subnet_prefix is invalid: %s",
+				strerror(errno));
 			rc = -1;
 			goto exit;
 		}
@@ -2707,13 +2703,13 @@ static int ocontext_selinux_node_to_cil(struct policydb *pdb, struct ocontext *n
 
 	for (node = nodes; node != NULL; node = node->next) {
 		if (inet_ntop(AF_INET, &node->u.node.addr, addr, INET_ADDRSTRLEN) == NULL) {
-			log_err("Nodecon address is invalid: %m");
+			log_err("Nodecon address is invalid: %s", strerror(errno));
 			rc = -1;
 			goto exit;
 		}
 
 		if (inet_ntop(AF_INET, &node->u.node.mask, mask, INET_ADDRSTRLEN) == NULL) {
-			log_err("Nodecon mask is invalid: %m");
+			log_err("Nodecon mask is invalid: %s", strerror(errno));
 			rc = -1;
 			goto exit;
 		}
@@ -2739,13 +2735,13 @@ static int ocontext_selinux_node6_to_cil(struct policydb *pdb, struct ocontext *
 
 	for (node = nodes; node != NULL; node = node->next) {
 		if (inet_ntop(AF_INET6, &node->u.node6.addr, addr, INET6_ADDRSTRLEN) == NULL) {
-			log_err("Nodecon address is invalid: %m");
+			log_err("Nodecon address is invalid: %s", strerror(errno));
 			rc = -1;
 			goto exit;
 		}
 
 		if (inet_ntop(AF_INET6, &node->u.node6.mask, mask, INET6_ADDRSTRLEN) == NULL) {
-			log_err("Nodecon mask is invalid: %m");
+			log_err("Nodecon mask is invalid: %s", strerror(errno));
 			rc = -1;
 			goto exit;
 		}
@@ -2955,35 +2951,10 @@ static int genfscon_to_cil(struct policydb *pdb)
 {
 	struct genfs *genfs;
 	struct ocontext *ocon;
-	uint32_t sclass;
 
 	for (genfs = pdb->genfs; genfs != NULL; genfs = genfs->next) {
 		for (ocon = genfs->head; ocon != NULL; ocon = ocon->next) {
-			sclass = ocon->v.sclass;
-			if (sclass) {
-				const char *file_type;
-				const char *class_name = pdb->p_class_val_to_name[sclass-1];
-				if (strcmp(class_name, "file") == 0) {
-					file_type = "file";
-				} else if (strcmp(class_name, "dir") == 0) {
-					file_type = "dir";
-				} else if (strcmp(class_name, "chr_file") == 0) {
-					file_type = "char";
-				} else if (strcmp(class_name, "blk_file") == 0) {
-					file_type = "block";
-				} else if (strcmp(class_name, "sock_file") == 0) {
-					file_type = "socket";
-				} else if (strcmp(class_name, "fifo_file") == 0) {
-					file_type = "pipe";
-				} else if (strcmp(class_name, "lnk_file") == 0) {
-					file_type = "symlink";
-				} else {
-					return -1;
-				}
-				cil_printf("(genfscon %s \"%s\" %s ", genfs->fstype, ocon->u.name, file_type);
-			} else {
-				cil_printf("(genfscon %s \"%s\" ", genfs->fstype, ocon->u.name);
-			}
+			cil_printf("(genfscon %s %s ", genfs->fstype, ocon->u.name);
 			context_to_cil(pdb, &ocon->context[0]);
 			cil_printf(")\n");
 		}
@@ -3373,14 +3344,9 @@ static int typealiases_to_cil(int indent, struct policydb *pdb, struct avrule_bl
 	char *type_name;
 	struct list_node *curr;
 	struct avrule_decl *decl = stack_peek(decl_stack);
-	struct list *alias_list;
+	struct list *alias_list = typealias_lists[decl->decl_id];
 	int rc = -1;
 
-	if (decl == NULL) {
-		return -1;
-	}
-
-	alias_list = typealias_lists[decl->decl_id];
 	if (alias_list == NULL) {
 		return 0;
 	}
@@ -3550,12 +3516,12 @@ exit:
 static int additive_scopes_to_cil(int indent, struct policydb *pdb, struct avrule_block *block, struct stack *decl_stack)
 {
 	int rc = -1;
-	struct avrule_decl *decl = stack_peek(decl_stack);
 	struct map_args args;
 	args.pdb = pdb;
 	args.block = block;
 	args.decl_stack = decl_stack;
 	args.indent = indent;
+	struct avrule_decl *decl = stack_peek(decl_stack);
 
 	for (args.sym_index = 0; args.sym_index < SYM_NUM; args.sym_index++) {
 		if (func_to_cil[args.sym_index] == NULL) {
@@ -3997,7 +3963,7 @@ int sepol_module_policydb_to_cil(FILE *fp, struct policydb *pdb, int linked)
 
 	if (pdb->policy_type != SEPOL_POLICY_BASE &&
 		pdb->policy_type != SEPOL_POLICY_MOD) {
-		log_err("Policy package is not a base or module");
+		log_err("Policy pakcage is not a base or module");
 		rc = -1;
 		goto exit;
 	}
@@ -4142,7 +4108,7 @@ exit:
 static int fp_to_buffer(FILE *fp, char **data, size_t *data_len)
 {
 	int rc = -1;
-	char *d = NULL, *d_tmp;
+	char *d = NULL;
 	size_t d_len = 0;
 	size_t read_len = 0;
 	size_t max_len = 1 << 17; // start at 128KB, this is enough to hold about half of all the existing pp files
@@ -4158,13 +4124,12 @@ static int fp_to_buffer(FILE *fp, char **data, size_t *data_len)
 		d_len += read_len;
 		if (d_len == max_len) {
 			max_len *= 2;
-			d_tmp = realloc(d, max_len);
-			if (d_tmp == NULL) {
+			d = realloc(d, max_len);
+			if (d == NULL) {
 				log_err("Out of memory");
 				rc = -1;
 				goto exit;
 			}
-			d = d_tmp;
 		}
 	}
 

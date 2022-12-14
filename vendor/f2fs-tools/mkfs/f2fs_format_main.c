@@ -12,32 +12,25 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
-#include <stdbool.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#ifdef HAVE_SYS_MOUNT_H
+#ifndef ANDROID_WINDOWS_HOST
 #include <sys/mount.h>
 #endif
 #include <time.h>
+#include <uuid.h>
 #include <errno.h>
 #include <getopt.h>
 
-#include <f2fs_fs.h>
-
+#include "config.h"
 #ifdef HAVE_LIBBLKID
-#include <blkid/blkid.h>
-#endif
-#ifdef HAVE_UUID_UUID_H
-#include <uuid/uuid.h>
+#  include <blkid.h>
 #endif
 
-#include "quota.h"
+#include "f2fs_fs.h"
 #include "f2fs_format_utils.h"
 
-#ifdef HAVE_SYS_UTSNAME_H
-#include <sys/utsname.h>
-#endif
-#ifdef HAVE_SPARSE_SPARSE_H
+#ifdef WITH_ANDROID
 #include <sparse/sparse.h>
 extern struct sparse_file *f2fs_sparse_file;
 #endif
@@ -81,7 +74,7 @@ static void mkfs_usage()
 
 static void f2fs_show_info()
 {
-	MSG(0, "\n    F2FS-tools: mkfs.f2fs Ver: %s (%s)\n\n",
+	MSG(0, "\n\tF2FS-tools: mkfs.f2fs Ver: %s (%s)\n\n",
 				F2FS_TOOLS_VERSION,
 				F2FS_TOOLS_DATE);
 	if (c.heap == 0)
@@ -110,34 +103,11 @@ static void f2fs_show_info()
 		MSG(0, "Info: Enable Compression\n");
 }
 
-#if defined(ANDROID_TARGET) && defined(HAVE_SYS_UTSNAME_H)
-static bool kernel_version_over(unsigned int min_major, unsigned int min_minor)
-{
-	unsigned int major, minor;
-	struct utsname uts;
-
-	if ((uname(&uts) != 0) ||
-			(sscanf(uts.release, "%u.%u", &major, &minor) != 2))
-		return false;
-	if (major > min_major)
-		return true;
-	if (major == min_major && minor >= min_minor)
-		return true;
-	return false;
-}
-#else
-static bool kernel_version_over(unsigned int UNUSED(min_major),
-				unsigned int UNUSED(min_minor))
-{
-	return false;
-}
-#endif
-
 static void add_default_options(void)
 {
 	switch (c.defset) {
 	case CONF_ANDROID:
-		/* -d1 -f -w 4096 -R 0:0 */
+		/* -d1 -f -O encrypt -O quota -O verity -w 4096 -R 0:0 */
 		c.dbg_lv = 1;
 		force_overwrite = 1;
 		c.wanted_sector_size = 4096;
@@ -147,12 +117,8 @@ static void add_default_options(void)
 		if (c.feature & cpu_to_le32(F2FS_FEATURE_RO))
 			return;
 
-		/* -O encrypt -O project_quota,extra_attr,{quota} -O verity */
 		c.feature |= cpu_to_le32(F2FS_FEATURE_ENCRYPT);
-		if (!kernel_version_over(4, 14))
-			c.feature |= cpu_to_le32(F2FS_FEATURE_QUOTA_INO);
-		c.feature |= cpu_to_le32(F2FS_FEATURE_PRJQUOTA);
-		c.feature |= cpu_to_le32(F2FS_FEATURE_EXTRA_ATTR);
+		c.feature |= cpu_to_le32(F2FS_FEATURE_QUOTA_INO);
 		c.feature |= cpu_to_le32(F2FS_FEATURE_VERITY);
 		break;
 	}
@@ -161,17 +127,9 @@ static void add_default_options(void)
 	c.feature |= cpu_to_le32(F2FS_FEATURE_CASEFOLD);
 #endif
 #ifdef CONF_PROJID
-	c.feature |= cpu_to_le32(F2FS_FEATURE_QUOTA_INO);
 	c.feature |= cpu_to_le32(F2FS_FEATURE_PRJQUOTA);
 	c.feature |= cpu_to_le32(F2FS_FEATURE_EXTRA_ATTR);
 #endif
-
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_QUOTA_INO))
-		c.quota_bits = QUOTA_USR_BIT | QUOTA_GRP_BIT;
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_PRJQUOTA)) {
-		c.feature |= cpu_to_le32(F2FS_FEATURE_QUOTA_INO);
-		c.quota_bits |= QUOTA_PRJ_BIT;
-	}
 }
 
 static void f2fs_parse_options(int argc, char *argv[])
@@ -255,7 +213,7 @@ static void f2fs_parse_options(int argc, char *argv[])
 			break;
 		case 'S':
 			c.device_size = atoll(optarg);
-			c.device_size &= (~((uint64_t)(F2FS_BLKSIZE - 1)));
+			c.device_size &= (~((u_int64_t)(F2FS_BLKSIZE - 1)));
 			c.sparse_mode = 1;
 			break;
 		case 'z':
@@ -438,42 +396,18 @@ int main(int argc, char *argv[])
 
 	c.func = MKFS;
 
+	if (!force_overwrite && f2fs_check_overwrite()) {
+		MSG(0, "\tUse the -f option to force overwrite.\n");
+		return -1;
+	}
+
 	if (f2fs_devs_are_umounted() < 0) {
 		if (errno != EBUSY)
 			MSG(0, "\tError: Not available on mounted device!\n");
-		goto err_format;
+		return -1;
 	}
 
 	if (f2fs_get_device_info() < 0)
-		return -1;
-
-	if (f2fs_check_overwrite()) {
-		char *zero_buf = NULL;
-		int i;
-
-		if (!force_overwrite) {
-			MSG(0, "\tUse the -f option to force overwrite.\n");
-			goto err_format;
-		}
-		zero_buf = calloc(F2FS_BLKSIZE, 1);
-		if (!zero_buf) {
-			MSG(0, "\tError: Fail to allocate zero buffer.\n");
-			goto err_format;
-		}
-		/* wipe out other FS magics mostly first 4MB space */
-		for (i = 0; i < 1024; i++)
-			if (dev_fill_block(zero_buf, i))
-				break;
-		free(zero_buf);
-		if (i != 1024) {
-			MSG(0, "\tError: Fail to fill zeros till %d.\n", i);
-			goto err_format;
-		}
-		if (f2fs_fsync_device())
-			goto err_format;
-	}
-
-	if (f2fs_get_f2fs_info() < 0)
 		goto err_format;
 
 	/*

@@ -10,7 +10,6 @@ add_executable(
   digest.cc
   fd.cc
   file.cc
-  generate_ech.cc
   generate_ed25519.cc
   genrsa.cc
   pkcs12.cc
@@ -21,7 +20,6 @@ add_executable(
   tool.cc
   transport_common.cc
 )
-install(TARGETS bssl DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 add_dependencies(bssl global_target)
 

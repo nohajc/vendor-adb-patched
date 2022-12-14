@@ -33,13 +33,7 @@
 namespace android {
 namespace installd {
 
-namespace {
-
-using ::android::base::unique_fd;
-
-constexpr int kTimeoutMs = 300000;
-
-} // namespace
+using base::unique_fd;
 
 bool view_compiler(const char* apk_path, const char* package_name, const char* out_dex_file,
                    int uid) {
@@ -94,17 +88,7 @@ bool view_compiler(const char* apk_path, const char* package_name, const char* o
         _exit(1);
     }
 
-    int return_code = wait_child_with_timeout(pid, kTimeoutMs);
-    if (!WIFEXITED(return_code)) {
-        LOG(WARNING) << "viewcompiler failed for " << package_name << ":" << apk_path;
-        if (WTERMSIG(return_code) == SIGKILL) {
-            // If the subprocess is killed while it's writing to the file, the file is likely
-            // corrupted, so we should remove it.
-            remove_file_at_fd(outfd.get());
-        }
-        return false;
-    }
-    return WEXITSTATUS(return_code) == 0;
+    return wait_child(pid) == 0;
 }
 
 } // namespace installd

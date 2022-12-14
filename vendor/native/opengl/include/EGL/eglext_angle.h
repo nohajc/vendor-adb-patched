@@ -4,11 +4,11 @@
 // found in the LICENSE file.
 //
 // eglext_angle.h: ANGLE modifications to the eglext.h header file.
+//   Currently we don't include this file directly, we patch eglext.h
+//   to include it implicitly so it is visible throughout our code.
 
 #ifndef INCLUDE_EGL_EGLEXT_ANGLE_
 #define INCLUDE_EGL_EGLEXT_ANGLE_
-
-#include <EGL/eglext.h>
 
 // clang-format off
 
@@ -185,26 +185,6 @@ EGLAPI EGLint EGLAPIENTRY eglProgramCacheResizeANGLE(EGLDisplay dpy, EGLint limi
 #define EGL_ANGLE_create_context_extensions_enabled 1
 #define EGL_EXTENSIONS_ENABLED_ANGLE 0x345F
 #endif /* EGL_ANGLE_create_context_extensions_enabled */
-
-#ifndef EGL_ANGLE_feature_control
-#define EGL_ANGLE_feature_control 1
-#define EGL_FEATURE_NAME_ANGLE 0x3460
-#define EGL_FEATURE_CATEGORY_ANGLE 0x3461
-#define EGL_FEATURE_DESCRIPTION_ANGLE 0x3462
-#define EGL_FEATURE_BUG_ANGLE 0x3463
-#define EGL_FEATURE_STATUS_ANGLE 0x3464
-#define EGL_FEATURE_COUNT_ANGLE 0x3465
-#define EGL_FEATURE_OVERRIDES_ENABLED_ANGLE 0x3466
-#define EGL_FEATURE_OVERRIDES_DISABLED_ANGLE 0x3467
-#define EGL_FEATURE_CONDITION_ANGLE 0x3468
-#define EGL_FEATURE_ALL_DISABLED_ANGLE 0x3469
-typedef const char *(EGLAPIENTRYP PFNEGLQUERYSTRINGIANGLEPROC) (EGLDisplay dpy, EGLint name, EGLint index);
-typedef EGLBoolean (EGLAPIENTRYP PFNEGLQUERYDISPLAYATTRIBANGLEPROC) (EGLDisplay dpy, EGLint attribute, EGLAttrib *value);
-#ifdef EGL_EGLEXT_PROTOTYPES
-EGLAPI const char *EGLAPIENTRY eglQueryStringiANGLE(EGLDisplay dpy, EGLint name, EGLint index);
-EGLAPI EGLBoolean EGLAPIENTRY eglQueryDisplayAttribANGLE(EGLDisplay dpy, EGLint attribute, EGLAttrib *value);
-#endif
-#endif /* EGL_ANGLE_feature_control */
 
 // clang-format on
 

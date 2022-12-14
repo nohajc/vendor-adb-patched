@@ -52,7 +52,6 @@
 /* Based on MurmurHash3, written by Austin Appleby and placed in the
  * public domain.
  */
-ignore_unsigned_overflow_
 static inline int avtab_hash(struct avtab_key *keyp, uint32_t mask)
 {
 	static const uint32_t c1 = 0xcc9e2d51;
@@ -64,7 +63,7 @@ static inline int avtab_hash(struct avtab_key *keyp, uint32_t mask)
 
 	uint32_t hash = 0;
 
-#define mix(input) do { \
+#define mix(input) { \
 	uint32_t v = input; \
 	v *= c1; \
 	v = (v << r1) | (v >> (32 - r1)); \
@@ -72,7 +71,7 @@ static inline int avtab_hash(struct avtab_key *keyp, uint32_t mask)
 	hash ^= v; \
 	hash = (hash << r2) | (hash >> (32 - r2)); \
 	hash = hash * m + n; \
-} while (0)
+}
 
 	mix(keyp->target_class);
 	mix(keyp->target_type);
@@ -376,7 +375,7 @@ int avtab_alloc(avtab_t *h, uint32_t nrules)
 	}
 	if (shift > 2)
 		shift = shift - 2;
-	nslot = UINT32_C(1) << shift;
+	nslot = 1 << shift;
 	if (nslot > MAX_AVTAB_HASH_BUCKETS)
 		nslot = MAX_AVTAB_HASH_BUCKETS;
 	mask = nslot - 1;
@@ -419,7 +418,7 @@ void avtab_hash_eval(avtab_t * h, char *tag)
 }
 
 /* Ordering of datums in the original avtab format in the policy file. */
-static const uint16_t spec_order[] = {
+static uint16_t spec_order[] = {
 	AVTAB_ALLOWED,
 	AVTAB_AUDITDENY,
 	AVTAB_AUDITALLOW,
@@ -503,11 +502,6 @@ int avtab_read_item(struct policy_file *fp, uint32_t vers, avtab_t * a,
 
 		for (i = 0; i < ARRAY_SIZE(spec_order); i++) {
 			if (val & spec_order[i]) {
-				if (items >= items2) { /* items is index, items2 is total number */
-					ERR(fp->handle, "entry has too many items (%d/%d)",
-					    items + 1, items2);
-					return -1;
-				}
 				key.specified = spec_order[i] | enabled;
 				datum.data = le32_to_cpu(buf32[items++]);
 				rc = insertf(a, &key, &datum, p);
@@ -548,7 +542,7 @@ int avtab_read_item(struct policy_file *fp, uint32_t vers, avtab_t * a,
 	if ((vers < POLICYDB_VERSION_XPERMS_IOCTL) &&
 			(key.specified & AVTAB_XPERMS)) {
 		ERR(fp->handle, "policy version %u does not support extended "
-				"permissions rules and one was specified", vers);
+				"permissions rules and one was specified\n", vers);
 		return -1;
 	} else if (key.specified & AVTAB_XPERMS) {
 		rc = next_entry(&buf8, fp, sizeof(uint8_t));

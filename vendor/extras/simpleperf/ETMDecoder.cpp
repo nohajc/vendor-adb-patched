@@ -31,7 +31,7 @@ namespace {
 
 class DecoderLogStr : public ocsdMsgLogStrOutI {
  public:
-  void printOutStr(const std::string& out_str) override { LOG(DEBUG) << out_str; }
+  void printOutStr(const std::string& out_str) override { LOG(INFO) << out_str; }
 };
 
 class DecodeErrorLogger : public ocsdDefaultErrorLogger {
@@ -71,10 +71,10 @@ class ETMV4IDecodeTree {
     frame_decoder_.getErrLogAttachPt()->attach(&error_logger_);
   }
 
-  bool CreateDecoder(const EtmV4Config* config) {
-    uint8_t trace_id = config->getTraceID();
+  bool CreateDecoder(const EtmV4Config& config) {
+    uint8_t trace_id = config.getTraceID();
     auto packet_decoder = std::make_unique<TrcPktProcEtmV4I>(trace_id);
-    packet_decoder->setProtocolConfig(config);
+    packet_decoder->setProtocolConfig(&config);
     packet_decoder->getErrorLogAttachPt()->replace_first(&error_logger_);
     frame_decoder_.getIDStreamAttachPt(trace_id)->attach(packet_decoder.get());
     auto result = packet_decoders_.emplace(trace_id, packet_decoder.release());
@@ -341,16 +341,15 @@ struct ElementCallback {
 // Decode packets into elements.
 class PacketToElement : public PacketCallback, public ITrcGenElemIn {
  public:
-  PacketToElement(MapLocator& map_locator,
-                  const std::unordered_map<uint8_t, std::unique_ptr<EtmV4Config>>& configs,
+  PacketToElement(MapLocator& map_locator, const std::unordered_map<uint8_t, EtmV4Config>& configs,
                   DecodeErrorLogger& error_logger)
       : PacketCallback(PacketCallback::PACKET_TO_ELEMENT), mem_access_(map_locator) {
     for (auto& p : configs) {
       uint8_t trace_id = p.first;
-      const EtmV4Config* config = p.second.get();
+      const EtmV4Config& config = p.second;
       element_decoders_.emplace(trace_id, trace_id);
       auto& decoder = element_decoders_[trace_id];
-      decoder.setProtocolConfig(config);
+      decoder.setProtocolConfig(&config);
       decoder.getErrorLogAttachPt()->replace_first(&error_logger);
       decoder.getInstrDecodeAttachPt()->replace_first(&instruction_decoder_);
       decoder.getMemoryAccessAttachPt()->replace_first(&mem_access_);
@@ -396,7 +395,7 @@ class DataDumper : public ElementCallback {
     frame_printer_.setMessageLogger(&stdout_logger_);
   }
 
-  void DumpPackets(const std::unordered_map<uint8_t, std::unique_ptr<EtmV4Config>>& configs) {
+  void DumpPackets(const std::unordered_map<uint8_t, EtmV4Config>& configs) {
     for (auto& p : configs) {
       uint8_t trace_id = p.first;
       auto result = packet_printers_.emplace(trace_id, trace_id);
@@ -520,16 +519,16 @@ class BranchListParser : public PacketCallback {
   BranchListParser(MapLocator& map_locator, const ETMDecoder::BranchListCallbackFn& callback)
       : PacketCallback(BRANCH_LIST_PARSER), map_locator_(map_locator), callback_(callback) {}
 
-  void CheckConfigs(std::unordered_map<uint8_t, std::unique_ptr<EtmV4Config>>& configs) {
+  void CheckConfigs(std::unordered_map<uint8_t, EtmV4Config>& configs) {
     // TODO: Current implementation doesn't support non-zero speculation length and return stack.
     for (auto& p : configs) {
-      if (p.second->MaxSpecDepth() > 0) {
+      if (p.second.MaxSpecDepth() > 0) {
         LOG(WARNING) << "branch list collection isn't accurate with non-zero speculation length";
         break;
       }
     }
     for (auto& p : configs) {
-      if (p.second->enabledRetStack()) {
+      if (p.second.enabledRetStack()) {
         LOG(WARNING) << "branch list collection will lose some data with return stack enabled";
         break;
       }
@@ -642,45 +641,22 @@ class ETMDecoderImpl : public ETMDecoder {
   ETMDecoderImpl(ThreadTree& thread_tree) : thread_tree_(thread_tree) {}
 
   void CreateDecodeTree(const AuxTraceInfoRecord& auxtrace_info) {
-    uint8_t trace_id = 0;
-    uint64_t* info = auxtrace_info.data->info;
     for (int i = 0; i < auxtrace_info.data->nr_cpu; i++) {
-      if (info[0] == AuxTraceInfoRecord::MAGIC_ETM4) {
-        auto& etm4 = *reinterpret_cast<AuxTraceInfoRecord::ETM4Info*>(info);
-        ocsd_etmv4_cfg cfg;
-        memset(&cfg, 0, sizeof(cfg));
-        cfg.reg_idr0 = etm4.trcidr0;
-        cfg.reg_idr1 = etm4.trcidr1;
-        cfg.reg_idr2 = etm4.trcidr2;
-        cfg.reg_idr8 = etm4.trcidr8;
-        cfg.reg_configr = etm4.trcconfigr;
-        cfg.reg_traceidr = etm4.trctraceidr;
-        cfg.arch_ver = ARCH_V8;
-        cfg.core_prof = profile_CortexA;
-        trace_id = cfg.reg_traceidr & 0x7f;
-        trace_ids_.emplace(etm4.cpu, trace_id);
-        configs_.emplace(trace_id, new EtmV4Config(&cfg));
-        info = reinterpret_cast<uint64_t*>(&etm4 + 1);
-      } else {
-        CHECK_EQ(info[0], AuxTraceInfoRecord::MAGIC_ETE);
-        auto& ete = *reinterpret_cast<AuxTraceInfoRecord::ETEInfo*>(info);
-        ocsd_ete_cfg cfg;
-        memset(&cfg, 0, sizeof(cfg));
-        cfg.reg_idr0 = ete.trcidr0;
-        cfg.reg_idr1 = ete.trcidr1;
-        cfg.reg_idr2 = ete.trcidr2;
-        cfg.reg_idr8 = ete.trcidr8;
-        cfg.reg_devarch = ete.trcdevarch;
-        cfg.reg_configr = ete.trcconfigr;
-        cfg.reg_traceidr = ete.trctraceidr;
-        cfg.arch_ver = ARCH_AA64;
-        cfg.core_prof = profile_CortexA;
-        trace_id = cfg.reg_traceidr & 0x7f;
-        trace_ids_.emplace(ete.cpu, trace_id);
-        configs_.emplace(trace_id, new ETEConfig(&cfg));
-        info = reinterpret_cast<uint64_t*>(&ete + 1);
-      }
-      decode_tree_.CreateDecoder(configs_[trace_id].get());
+      auto& etm4 = auxtrace_info.data->etm4_info[i];
+      ocsd_etmv4_cfg cfg;
+      memset(&cfg, 0, sizeof(cfg));
+      cfg.reg_idr0 = etm4.trcidr0;
+      cfg.reg_idr1 = etm4.trcidr1;
+      cfg.reg_idr2 = etm4.trcidr2;
+      cfg.reg_idr8 = etm4.trcidr8;
+      cfg.reg_configr = etm4.trcconfigr;
+      cfg.reg_traceidr = etm4.trctraceidr;
+      cfg.arch_ver = ARCH_V8;
+      cfg.core_prof = profile_CortexA;
+      uint8_t trace_id = cfg.reg_traceidr & 0x7f;
+      trace_ids_.emplace(etm4.cpu, trace_id);
+      configs_.emplace(trace_id, &cfg);
+      decode_tree_.CreateDecoder(configs_[trace_id]);
       auto result = packet_sinks_.emplace(trace_id, trace_id);
       CHECK(result.second);
       decode_tree_.AttachPacketSink(trace_id, result.first->second);
@@ -730,19 +706,12 @@ class ETMDecoderImpl : public ETMDecoder {
       return false;
     }
     size_t left_size = size;
-    const size_t MAX_RESET_RETRY_COUNT = 3;
-    size_t reset_retry_count = 0;
     while (left_size > 0) {
       uint32_t processed;
       auto resp = decoder.TraceDataIn(OCSD_OP_DATA, data_index_, left_size, data, &processed);
       if (IsRespError(resp)) {
         // A decoding error shouldn't ruin all data. Reset decoders to recover from it.
-        // But some errors may not be recoverable by resetting decoders. So use a max retry limit.
-        if (++reset_retry_count > MAX_RESET_RETRY_COUNT) {
-          break;
-        }
-        LOG(DEBUG) << "reset etm decoders for seeing a decode failure, resp " << resp
-                   << ", reset_retry_count is " << reset_retry_count;
+        LOG(INFO) << "reset etm decoders for seeing a decode failure, resp " << resp;
         decoder.TraceDataIn(OCSD_OP_RESET, data_index_ + processed, 0, nullptr, nullptr);
       }
       data += processed;
@@ -766,10 +735,11 @@ class ETMDecoderImpl : public ETMDecoder {
   void InstallMapLocator() {
     if (!map_locator_) {
       map_locator_.reset(new MapLocator(thread_tree_));
+
       for (auto& cfg : configs_) {
-        int64_t configr = (*(const ocsd_etmv4_cfg*)*cfg.second).reg_configr;
-        map_locator_->SetUseVmid(cfg.first,
-                                 configr & (1U << ETM4_CFG_BIT_VMID | 1U << ETM4_CFG_BIT_VMID_OPT));
+        map_locator_->SetUseVmid(
+            cfg.first,
+            (*cfg.second).reg_configr & (1U << ETM4_CFG_BIT_VMID | 1U << ETM4_CFG_BIT_VMID_OPT));
       }
 
       InstallPacketCallback(map_locator_.get());
@@ -799,7 +769,7 @@ class ETMDecoderImpl : public ETMDecoder {
   // map from cpu to trace id
   std::unordered_map<uint64_t, uint8_t> trace_ids_;
   // map from the trace id of an etm device to its config
-  std::unordered_map<uint8_t, std::unique_ptr<EtmV4Config>> configs_;
+  std::unordered_map<uint8_t, EtmV4Config> configs_;
   // map from the trace id of an etm device to its PacketSink
   std::unordered_map<uint8_t, PacketSink> packet_sinks_;
   std::unique_ptr<PacketToElement> packet_to_element_;

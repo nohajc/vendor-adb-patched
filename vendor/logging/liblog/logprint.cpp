@@ -1,18 +1,19 @@
 /*
- * Copyright 2006, The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+**
+** Copyright 2006-2014, The Android Open Source Project
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**     http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+*/
 
 #include <log/logprint.h>
 
@@ -1102,7 +1103,7 @@ size_t convertPrintable(char* p, const char* message, size_t messageLen) {
     }
     len = mbrtowc(nullptr, message, len, &mb_state);
 
-    if (len <= 0) {
+    if (len < 0) {
       snprintf(buf, sizeof(buf), "\\x%02X", static_cast<unsigned char>(*message));
       len = 1;
     } else {
@@ -1313,7 +1314,6 @@ static void convertMonotonic(struct timespec* result, const AndroidLogEntry* ent
           suspended_pending = false;
         }
       }
-      free(line);
       pclose(p);
     }
     /* last entry is our current time conversion */
@@ -1691,22 +1691,42 @@ char* android_log_formatLogLine(AndroidLogFormat* p_format, char* defaultBuffer,
   return ret;
 }
 
-size_t android_log_printLogLine(AndroidLogFormat* p_format, FILE* fp,
-                                const AndroidLogEntry* entry) {
-  char buf[4096] __attribute__((__uninitialized__));
-  size_t line_length;
-  char* line = android_log_formatLogLine(p_format, buf, sizeof(buf), entry, &line_length);
-  if (!line) {
-    fprintf(stderr, "android_log_formatLogLine failed\n");
-    exit(1);
+/**
+ * Either print or do not print log line, based on filter
+ *
+ * Returns count bytes written
+ */
+
+int android_log_printLogLine(AndroidLogFormat* p_format, int fd, const AndroidLogEntry* entry) {
+  int ret;
+  char defaultBuffer[512];
+  char* outBuffer = NULL;
+  size_t totalLen;
+
+  outBuffer =
+      android_log_formatLogLine(p_format, defaultBuffer, sizeof(defaultBuffer), entry, &totalLen);
+
+  if (!outBuffer) return -1;
+
+  do {
+    ret = write(fd, outBuffer, totalLen);
+  } while (ret < 0 && errno == EINTR);
+
+  if (ret < 0) {
+    fprintf(stderr, "+++ LOG: write failed (errno=%d)\n", errno);
+    ret = 0;
+    goto done;
   }
 
-  size_t bytesWritten = fwrite(line, 1, line_length, fp);
-  if (bytesWritten != line_length) {
-    perror("fwrite failed");
-    exit(1);
+  if (((size_t)ret) < totalLen) {
+    fprintf(stderr, "+++ LOG: write partial (%d of %d)\n", ret, (int)totalLen);
+    goto done;
   }
 
-  if (line != buf) free(line);
-  return bytesWritten;
+done:
+  if (outBuffer != defaultBuffer) {
+    free(outBuffer);
+  }
+
+  return ret;
 }

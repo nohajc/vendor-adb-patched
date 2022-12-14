@@ -840,52 +840,56 @@ inline bool Iterate(Visitor* visitor, VkJsonDeviceGroup* device_group) {
 template <typename Visitor>
 inline bool Iterate(Visitor* visitor, VkJsonDevice* device) {
   bool ret = true;
-  if (device->properties.apiVersion >= VK_API_VERSION_1_1) {
-    ret &=
-        visitor->Visit("subgroupProperties", &device->subgroup_properties) &&
-        visitor->Visit("pointClippingProperties",
-                        &device->point_clipping_properties) &&
-        visitor->Visit("multiviewProperties",
-                        &device->multiview_properties) &&
-        visitor->Visit("idProperties", &device->id_properties) &&
-        visitor->Visit("maintenance3Properties",
-                        &device->maintenance3_properties) &&
-        visitor->Visit("16bitStorageFeatures",
-                        &device->bit16_storage_features) &&
-        visitor->Visit("multiviewFeatures", &device->multiview_features) &&
-        visitor->Visit("variablePointerFeatures",
-                        &device->variable_pointer_features) &&
-        visitor->Visit("protectedMemoryFeatures",
-                        &device->protected_memory_features) &&
-        visitor->Visit("samplerYcbcrConversionFeatures",
-                        &device->sampler_ycbcr_conversion_features) &&
-        visitor->Visit("shaderDrawParameterFeatures",
-                        &device->shader_draw_parameter_features) &&
-        visitor->Visit("externalFenceProperties",
-                        &device->external_fence_properties) &&
-        visitor->Visit("externalSemaphoreProperties",
-                        &device->external_semaphore_properties);
-  }
-  if (device->properties.apiVersion >= VK_API_VERSION_1_0) {
-    ret &= visitor->Visit("properties", &device->properties) &&
-            visitor->Visit("features", &device->features) &&
-            visitor->Visit("memory", &device->memory) &&
-            visitor->Visit("queues", &device->queues) &&
-            visitor->Visit("extensions", &device->extensions) &&
-            visitor->Visit("layers", &device->layers) &&
-            visitor->Visit("formats", &device->formats);
-    if (device->ext_driver_properties.reported) {
-      ret &= visitor->Visit("VK_KHR_driver_properties",
-                          &device->ext_driver_properties);
-    }
-    if (device->ext_variable_pointer_features.reported) {
-      ret &= visitor->Visit("VK_KHR_variable_pointers",
-                          &device->ext_variable_pointer_features);
-    }
-    if (device->ext_shader_float16_int8_features.reported) {
-      ret &= visitor->Visit("VK_KHR_shader_float16_int8",
-                            &device->ext_shader_float16_int8_features);
-    }
+  switch (device->properties.apiVersion ^
+          VK_VERSION_PATCH(device->properties.apiVersion)) {
+    case VK_API_VERSION_1_2:
+      FALLTHROUGH_INTENDED;
+    case VK_API_VERSION_1_1:
+      ret &=
+          visitor->Visit("subgroupProperties", &device->subgroup_properties) &&
+          visitor->Visit("pointClippingProperties",
+                         &device->point_clipping_properties) &&
+          visitor->Visit("multiviewProperties",
+                         &device->multiview_properties) &&
+          visitor->Visit("idProperties", &device->id_properties) &&
+          visitor->Visit("maintenance3Properties",
+                         &device->maintenance3_properties) &&
+          visitor->Visit("16bitStorageFeatures",
+                         &device->bit16_storage_features) &&
+          visitor->Visit("multiviewFeatures", &device->multiview_features) &&
+          visitor->Visit("variablePointerFeatures",
+                         &device->variable_pointer_features) &&
+          visitor->Visit("protectedMemoryFeatures",
+                         &device->protected_memory_features) &&
+          visitor->Visit("samplerYcbcrConversionFeatures",
+                         &device->sampler_ycbcr_conversion_features) &&
+          visitor->Visit("shaderDrawParameterFeatures",
+                         &device->shader_draw_parameter_features) &&
+          visitor->Visit("externalFenceProperties",
+                         &device->external_fence_properties) &&
+          visitor->Visit("externalSemaphoreProperties",
+                         &device->external_semaphore_properties);
+      FALLTHROUGH_INTENDED;
+    case VK_API_VERSION_1_0:
+      ret &= visitor->Visit("properties", &device->properties) &&
+             visitor->Visit("features", &device->features) &&
+             visitor->Visit("memory", &device->memory) &&
+             visitor->Visit("queues", &device->queues) &&
+             visitor->Visit("extensions", &device->extensions) &&
+             visitor->Visit("layers", &device->layers) &&
+             visitor->Visit("formats", &device->formats);
+      if (device->ext_driver_properties.reported) {
+        ret &= visitor->Visit("VK_KHR_driver_properties",
+                            &device->ext_driver_properties);
+      }
+      if (device->ext_variable_pointer_features.reported) {
+        ret &= visitor->Visit("VK_KHR_variable_pointers",
+                            &device->ext_variable_pointer_features);
+      }
+      if (device->ext_shader_float16_int8_features.reported) {
+        ret &= visitor->Visit("VK_KHR_shader_float16_int8",
+                              &device->ext_shader_float16_int8_features);
+      }
   }
   return ret;
 }
@@ -893,13 +897,16 @@ inline bool Iterate(Visitor* visitor, VkJsonDevice* device) {
 template <typename Visitor>
 inline bool Iterate(Visitor* visitor, VkJsonInstance* instance) {
   bool ret = true;
-  if (instance->api_version >= VK_API_VERSION_1_1) {
-    ret &= visitor->Visit("deviceGroups", &instance->device_groups);
-  }
-  if (instance->api_version >= VK_API_VERSION_1_0) {
-    ret &= visitor->Visit("layers", &instance->layers) &&
-           visitor->Visit("extensions", &instance->extensions) &&
-           visitor->Visit("devices", &instance->devices);
+  switch (instance->api_version ^ VK_VERSION_PATCH(instance->api_version)) {
+    case VK_API_VERSION_1_2:
+      FALLTHROUGH_INTENDED;
+    case VK_API_VERSION_1_1:
+      ret &= visitor->Visit("deviceGroups", &instance->device_groups);
+      FALLTHROUGH_INTENDED;
+    case VK_API_VERSION_1_0:
+      ret &= visitor->Visit("layers", &instance->layers) &&
+             visitor->Visit("extensions", &instance->extensions) &&
+             visitor->Visit("devices", &instance->devices);
   }
   return ret;
 }

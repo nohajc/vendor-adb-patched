@@ -40,7 +40,6 @@
 
 #if defined(__ANDROID__)
 #include <android-base/properties.h>
-#include <cutils/android_filesystem_config.h>
 #endif
 
 #include "IOEventLoop.h"
@@ -427,14 +426,14 @@ ArchType GetMachineArch() {
   utsname uname_buf;
   if (TEMP_FAILURE_RETRY(uname(&uname_buf)) != 0) {
     PLOG(WARNING) << "uname() failed";
-    return GetTargetArch();
+    return GetBuildArch();
   }
   ArchType arch = GetArchType(uname_buf.machine);
 #endif
   if (arch != ARCH_UNSUPPORTED) {
     return arch;
   }
-  return GetTargetArch();
+  return GetBuildArch();
 }
 
 void PrepareVdsoFile() {
@@ -658,7 +657,7 @@ bool InAppRunner::RunCmdInApp(const std::string& cmd, const std::vector<std::str
     stop_signal_wfd.reset();
   }
   int exit_code;
-  if (!workload->WaitChildProcess(true, &exit_code) || exit_code != 0) {
+  if (!workload->WaitChildProcess(&exit_code) || exit_code != 0) {
     return false;
   }
   return true;
@@ -962,25 +961,15 @@ const char* GetTraceFsDir() {
 }
 
 std::optional<std::pair<int, int>> GetKernelVersion() {
-  static std::optional<std::pair<int, int>> kernel_version;
-  if (!kernel_version.has_value()) {
-    utsname uname_buf;
-    int major;
-    int minor;
-    if (TEMP_FAILURE_RETRY(uname(&uname_buf)) != 0 ||
-        sscanf(uname_buf.release, "%d.%d", &major, &minor) != 2) {
-      return std::nullopt;
-    }
-    kernel_version = std::make_pair(major, minor);
+  utsname uname_buf;
+  int major;
+  int minor;
+  if (TEMP_FAILURE_RETRY(uname(&uname_buf)) != 0 ||
+      sscanf(uname_buf.release, "%d.%d", &major, &minor) != 2) {
+    return std::nullopt;
   }
-  return kernel_version;
+  return std::make_pair(major, minor);
 }
-
-#if defined(__ANDROID__)
-bool IsInAppUid() {
-  return getuid() % AID_USER_OFFSET >= AID_APP_START;
-}
-#endif
 
 std::optional<uid_t> GetProcessUid(pid_t pid) {
   std::string status_file = "/proc/" + std::to_string(pid) + "/status";

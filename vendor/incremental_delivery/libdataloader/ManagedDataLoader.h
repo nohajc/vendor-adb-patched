@@ -17,50 +17,30 @@
 
 #include <dataloader.h>
 
-__BEGIN_DECLS
-
-// This simulates legacy dataloader (compiled with previous version of libincfs_dataloader).
-// We still need to be able to support them.
-struct LegacyDataLoader {
-    bool (*onStart)(struct LegacyDataLoader* self);
-    void (*onStop)(struct LegacyDataLoader* self);
-    void (*onDestroy)(struct LegacyDataLoader* self);
-
-    bool (*onPrepareImage)(struct LegacyDataLoader* self,
-                           const DataLoaderInstallationFile addedFiles[], int addedFilesCount);
-
-    void (*onPendingReads)(struct LegacyDataLoader* self, const IncFsReadInfo pendingReads[],
-                           int pendingReadsCount);
-    void (*onPageReads)(struct LegacyDataLoader* self, const IncFsReadInfo pageReads[],
-                        int pageReadsCount);
-};
-
-__END_DECLS
-
 namespace android::dataloader {
 
 // Default DataLoader redirects everything back to Java.
-struct ManagedDataLoader : private LegacyDataLoader {
-    static LegacyDataLoader* create(JavaVM* jvm, android::dataloader::FilesystemConnectorPtr ifs,
-                                    android::dataloader::StatusListenerPtr listener,
-                                    android::dataloader::ServiceConnectorPtr service,
-                                    android::dataloader::ServiceParamsPtr params);
+struct ManagedDataLoader : public DataLoader {
+    ManagedDataLoader(JavaVM* jvm);
 
 private:
-    ManagedDataLoader(JavaVM* jvm, jobject dataLoader);
-
     // Lifecycle.
-    void onDestroy();
+    bool onCreate(const android::dataloader::DataLoaderParams&,
+                  android::dataloader::FilesystemConnectorPtr ifs,
+                  android::dataloader::StatusListenerPtr listener,
+                  android::dataloader::ServiceConnectorPtr service,
+                  android::dataloader::ServiceParamsPtr params) final;
+    bool onStart() final { return true; }
+    void onStop() final {}
+    void onDestroy() final;
 
-    // Installation.
-    bool onPrepareImage(DataLoaderInstallationFiles addedFiles);
+    bool onPrepareImage(DataLoaderInstallationFiles addedFiles) final;
+
+    void onPendingReads(PendingReads pendingReads) final {}
+    void onPageReads(PageReads pageReads) final {}
 
     JavaVM* const mJvm;
     jobject mDataLoader = nullptr;
-};
-
-struct ManagedDataLoaderFactory : public ::DataLoaderFactory {
-    ManagedDataLoaderFactory();
 };
 
 } // namespace android::dataloader

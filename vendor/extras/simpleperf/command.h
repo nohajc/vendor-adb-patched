@@ -131,12 +131,6 @@ struct OptionValueMap {
   }
 };
 
-bool ConvertArgsToOptions(const std::vector<std::string>& args,
-                          const OptionFormatMap& option_formats, const std::string& help_msg,
-                          OptionValueMap* options,
-                          std::vector<std::pair<OptionName, OptionValue>>* ordered_options,
-                          std::vector<std::string>* non_option_args);
-
 inline const OptionFormatMap& GetCommonOptionFormatMap() {
   static const OptionFormatMap option_formats = {
       {"-h", {OptionValueType::NONE, OptionType::SINGLE, AppRunnerType::ALLOWED}},
@@ -163,10 +157,7 @@ class Command {
 
   const std::string LongHelpString() const { return long_help_string_; }
 
-  virtual bool Run(const std::vector<std::string>&) { return false; }
-  virtual void Run(const std::vector<std::string>& args, int* exit_code) {
-    *exit_code = Run(args) ? 0 : 1;
-  }
+  virtual bool Run(const std::vector<std::string>& args) = 0;
 
   bool PreprocessOptions(const std::vector<std::string>& args,
                          const OptionFormatMap& option_formats, OptionValueMap* options,

@@ -47,7 +47,7 @@ class Workload {
   bool IsStarted() { return work_state_ == Started; }
   pid_t GetPid() { return work_pid_; }
 
-  bool WaitChildProcess(bool wait_forever, int* exit_code);
+  bool WaitChildProcess(int* exit_code);
 
   // Set the function used to kill the workload process in ~Workload().
   void SetKillFunction(const std::function<void(pid_t)>& kill_function) {

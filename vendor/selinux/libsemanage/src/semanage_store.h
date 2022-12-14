@@ -24,7 +24,6 @@
 #ifndef SEMANAGE_MODULE_STORE_H
 #define SEMANAGE_MODULE_STORE_H
 
-#include <stdbool.h>
 #include <sys/time.h>
 #include <sepol/module.h>
 #include <sepol/cil/cil.h>
@@ -60,7 +59,6 @@ enum semanage_sandbox_defs {
 	SEMANAGE_DISABLE_DONTAUDIT,
 	SEMANAGE_PRESERVE_TUNABLES,
 	SEMANAGE_MODULES_DISABLED,
-	SEMANAGE_MODULES_CHECKSUM,
 	SEMANAGE_STORE_KERNEL,
 	SEMANAGE_STORE_FC_LOCAL,
 	SEMANAGE_STORE_FC_HOMEDIRS,
@@ -164,7 +162,6 @@ int semanage_nc_sort(semanage_handle_t * sh,
 		     size_t buf_len,
 		     char **sorted_buf, size_t * sorted_buf_len);
 
-int semanage_copy_file(const char *src, const char *dst, mode_t mode,
-		bool syncrequired);
+int semanage_copy_file(const char *src, const char *dst, mode_t mode);
 
 #endif

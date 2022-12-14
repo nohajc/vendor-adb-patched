@@ -112,13 +112,6 @@ public:
     // Returns a snapshot of the FenceTime in its current state.
     Snapshot getSnapshot() const;
 
-    // wait waits for up to timeout milliseconds for the fence to signal.  If
-    // the fence signals then NO_ERROR is returned. If the timeout expires
-    // before the fence signals then -ETIME is returned.  A timeout of
-    // TIMEOUT_NEVER may be used to indicate that the call should wait
-    // indefinitely for the fence to signal.
-    status_t wait(int timeout);
-
     void signalForTest(nsecs_t signalTime);
 
 private:

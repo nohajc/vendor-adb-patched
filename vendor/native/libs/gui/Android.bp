@@ -39,107 +39,6 @@ cc_library_headers {
     min_sdk_version: "29",
 }
 
-cc_library_headers {
-    name: "libgui_aidl_headers",
-    vendor_available: true,
-    static_libs: [
-        "libgui_aidl_static",
-    ],
-
-    export_static_lib_headers: [
-        "libgui_aidl_static",
-    ],
-}
-
-// AIDL files that should be exposed to java
-filegroup {
-    name: "guiconstants_aidl",
-    srcs: [
-        "android/**/DropInputMode.aidl",
-        "android/**/TouchOcclusionMode.aidl",
-    ],
-}
-
-cc_library_static {
-    name: "libgui_window_info_static",
-    vendor_available: true,
-    host_supported: true,
-    srcs: [
-        ":guiconstants_aidl",
-        "android/gui/FocusRequest.aidl",
-        "android/gui/InputApplicationInfo.aidl",
-        "android/gui/IWindowInfosListener.aidl",
-        "android/gui/IWindowInfosReportedListener.aidl",
-        "android/gui/WindowInfo.aidl",
-        "WindowInfo.cpp",
-    ],
-
-    shared_libs: [
-        "libbinder",
-    ],
-
-    local_include_dirs: [
-        "include",
-    ],
-
-    export_shared_lib_headers: [
-        "libbinder",
-    ],
-
-    static_libs: [
-        "libui-types",
-    ],
-
-    aidl: {
-        export_aidl_headers: true,
-    },
-
-    include_dirs: [
-        "frameworks/native/include",
-    ],
-
-    target: {
-        darwin: {
-            enabled: false,
-        },
-    },
-}
-
-filegroup {
-    name: "libgui_aidl",
-    srcs: ["aidl/**/*.aidl"],
-    path: "aidl/",
-}
-
-cc_library_static {
-    name: "libgui_aidl_static",
-    vendor_available: true,
-    srcs: [
-        ":libgui_aidl",
-    ],
-
-    shared_libs: [
-        "libbinder",
-        "libui",
-    ],
-
-    local_include_dirs: [
-        "include",
-    ],
-
-    export_shared_lib_headers: [
-        "libbinder",
-    ],
-
-    static_libs: [
-        "libui-types",
-    ],
-
-    aidl: {
-        export_aidl_headers: true,
-    },
-}
-
 cc_library_shared {
     name: "libgui",
     vendor_available: true,
@@ -151,19 +50,8 @@ cc_library_shared {
 
     defaults: ["libgui_bufferqueue-defaults"],
 
-    static_libs: [
-        "libgui_aidl_static",
-        "libgui_window_info_static",
-    ],
-    export_static_lib_headers: [
-        "libgui_aidl_static",
-        "libgui_window_info_static",
-    ],
-
     srcs: [
-        ":framework_native_aidl_binder",
-        ":framework_native_aidl_gui",
-        ":inputconstants_aidl",
+        ":framework_native_aidl",
         ":libgui_bufferqueue_sources",
 
         "BitTube.cpp",
@@ -176,8 +64,8 @@ cc_library_shared {
         "DebugEGLImageTracker.cpp",
         "DisplayEventDispatcher.cpp",
         "DisplayEventReceiver.cpp",
-        "FrameTimelineInfo.cpp",
         "GLConsumer.cpp",
+        "GuiConfig.cpp",
         "IConsumerListener.cpp",
         "IDisplayEventConnection.cpp",
         "IGraphicBufferConsumer.cpp",
@@ -192,14 +80,11 @@ cc_library_shared {
         "LayerState.cpp",
         "OccupancyTracker.cpp",
         "StreamSplitter.cpp",
-        "ScreenCaptureResults.cpp",
         "Surface.cpp",
         "SurfaceControl.cpp",
         "SurfaceComposerClient.cpp",
         "SyncFeatures.cpp",
-        "TransactionTracing.cpp",
         "view/Surface.cpp",
-        "WindowInfosListenerReporter.cpp",
         "bufferqueue/1.0/B2HProducerListener.cpp",
         "bufferqueue/1.0/H2BGraphicBufferProducer.cpp",
         "bufferqueue/2.0/B2HProducerListener.cpp",
@@ -207,9 +92,11 @@ cc_library_shared {
     ],
 
     shared_libs: [
+        "android.frameworks.bufferhub@1.0",
         "libbinder",
         "libbufferhub",
         "libbufferhubqueue", // TODO(b/70046255): Remove this once BufferHub is integrated into libgui.
+        "libinput",
         "libpdx_default_transport",
     ],
 
@@ -217,39 +104,40 @@ cc_library_shared {
         "libbinder",
     ],
 
-    export_header_lib_headers: [
-        "libgui_aidl_headers",
-    ],
-
     // bufferhub is not used when building libgui for vendors
     target: {
         vendor: {
             cflags: [
                 "-DNO_BUFFERHUB",
+                "-DNO_INPUT",
             ],
             exclude_srcs: [
                 "BufferHubConsumer.cpp",
                 "BufferHubProducer.cpp",
             ],
             exclude_shared_libs: [
+                "android.frameworks.bufferhub@1.0",
                 "libbufferhub",
                 "libbufferhubqueue",
+                "libinput",
                 "libpdx_default_transport",
             ],
         },
     },
 
+    header_libs: [
+        "libdvr_headers",
+        "libpdx_headers",
+    ],
+
     aidl: {
         export_aidl_headers: true,
     },
 
-    header_libs: [
-        "libdvr_headers",
-        "libgui_aidl_headers",
-        "libpdx_headers",
-    ],
-
-    afdo: true,
+    pgo: {
+        sampling: true,
+        profile_file: "libgui/libgui.profdata",
+    },
 
     lto: {
         thin: true,
@@ -275,16 +163,13 @@ cc_library_static {
     defaults: ["libgui_bufferqueue-defaults"],
 
     srcs: [
-        ":inputconstants_aidl",
         ":libgui_bufferqueue_sources",
-        ":libgui_aidl",
     ],
 }
 
 filegroup {
     name: "libgui_bufferqueue_sources",
     srcs: [
-        "BatchBufferOps.cpp",
         "BufferItem.cpp",
         "BufferQueue.cpp",
         "BufferQueueConsumer.cpp",
@@ -295,7 +180,7 @@ filegroup {
         "FrameTimestamps.cpp",
         "GLConsumerUtils.cpp",
         "HdrMetadata.cpp",
-        "IGraphicBufferProducerFlattenables.cpp",
+        "QueueBufferInputOutput.cpp",
         "bufferqueue/1.0/Conversion.cpp",
         "bufferqueue/1.0/H2BProducerListener.cpp",
         "bufferqueue/1.0/WProducerListener.cpp",
@@ -309,6 +194,7 @@ filegroup {
 cc_defaults {
     name: "libgui_bufferqueue-defaults",
 
+    clang: true,
     cflags: [
         "-Wall",
         "-Werror",
@@ -358,10 +244,6 @@ cc_defaults {
     header_libs: [
         "libgui_headers",
         "libnativebase_headers",
-    ],
-
-    include_dirs: [
-        "frameworks/native/include",
     ],
 
     export_shared_lib_headers: [

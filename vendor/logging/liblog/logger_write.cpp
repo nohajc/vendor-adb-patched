@@ -60,7 +60,7 @@ using android::base::ErrnoRestorer;
 static int check_log_uid_permissions() {
   uid_t uid = getuid();
 
-  /* Matches clientCanWriteSecurityLog() in logd */
+  /* Matches clientHasLogCredentials() in logd */
   if ((uid != AID_SYSTEM) && (uid != AID_ROOT) && (uid != AID_LOG)) {
     uid = geteuid();
     if ((uid != AID_SYSTEM) && (uid != AID_ROOT) && (uid != AID_LOG)) {
@@ -81,8 +81,7 @@ static int check_log_uid_permissions() {
           }
           num_groups = getgroups(num_groups, groups);
           while (num_groups > 0) {
-            if (groups[num_groups - 1] == AID_LOG ||
-                groups[num_groups - 1] == AID_SECURITY_LOG_WRITER) {
+            if (groups[num_groups - 1] == AID_LOG) {
               break;
             }
             --num_groups;

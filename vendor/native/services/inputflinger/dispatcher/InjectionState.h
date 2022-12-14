@@ -17,19 +17,34 @@
 #ifndef _UI_INPUT_INPUTDISPATCHER_INJECTIONSTATE_H
 #define _UI_INPUT_INPUTDISPATCHER_INJECTIONSTATE_H
 
-#include <stdint.h>
 #include "InputDispatcherInterface.h"
 
-namespace android {
+#include <stdint.h>
 
-namespace inputdispatcher {
+namespace android::inputdispatcher {
+
+/*
+ * Constants used to determine the input event injection synchronization mode.
+ */
+enum {
+    /* Injection is asynchronous and is assumed always to be successful. */
+    INPUT_EVENT_INJECTION_SYNC_NONE = 0,
+
+    /* Waits for previous events to be dispatched so that the input dispatcher can determine
+     * whether input event injection willbe permitted based on the current input focus.
+     * Does not wait for the input event to finish processing. */
+    INPUT_EVENT_INJECTION_SYNC_WAIT_FOR_RESULT = 1,
+
+    /* Waits for the input event to be completely processed. */
+    INPUT_EVENT_INJECTION_SYNC_WAIT_FOR_FINISHED = 2,
+};
 
 struct InjectionState {
     mutable int32_t refCount;
 
     int32_t injectorPid;
     int32_t injectorUid;
-    android::os::InputEventInjectionResult injectionResult; // initially PENDING
+    int32_t injectionResult;             // initially INPUT_EVENT_INJECTION_PENDING
     bool injectionIsAsync;               // set to true if injection is not waiting for the result
     int32_t pendingForegroundDispatches; // the number of foreground dispatches in progress
 
@@ -40,7 +55,6 @@ private:
     ~InjectionState();
 };
 
-} // namespace inputdispatcher
-} // namespace android
+} // namespace android::inputdispatcher
 
 #endif // _UI_INPUT_INPUTDISPATCHER_INJECTIONSTATE_H

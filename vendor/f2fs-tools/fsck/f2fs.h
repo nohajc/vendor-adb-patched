@@ -15,13 +15,10 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
-#include <f2fs_fs.h>
-
 #ifdef HAVE_MNTENT_H
 #include <mntent.h>
 #endif
@@ -29,19 +26,18 @@
 #include <mach/mach_time.h>
 #endif
 #include <sys/stat.h>
-#ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
-#endif
-#ifdef HAVE_SYS_MOUNT_H
 #include <sys/mount.h>
-#endif
 #include <assert.h>
+
+#include "f2fs_fs.h"
 
 #define EXIT_ERR_CODE		(-1)
 #define ver_after(a, b) (typecheck(unsigned long long, a) &&            \
 		typecheck(unsigned long long, b) &&                     \
 		((long long)((a) - (b)) > 0))
 
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #define container_of(ptr, type, member) ({			\
 	const typeof(((type *)0)->member) * __mptr = (ptr);	\
 	(type *)((char *)__mptr - offsetof(type, member)); })
@@ -385,7 +381,7 @@ static inline void *__bitmap_ptr(struct f2fs_sb_info *sbi, int flag)
 					CP_MIN_CHKSUM_OFFSET)
 			chksum_size = sizeof(__le32);
 
-		return &ckpt->sit_nat_version_bitmap[offset + chksum_size];
+		return &ckpt->sit_nat_version_bitmap + offset + chksum_size;
 	}
 
 	if (le32_to_cpu(F2FS_RAW_SUPER(sbi)->cp_payload) > 0) {
@@ -396,7 +392,7 @@ static inline void *__bitmap_ptr(struct f2fs_sb_info *sbi, int flag)
 	} else {
 		offset = (flag == NAT_BITMAP) ?
 			le32_to_cpu(ckpt->sit_ver_bitmap_bytesize) : 0;
-		return &ckpt->sit_nat_version_bitmap[offset];
+		return &ckpt->sit_nat_version_bitmap + offset;
 	}
 }
 
@@ -593,12 +589,8 @@ static unsigned char f2fs_type_by_mode[S_IFMT >> S_SHIFT] = {
 	[S_IFCHR >> S_SHIFT]    = F2FS_FT_CHRDEV,
 	[S_IFBLK >> S_SHIFT]    = F2FS_FT_BLKDEV,
 	[S_IFIFO >> S_SHIFT]    = F2FS_FT_FIFO,
-#ifdef S_IFSOCK
 	[S_IFSOCK >> S_SHIFT]   = F2FS_FT_SOCK,
-#endif
-#ifdef S_IFLNK
 	[S_IFLNK >> S_SHIFT]    = F2FS_FT_SYMLINK,
-#endif
 };
 
 static inline int map_de_type(umode_t mode)

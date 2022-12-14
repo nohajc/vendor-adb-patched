@@ -18,8 +18,8 @@
 
 #include <sync/sync.h>
 #include <system/window.h>
+#include <ui/GraphicBuffer.h>
 
-#include <gui/TraceUtils.h>
 #include "DeferredLayerUpdater.h"
 #include "Properties.h"
 #include "hwui/Bitmap.h"
@@ -28,12 +28,19 @@
 #include "renderthread/VulkanManager.h"
 #include "utils/Color.h"
 #include "utils/MathUtils.h"
-#include "utils/NdkUtils.h"
+#include "utils/TraceUtils.h"
 
 using namespace android::uirenderer::renderthread;
 
 namespace android {
 namespace uirenderer {
+
+// Deleter for an AHardwareBuffer, to be passed to an std::unique_ptr.
+struct AHardwareBuffer_deleter {
+    void operator()(AHardwareBuffer* ahb) const { AHardwareBuffer_release(ahb); }
+};
+
+using UniqueAHardwareBuffer = std::unique_ptr<AHardwareBuffer, AHardwareBuffer_deleter>;
 
 #define ARECT_ARGS(r) float((r).left), float((r).top), float((r).right), float((r).bottom)
 
@@ -86,40 +93,15 @@ CopyResult Readback::copySurfaceInto(ANativeWindow* window, const Rect& inSrcRec
         return CopyResult::UnknownError;
     }
 
-    sk_sp<GrDirectContext> grContext = mRenderThread.requireGrContext();
+    sk_sp<GrContext> grContext = mRenderThread.requireGrContext();
 
     SkRect srcRect = inSrcRect.toSkRect();
 
-    SkRect imageSrcRect = SkRect::MakeIWH(description.width, description.height);
-    SkISize imageWH = SkISize::Make(description.width, description.height);
-    if (cropRect.left < cropRect.right && cropRect.top < cropRect.bottom) {
-        imageSrcRect =
-                SkRect::MakeLTRB(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom);
-        imageWH = SkISize::Make(cropRect.right - cropRect.left, cropRect.bottom - cropRect.top);
-
-        // Chroma channels of YUV420 images are subsampled we may need to shrink the crop region by
-        // a whole texel on each side. Since skia still adds its own 0.5 inset, we apply an
-        // additional 0.5 inset. See GLConsumer::computeTransformMatrix for details.
-        float shrinkAmount = 0.0f;
-        switch (description.format) {
-            // Use HAL formats since some AHB formats are only available in vndk
-            case HAL_PIXEL_FORMAT_YCBCR_420_888:
-            case HAL_PIXEL_FORMAT_YV12:
-            case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED:
-                shrinkAmount = 0.5f;
-                break;
-            default:
-                break;
-        }
-
-        // Shrink the crop if it has more than 1-px and differs from the buffer size.
-        if (imageWH.width() > 1 && imageWH.width() < (int32_t)description.width)
-            imageSrcRect = imageSrcRect.makeInset(shrinkAmount, 0);
-
-        if (imageWH.height() > 1 && imageWH.height() < (int32_t)description.height)
-            imageSrcRect = imageSrcRect.makeInset(0, shrinkAmount);
+    SkRect imageSrcRect =
+            SkRect::MakeLTRB(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom);
+    if (imageSrcRect.isEmpty()) {
+        imageSrcRect = SkRect::MakeIWH(description.width, description.height);
     }
-
     ALOGV("imageSrcRect = " RECT_STRING, SK_RECT_ARGS(imageSrcRect));
 
     // Represents the "logical" width/height of the texture. That is, the dimensions of the buffer
@@ -178,7 +160,7 @@ CopyResult Readback::copySurfaceInto(ANativeWindow* window, const Rect& inSrcRec
      */
 
     SkMatrix m;
-    const SkRect imageDstRect = SkRect::Make(imageWH);
+    const SkRect imageDstRect = SkRect::MakeIWH(imageSrcRect.width(), imageSrcRect.height());
     const float px = imageDstRect.centerX();
     const float py = imageDstRect.centerY();
     if (windowTransform & NATIVE_WINDOW_TRANSFORM_FLIP_H) {
@@ -192,15 +174,11 @@ CopyResult Readback::copySurfaceInto(ANativeWindow* window, const Rect& inSrcRec
         m.postTranslate(imageDstRect.height(), 0);
     }
 
-    SkSamplingOptions sampling(SkFilterMode::kNearest);
     ALOGV("Mapping from " RECT_STRING " to " RECT_STRING, SK_RECT_ARGS(srcRect),
           SK_RECT_ARGS(SkRect::MakeWH(bitmap->width(), bitmap->height())));
     m.postConcat(SkMatrix::MakeRectToRect(srcRect,
                                           SkRect::MakeWH(bitmap->width(), bitmap->height()),
                                           SkMatrix::kFill_ScaleToFit));
-    if (srcRect.width() != bitmap->width() || srcRect.height() != bitmap->height()) {
-        sampling = SkSamplingOptions(SkFilterMode::kLinear);
-    }
 
     SkCanvas* canvas = tmpSurface->getCanvas();
     canvas->save();
@@ -208,10 +186,13 @@ CopyResult Readback::copySurfaceInto(ANativeWindow* window, const Rect& inSrcRec
     SkPaint paint;
     paint.setAlpha(255);
     paint.setBlendMode(SkBlendMode::kSrc);
+    if (srcRect.width() != bitmap->width() || srcRect.height() != bitmap->height()) {
+        paint.setFilterQuality(kLow_SkFilterQuality);
+    }
     const bool hasBufferCrop = cropRect.left < cropRect.right && cropRect.top < cropRect.bottom;
     auto constraint =
             hasBufferCrop ? SkCanvas::kStrict_SrcRectConstraint : SkCanvas::kFast_SrcRectConstraint;
-    canvas->drawImageRect(image, imageSrcRect, imageDstRect, sampling, &paint, constraint);
+    canvas->drawImageRect(image, imageSrcRect, imageDstRect, &paint, constraint);
     canvas->restore();
 
     if (!tmpSurface->readPixels(*bitmap, 0, 0)) {
@@ -251,7 +232,8 @@ CopyResult Readback::copySurfaceIntoLegacy(ANativeWindow* window, const Rect& sr
         return CopyResult::SourceEmpty;
     }
 
-    UniqueAHardwareBuffer sourceBuffer{rawSourceBuffer};
+    std::unique_ptr<AHardwareBuffer, decltype(&AHardwareBuffer_release)> sourceBuffer(
+            rawSourceBuffer, AHardwareBuffer_release);
     AHardwareBuffer_Desc description;
     AHardwareBuffer_describe(sourceBuffer.get(), &description);
     if (description.usage & AHARDWAREBUFFER_USAGE_PROTECTED_CONTENT) {
@@ -302,14 +284,6 @@ CopyResult Readback::copyLayerInto(DeferredLayerUpdater* deferredLayer, SkBitmap
     return copyResult;
 }
 
-CopyResult Readback::copyImageInto(const sk_sp<SkImage>& image, SkBitmap* bitmap) {
-    Rect srcRect;
-    Matrix4 transform;
-    transform.loadScale(1, -1, 1);
-    transform.translate(0, -1);
-    return copyImageInto(image, transform, srcRect, bitmap);
-}
-
 CopyResult Readback::copyImageInto(const sk_sp<SkImage>& image, Matrix4& texTransform,
                                    const Rect& srcRect, SkBitmap* bitmap) {
     ATRACE_CALL();
@@ -323,7 +297,13 @@ CopyResult Readback::copyImageInto(const sk_sp<SkImage>& image, Matrix4& texTran
     }
     int imgWidth = image->width();
     int imgHeight = image->height();
-    sk_sp<GrDirectContext> grContext = sk_ref_sp(mRenderThread.getGrContext());
+    sk_sp<GrContext> grContext = sk_ref_sp(mRenderThread.getGrContext());
+
+    if (bitmap->colorType() == kRGBA_F16_SkColorType &&
+        !grContext->colorTypeSupportedAsSurface(bitmap->colorType())) {
+        ALOGW("Can't copy surface into bitmap, RGBA_F16 config is not supported");
+        return CopyResult::DestinationInvalid;
+    }
 
     CopyResult copyResult = CopyResult::UnknownError;
 
@@ -358,10 +338,12 @@ CopyResult Readback::copyImageInto(const sk_sp<SkImage>& image, Matrix4& texTran
 
 bool Readback::copyLayerInto(Layer* layer, const SkRect* srcRect, const SkRect* dstRect,
                              SkBitmap* bitmap) {
-    /* This intermediate surface is present to work around limitations that LayerDrawable expects
-     * to render into a GPU backed canvas.  Additionally, the offscreen buffer solution works around
-     * a scaling issue (b/62262733) that was encountered when sampling from an EGLImage into a
-     * software buffer.
+    /* This intermediate surface is present to work around a bug in SwiftShader that
+     * prevents us from reading the contents of the layer's texture directly. The
+     * workaround involves first rendering that texture into an intermediate buffer and
+     * then reading from the intermediate buffer into the bitmap.
+     * Another reason to render in an offscreen buffer is to scale and to avoid an issue b/62262733
+     * with reading incorrect data from EGLImage backed SkImage (likely a driver bug).
      */
     sk_sp<SkSurface> tmpSurface = SkSurface::MakeRenderTarget(mRenderThread.getGrContext(),
                                                               SkBudgeted::kYes, bitmap->info(), 0,

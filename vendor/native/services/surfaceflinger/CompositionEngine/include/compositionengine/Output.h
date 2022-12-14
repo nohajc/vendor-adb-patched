@@ -31,7 +31,6 @@
 #include <ui/Region.h>
 #include <ui/Transform.h>
 #include <utils/StrongPointer.h>
-#include <utils/Vector.h>
 
 #include "DisplayHardware/DisplayIdentification.h"
 
@@ -163,22 +162,12 @@ public:
     // Enables (or disables) composition on this output
     virtual void setCompositionEnabled(bool) = 0;
 
-    // Enables (or disables) layer caching on this output
-    virtual void setLayerCachingEnabled(bool) = 0;
-
-    // Enables (or disables) layer caching texture pool on this output
-    virtual void setLayerCachingTexturePoolEnabled(bool) = 0;
-
     // Sets the projection state to use
-    virtual void setProjection(ui::Rotation orientation, const Rect& layerStackSpaceRect,
-                               const Rect& orientedDisplaySpaceRect) = 0;
+    virtual void setProjection(const ui::Transform&, uint32_t orientation, const Rect& frame,
+                               const Rect& viewport, const Rect& sourceClip,
+                               const Rect& destinationClip, bool needsFiltering) = 0;
     // Sets the bounds to use
-    virtual void setDisplaySize(const ui::Size&) = 0;
-    // Gets the transform hint used in layers that belong to this output. Used to guide
-    // composition orientation so that HW overlay can be used when display isn't in its natural
-    // orientation on some devices. Therefore usually we only use transform hint from display
-    // output.
-    virtual ui::Transform::RotationFlags getTransformHint() const = 0;
+    virtual void setBounds(const ui::Size&) = 0;
 
     // Sets the layer stack filtering settings for this output. See
     // belongsInOutput for full details.
@@ -187,14 +176,8 @@ public:
     // Sets the output color mode
     virtual void setColorProfile(const ColorProfile&) = 0;
 
-    // Sets current calibrated display brightness information
-    virtual void setDisplayBrightness(float sdrWhitePointNits, float displayBrightnessNits) = 0;
-
     // Outputs a string with a state dump
     virtual void dump(std::string&) const = 0;
-
-    // Outputs planner information
-    virtual void dumpPlannerInfo(const Vector<String16>& args, std::string&) const = 0;
 
     // Gets the debug name for the output
     virtual const std::string& getName() const = 0;
@@ -277,9 +260,7 @@ protected:
     virtual void ensureOutputLayerIfVisible(sp<LayerFE>&, CoverageState&) = 0;
     virtual void setReleasedLayers(const CompositionRefreshArgs&) = 0;
 
-    virtual void updateCompositionState(const CompositionRefreshArgs&) = 0;
-    virtual void planComposition() = 0;
-    virtual void writeCompositionState(const CompositionRefreshArgs&) = 0;
+    virtual void updateAndWriteCompositionState(const CompositionRefreshArgs&) = 0;
     virtual void setColorTransform(const CompositionRefreshArgs&) = 0;
     virtual void updateColorProfile(const CompositionRefreshArgs&) = 0;
     virtual void beginFrame() = 0;
@@ -289,7 +270,6 @@ protected:
     virtual std::optional<base::unique_fd> composeSurfaces(
             const Region&, const compositionengine::CompositionRefreshArgs& refreshArgs) = 0;
     virtual void postFramebuffer() = 0;
-    virtual void renderCachedSets(const CompositionRefreshArgs&) = 0;
     virtual void chooseCompositionStrategy() = 0;
     virtual bool getSkipColorTransform() const = 0;
     virtual FrameFences presentAndGetFrameFences() = 0;

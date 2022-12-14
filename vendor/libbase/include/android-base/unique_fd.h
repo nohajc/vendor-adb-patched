@@ -32,7 +32,7 @@
 #if defined(__BIONIC__)
 #include <android/fdsan.h>
 #endif
-#if !defined(_WIN32) && !defined(__TRUSTY__)
+#if !defined(_WIN32)
 #include <sys/socket.h>
 #endif
 
@@ -183,7 +183,7 @@ struct DefaultCloser {
 
 using unique_fd = unique_fd_impl<DefaultCloser>;
 
-#if !defined(_WIN32) && !defined(__TRUSTY__)
+#if !defined(_WIN32)
 
 // Inline functions, so that they can be used header-only.
 
@@ -273,7 +273,7 @@ inline DIR* Fdopendir(unique_fd&& ufd) {
   return dir;
 }
 
-#endif  // !defined(_WIN32) && !defined(__TRUSTY__)
+#endif  // !defined(_WIN32)
 
 // A wrapper type that can be implicitly constructed from either int or
 // unique_fd. This supports cases where you don't actually own the file

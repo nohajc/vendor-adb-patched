@@ -23,8 +23,6 @@ package {
 
 cc_library {
     name: "libvibrator",
-    vendor_available: true,
-    double_loadable: true,
 
     shared_libs: [
         "libbinder",

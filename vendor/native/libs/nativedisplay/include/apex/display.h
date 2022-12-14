@@ -99,11 +99,6 @@ void ADisplay_getPreferredWideColorFormat(ADisplay* display, ADataSpace* outData
  * such an update is observed, then this method should be recalled to get the
  * new current configuration.
  *
- * After a subsequent hotplug "connected" event the supported display configs
- * may change. Then the preloaded display configs will be stale and the
- * call for current config may return NAME_NOT_FOUND. In this case the client
- * should release and re-acquire the display handle.
- *
  * Returns OK on success, -errno on failure.
  */
 int ADisplay_getCurrentConfig(ADisplay* display, ADisplayConfig** outConfig);

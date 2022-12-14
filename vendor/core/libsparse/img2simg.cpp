@@ -38,41 +38,24 @@
 #endif
 
 void usage() {
-  fprintf(stderr, "Usage: img2simg [-s] <raw_image_file> <sparse_image_file> [<block_size>]\n");
+  fprintf(stderr, "Usage: img2simg <raw_image_file> <sparse_image_file> [<block_size>]\n");
 }
 
 int main(int argc, char* argv[]) {
-  char *arg_in;
-  char *arg_out;
-  enum sparse_read_mode mode = SPARSE_READ_MODE_NORMAL;
-  int extra;
   int in;
-  int opt;
   int out;
   int ret;
   struct sparse_file* s;
   unsigned int block_size = 4096;
   off64_t len;
 
-  while ((opt = getopt(argc, argv, "s")) != -1) {
-    switch (opt) {
-      case 's':
-        mode = SPARSE_READ_MODE_HOLE;
-        break;
-      default:
-        usage();
-        exit(-1);
-    }
-  }
-
-  extra = argc - optind;
-  if (extra < 2 || extra > 3) {
+  if (argc < 3 || argc > 4) {
     usage();
     exit(-1);
   }
 
-  if (extra == 3) {
-    block_size = atoi(argv[optind + 2]);
+  if (argc == 4) {
+    block_size = atoi(argv[3]);
   }
 
   if (block_size < 1024 || block_size % 4 != 0) {
@@ -80,24 +63,22 @@ int main(int argc, char* argv[]) {
     exit(-1);
   }
 
-  arg_in = argv[optind];
-  if (strcmp(arg_in, "-") == 0) {
+  if (strcmp(argv[1], "-") == 0) {
     in = STDIN_FILENO;
   } else {
-    in = open(arg_in, O_RDONLY | O_BINARY);
+    in = open(argv[1], O_RDONLY | O_BINARY);
     if (in < 0) {
-      fprintf(stderr, "Cannot open input file %s\n", arg_in);
+      fprintf(stderr, "Cannot open input file %s\n", argv[1]);
       exit(-1);
     }
   }
 
-  arg_out = argv[optind + 1];
-  if (strcmp(arg_out, "-") == 0) {
+  if (strcmp(argv[2], "-") == 0) {
     out = STDOUT_FILENO;
   } else {
-    out = open(arg_out, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0664);
+    out = open(argv[2], O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0664);
     if (out < 0) {
-      fprintf(stderr, "Cannot open output file %s\n", arg_out);
+      fprintf(stderr, "Cannot open output file %s\n", argv[2]);
       exit(-1);
     }
   }
@@ -112,7 +93,7 @@ int main(int argc, char* argv[]) {
   }
 
   sparse_file_verbose(s);
-  ret = sparse_file_read(s, in, mode, false);
+  ret = sparse_file_read(s, in, false, false);
   if (ret) {
     fprintf(stderr, "Failed to read file\n");
     exit(-1);

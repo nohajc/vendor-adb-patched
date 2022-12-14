@@ -24,7 +24,6 @@
 
 namespace android {
 
-using os::ConnectionInfo;
 using os::IClientCallback;
 using os::IServiceCallback;
 using os::ServiceDebugInfo;
@@ -49,8 +48,6 @@ public:
     binder::Status getDeclaredInstances(const std::string& interface, std::vector<std::string>* outReturn) override;
     binder::Status updatableViaApex(const std::string& name,
                                     std::optional<std::string>* outReturn) override;
-    binder::Status getConnectionInfo(const std::string& name,
-                                     std::optional<ConnectionInfo>* outReturn) override;
     binder::Status registerClientCallback(const std::string& name, const sp<IBinder>& service,
                                           const sp<IClientCallback>& cb) override;
     binder::Status tryUnregisterService(const std::string& name, const sp<IBinder>& binder) override;

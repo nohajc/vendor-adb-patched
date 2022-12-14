@@ -71,7 +71,6 @@ cc_library {
     name: "libadb_pairing_auth",
     defaults: ["libadb_pairing_auth_defaults"],
 
-    min_sdk_version: "30",
     apex_available: [
         "com.android.adbd",
     ],

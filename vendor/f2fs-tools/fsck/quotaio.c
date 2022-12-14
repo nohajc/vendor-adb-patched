@@ -6,6 +6,7 @@
  * Hyojun Kim <hyojun@google.com> - Ported to f2fs-tools
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
@@ -30,9 +31,7 @@ static const char * const extensions[MAXQUOTAS] = {
 struct disk_dqheader {
 	__le32 dqh_magic;
 	__le32 dqh_version;
-};
-
-static_assert(sizeof(struct disk_dqheader) == 8, "");
+} __attribute__ ((packed));
 
 int cur_qtype = -1;
 u32 qf_last_blkofs[MAXQUOTAS] = {0, 0, 0};

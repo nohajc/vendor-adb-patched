@@ -158,7 +158,10 @@ bool VkJsonInstanceFromJson(const std::string& json,
                             VkJsonInstance* instance,
                             std::string* errors);
 
-VkJsonDevice VkJsonGetDevice(VkPhysicalDevice device);
+VkJsonDevice VkJsonGetDevice(VkInstance instance,
+                             VkPhysicalDevice device,
+                             uint32_t instanceExtensionCount,
+                             const char* const* instanceExtensions);
 std::string VkJsonDeviceToJson(const VkJsonDevice& device);
 bool VkJsonDeviceFromJson(const std::string& json,
                           VkJsonDevice* device,
@@ -174,7 +177,7 @@ bool VkJsonImageFormatPropertiesFromJson(const std::string& json,
 typedef VkJsonDevice VkJsonAllProperties;
 inline VkJsonAllProperties VkJsonGetAllProperties(
     VkPhysicalDevice physicalDevice) {
-  return VkJsonGetDevice(physicalDevice);
+  return VkJsonGetDevice(VK_NULL_HANDLE, physicalDevice, 0, nullptr);
 }
 inline std::string VkJsonAllPropertiesToJson(
     const VkJsonAllProperties& properties) {

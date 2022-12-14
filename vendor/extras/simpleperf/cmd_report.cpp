@@ -30,7 +30,6 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 
-#include "RecordFilter.h"
 #include "command.h"
 #include "event_attr.h"
 #include "event_type.h"
@@ -78,15 +77,10 @@ struct SampleEntry {
   BranchFromEntry branch_from;
   // a callchain tree representing all callchains in the sample
   CallChainRoot<SampleEntry> callchain;
-  // event counts for the sample
-  std::vector<uint64_t> counts;
-  // accumulated event counts for the sample
-  std::vector<uint64_t> acc_counts;
 
   SampleEntry(uint64_t time, uint64_t period, uint64_t accumulated_period, uint64_t sample_count,
               int cpu, const ThreadEntry* thread, const MapEntry* map, const Symbol* symbol,
-              uint64_t vaddr_in_file, const std::vector<uint64_t>& counts,
-              const std::vector<uint64_t>& acc_counts)
+              uint64_t vaddr_in_file)
       : time(time),
         period(period),
         accumulated_period(accumulated_period),
@@ -97,9 +91,7 @@ struct SampleEntry {
         thread_comm(thread->comm),
         map(map),
         symbol(symbol),
-        vaddr_in_file(vaddr_in_file),
-        counts(counts),
-        acc_counts(acc_counts) {}
+        vaddr_in_file(vaddr_in_file) {}
 
   // The data member 'callchain' can only move, not copy.
   SampleEntry(SampleEntry&&) = default;
@@ -123,28 +115,25 @@ static std::string DisplayEventName(const SampleEntry*, const SampleTree* info) 
   return info->event_name;
 }
 
-struct AccInfo {
-  uint64_t period = 0;
-  std::vector<uint64_t> counts;
-};
-
-class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo> {
+class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, uint64_t> {
  public:
   ReportCmdSampleTreeBuilder(const SampleComparator<SampleEntry>& sample_comparator,
-                             ThreadTree* thread_tree,
-                             const std::unordered_map<uint64_t, size_t>& event_id_to_attr_index)
+                             ThreadTree* thread_tree)
       : SampleTreeBuilder(sample_comparator),
         thread_tree_(thread_tree),
-        event_id_to_attr_index_(event_id_to_attr_index),
         total_samples_(0),
         total_period_(0),
         total_error_callchains_(0) {}
 
   void SetFilters(const std::unordered_set<int>& cpu_filter,
+                  const std::unordered_set<int>& pid_filter,
+                  const std::unordered_set<int>& tid_filter,
                   const std::unordered_set<std::string>& comm_filter,
                   const std::unordered_set<std::string>& dso_filter,
                   const std::unordered_set<std::string>& symbol_filter) {
     cpu_filter_ = cpu_filter;
+    pid_filter_ = pid_filter;
+    tid_filter_ = tid_filter;
     comm_filter_ = comm_filter;
     dso_filter_ = dso_filter;
     symbol_filter_ = symbol_filter;
@@ -174,19 +163,15 @@ class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo
  protected:
   virtual uint64_t GetPeriod(const SampleRecord& r) = 0;
 
-  SampleEntry* CreateSample(const SampleRecord& r, bool in_kernel, AccInfo* acc_info) override {
+  SampleEntry* CreateSample(const SampleRecord& r, bool in_kernel, uint64_t* acc_info) override {
     const ThreadEntry* thread = thread_tree_->FindThreadOrNew(r.tid_data.pid, r.tid_data.tid);
     const MapEntry* map = thread_tree_->FindMap(thread, r.ip_data.ip, in_kernel);
     uint64_t vaddr_in_file;
     const Symbol* symbol = thread_tree_->FindSymbol(map, r.ip_data.ip, &vaddr_in_file);
     uint64_t period = GetPeriod(r);
-    acc_info->period = period;
-    std::vector<uint64_t> counts = GetCountsForSample(r);
-    acc_info->counts = counts;
-    std::unique_ptr<SampleEntry> sample(new SampleEntry(r.time_data.time, period, 0, 1, r.Cpu(),
-                                                        thread, map, symbol, vaddr_in_file, counts,
-                                                        counts));
-    return InsertSample(std::move(sample));
+    *acc_info = period;
+    return InsertSample(std::make_unique<SampleEntry>(r.time_data.time, period, 0, 1, r.Cpu(),
+                                                      thread, map, symbol, vaddr_in_file));
   }
 
   SampleEntry* CreateBranchSample(const SampleRecord& r, const BranchStackItemType& item) override {
@@ -197,9 +182,9 @@ class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo
     const MapEntry* to_map = thread_tree_->FindMap(thread, item.to);
     uint64_t to_vaddr_in_file;
     const Symbol* to_symbol = thread_tree_->FindSymbol(to_map, item.to, &to_vaddr_in_file);
-    std::unique_ptr<SampleEntry> sample(new SampleEntry(r.time_data.time, r.period_data.period, 0,
-                                                        1, r.Cpu(), thread, to_map, to_symbol,
-                                                        to_vaddr_in_file, {}, {}));
+    auto sample =
+        std::make_unique<SampleEntry>(r.time_data.time, r.period_data.period, 0, 1, r.Cpu(), thread,
+                                      to_map, to_symbol, to_vaddr_in_file);
     sample->branch_from.map = from_map;
     sample->branch_from.symbol = from_symbol;
     sample->branch_from.vaddr_in_file = from_vaddr_in_file;
@@ -210,7 +195,7 @@ class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo
   SampleEntry* CreateCallChainSample(const ThreadEntry* thread, const SampleEntry* sample,
                                      uint64_t ip, bool in_kernel,
                                      const std::vector<SampleEntry*>& callchain,
-                                     const AccInfo& acc_info) override {
+                                     const uint64_t& acc_info) override {
     const MapEntry* map = thread_tree_->FindMap(thread, ip, in_kernel);
     if (thread_tree_->IsUnknownDso(map->dso)) {
       // The unwinders can give wrong ip addresses, which can't map to a valid dso. Skip them.
@@ -219,9 +204,8 @@ class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo
     }
     uint64_t vaddr_in_file;
     const Symbol* symbol = thread_tree_->FindSymbol(map, ip, &vaddr_in_file);
-    std::unique_ptr<SampleEntry> callchain_sample(
-        new SampleEntry(sample->time, 0, acc_info.period, 0, sample->cpu, thread, map, symbol,
-                        vaddr_in_file, {}, acc_info.counts));
+    auto callchain_sample = std::make_unique<SampleEntry>(sample->time, 0, acc_info, 0, sample->cpu,
+                                                          thread, map, symbol, vaddr_in_file);
     callchain_sample->thread_comm = sample->thread_comm;
     return InsertCallChainSample(std::move(callchain_sample), callchain);
   }
@@ -230,10 +214,16 @@ class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo
     return thread_tree_->FindThreadOrNew(sample->pid, sample->tid);
   }
 
-  uint64_t GetPeriodForCallChain(const AccInfo& acc_info) override { return acc_info.period; }
+  uint64_t GetPeriodForCallChain(const uint64_t& acc_info) override { return acc_info; }
 
   bool FilterSample(const SampleEntry* sample) override {
     if (!cpu_filter_.empty() && cpu_filter_.count(sample->cpu) == 0) {
+      return false;
+    }
+    if (!pid_filter_.empty() && pid_filter_.count(sample->pid) == 0) {
+      return false;
+    }
+    if (!tid_filter_.empty() && tid_filter_.count(sample->tid) == 0) {
       return false;
     }
     if (!comm_filter_.empty() && comm_filter_.count(sample->thread_comm) == 0) {
@@ -257,43 +247,14 @@ class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo
     sample1->period += sample2->period;
     sample1->accumulated_period += sample2->accumulated_period;
     sample1->sample_count += sample2->sample_count;
-    if (sample1->counts.size() < sample2->counts.size()) {
-      sample1->counts.resize(sample2->counts.size(), 0);
-    }
-    for (size_t i = 0; i < sample2->counts.size(); i++) {
-      sample1->counts[i] += sample2->counts[i];
-    }
-    if (sample1->acc_counts.size() < sample2->acc_counts.size()) {
-      sample1->acc_counts.resize(sample2->acc_counts.size(), 0);
-    }
-    for (size_t i = 0; i < sample2->acc_counts.size(); i++) {
-      sample1->acc_counts[i] += sample2->acc_counts[i];
-    }
   }
 
  private:
-  std::vector<uint64_t> GetCountsForSample(const SampleRecord& r) {
-    CHECK_EQ(r.read_data.counts.size(), r.read_data.ids.size());
-    std::vector<uint64_t> res(r.read_data.counts.size(), 0);
-    for (size_t i = 0; i < r.read_data.counts.size(); i++) {
-      uint64_t event_id = r.read_data.ids[i];
-      uint64_t count = r.read_data.counts[i];
-      uint64_t& last_count = event_id_count_map_[event_id];
-      uint64_t added_count = count - last_count;
-      last_count = count;
-      auto it = event_id_to_attr_index_.find(event_id);
-      CHECK(it != event_id_to_attr_index_.end());
-      CHECK_LT(it->second, res.size());
-      // Count for the current sample is the added event count after generating the previous sample.
-      res[it->second] = added_count;
-    }
-    return res;
-  }
-
   ThreadTree* thread_tree_;
-  const std::unordered_map<uint64_t, size_t>& event_id_to_attr_index_;
 
   std::unordered_set<int> cpu_filter_;
+  std::unordered_set<int> pid_filter_;
+  std::unordered_set<int> tid_filter_;
   std::unordered_set<std::string> comm_filter_;
   std::unordered_set<std::string> dso_filter_;
   std::unordered_set<std::string> symbol_filter_;
@@ -303,17 +264,14 @@ class ReportCmdSampleTreeBuilder : public SampleTreeBuilder<SampleEntry, AccInfo
   uint64_t total_error_callchains_;
 
   std::string event_name_;
-  // Map from event_id to its last event count.
-  std::unordered_map<uint64_t, uint64_t> event_id_count_map_;
 };
 
 // Build sample tree based on event count in each sample.
 class EventCountSampleTreeBuilder : public ReportCmdSampleTreeBuilder {
  public:
   EventCountSampleTreeBuilder(const SampleComparator<SampleEntry>& sample_comparator,
-                              ThreadTree* thread_tree,
-                              const std::unordered_map<uint64_t, size_t>& event_id_to_attr_index)
-      : ReportCmdSampleTreeBuilder(sample_comparator, thread_tree, event_id_to_attr_index) {}
+                              ThreadTree* thread_tree)
+      : ReportCmdSampleTreeBuilder(sample_comparator, thread_tree) {}
 
  protected:
   uint64_t GetPeriod(const SampleRecord& r) override { return r.period_data.period; }
@@ -323,9 +281,8 @@ class EventCountSampleTreeBuilder : public ReportCmdSampleTreeBuilder {
 class TimestampSampleTreeBuilder : public ReportCmdSampleTreeBuilder {
  public:
   TimestampSampleTreeBuilder(const SampleComparator<SampleEntry>& sample_comparator,
-                             ThreadTree* thread_tree,
-                             const std::unordered_map<uint64_t, size_t>& event_id_to_attr_index)
-      : ReportCmdSampleTreeBuilder(sample_comparator, thread_tree, event_id_to_attr_index) {}
+                             ThreadTree* thread_tree)
+      : ReportCmdSampleTreeBuilder(sample_comparator, thread_tree) {}
 
   void ReportCmdProcessSampleRecord(std::shared_ptr<SampleRecord>& r) override {
     pid_t tid = static_cast<pid_t>(r->tid_data.tid);
@@ -361,21 +318,22 @@ struct SampleTreeBuilderOptions {
   std::unordered_set<std::string> dso_filter;
   std::unordered_set<std::string> symbol_filter;
   std::unordered_set<int> cpu_filter;
+  std::unordered_set<int> pid_filter;
+  std::unordered_set<int> tid_filter;
   bool use_branch_address;
   bool accumulate_callchain;
   bool build_callchain;
   bool use_caller_as_callchain_root;
   bool trace_offcpu;
 
-  std::unique_ptr<ReportCmdSampleTreeBuilder> CreateSampleTreeBuilder(
-      const RecordFileReader& reader) {
+  std::unique_ptr<ReportCmdSampleTreeBuilder> CreateSampleTreeBuilder() {
     std::unique_ptr<ReportCmdSampleTreeBuilder> builder;
     if (trace_offcpu) {
-      builder.reset(new TimestampSampleTreeBuilder(comparator, thread_tree, reader.EventIdMap()));
+      builder.reset(new TimestampSampleTreeBuilder(comparator, thread_tree));
     } else {
-      builder.reset(new EventCountSampleTreeBuilder(comparator, thread_tree, reader.EventIdMap()));
+      builder.reset(new EventCountSampleTreeBuilder(comparator, thread_tree));
     }
-    builder->SetFilters(cpu_filter, comm_filter, dso_filter, symbol_filter);
+    builder->SetFilters(cpu_filter, pid_filter, tid_filter, comm_filter, dso_filter, symbol_filter);
     builder->SetBranchSampleOption(use_branch_address);
     builder->SetCallChainSampleOptions(accumulate_callchain, build_callchain,
                                        use_caller_as_callchain_root);
@@ -396,22 +354,28 @@ class ReportCmdCallgraphDisplayerWithVaddrInFile : public ReportCmdCallgraphDisp
   }
 };
 
+struct EventAttrWithName {
+  perf_event_attr attr;
+  std::string name;
+};
+
 class ReportCommand : public Command {
  public:
   ReportCommand()
-      : Command(
-            "report", "report sampling information in perf.data",
-            // clang-format off
+      : Command("report", "report sampling information in perf.data",
+                // clang-format off
 "Usage: simpleperf report [options]\n"
 "The default options are: -i perf.data --sort comm,pid,tid,dso,symbol.\n"
 "-b    Use the branch-to addresses in sampled take branches instead of the\n"
 "      instruction addresses. Only valid for perf.data recorded with -b/-j\n"
 "      option.\n"
 "--children    Print the overhead accumulated by appearing in the callchain.\n"
-"              In the report, Children column shows overhead for a symbol and functions called\n"
-"              by the symbol, while Self column shows overhead for the symbol itself.\n"
+"--comms comm1,comm2,...   Report only for selected comms.\n"
+"--cpu   cpu_item1,cpu_item2,...\n"
+"                  Report samples on the selected cpus. cpu_item can be cpu\n"
+"                  number like 1, or cpu range like 0-3.\n"
 "--csv                     Report in csv format.\n"
-"--csv-separator <sep>     Set separator for csv columns. Default is ','.\n"
+"--dsos dso1,dso2,...      Report only for selected dsos.\n"
 "--full-callgraph  Print full call graph. Used with -g option. By default,\n"
 "                  brief call graph is printed.\n"
 "-g [callee|caller]    Print call graph. If callee mode is used, the graph\n"
@@ -425,13 +389,12 @@ class ReportCommand : public Command {
 "--no-demangle         Don't demangle symbol names.\n"
 "--no-show-ip          Don't show vaddr in file for unknown symbols.\n"
 "-o report_file_name   Set report file name, default is stdout.\n"
-"--percent-limit <percent>  Set min percentage in report entries and call graphs.\n"
-"--print-event-count   Print event counts for each item. Additional events can be added by\n"
-"                      --add-counter in record cmd.\n"
+"--percent-limit <percent>  Set min percentage shown when printing call graph.\n"
+"--pids pid1,pid2,...  Report only for selected pids.\n"
 "--raw-period          Report period count instead of period percentage.\n"
-"--sort key1,key2,...  Select keys used to group samples into report entries. Samples having\n"
-"                      the same key values are aggregated into one report entry. Each report\n"
-"                      entry is printed in one row, having columns to show key values.\n"
+"--sort key1,key2,...  Select keys used to sort and print the report. The\n"
+"                      appearance order of keys decides the order of keys used\n"
+"                      to sort and print the report.\n"
 "                      Possible keys include:\n"
 "                        pid             -- process id\n"
 "                        tid             -- thread id\n"
@@ -448,40 +411,33 @@ class ReportCommand : public Command {
 "                        symbol_to       -- name of function branched to\n"
 "                      The default sort keys are:\n"
 "                        comm,pid,tid,dso,symbol\n"
-"--symfs <dir>         Look for files with symbols relative to this directory.\n"
-"--vmlinux <file>      Parse kernel symbols from <file>.\n"
-"\n"
-"Sample filter options:\n"
-"--comms comm1,comm2,...          Report only for threads with selected names.\n"
-"--cpu   cpu_item1,cpu_item2,...  Report samples on the selected cpus. cpu_item can be cpu\n"
-"                                 number like 1, or cpu range like 0-3.\n"
-"--dsos dso1,dso2,...             Report only for selected dsos.\n"
-"--pids pid1,pid2,...             Same as '--include-pid'.\n"
 "--symbols symbol1;symbol2;...    Report only for selected symbols.\n"
-"--tids tid1,tid2,...             Same as '--include-tid'.\n"
-RECORD_FILTER_OPTION_HELP_MSG_FOR_REPORTING
-            // clang-format on
-            ),
+"--symfs <dir>         Look for files with symbols relative to this directory.\n"
+"--tids tid1,tid2,...  Report only for selected tids.\n"
+"--vmlinux <file>      Parse kernel symbols from <file>.\n"
+                // clang-format on
+                ),
         record_filename_("perf.data"),
-        record_file_arch_(GetTargetArch()),
+        record_file_arch_(GetBuildArch()),
         use_branch_address_(false),
+        system_wide_collection_(false),
         accumulate_callchain_(false),
         print_callgraph_(false),
         callgraph_show_callee_(false),
         callgraph_max_stack_(UINT32_MAX),
-        percent_limit_(0),
+        callgraph_percent_limit_(0),
         raw_period_(false),
         brief_callgraph_(true),
         trace_offcpu_(false),
-        sched_switch_attr_id_(0u),
-        record_filter_(thread_tree_) {}
+        sched_switch_attr_id_(0u) {}
 
   bool Run(const std::vector<std::string>& args);
 
  private:
   bool ParseOptions(const std::vector<std::string>& args);
-  bool BuildSampleComparatorAndDisplayer();
-  bool ReadMetaInfoFromRecordFile();
+  bool BuildSampleComparatorAndDisplayer(bool print_sample_count,
+                                         const std::vector<std::string>& sort_keys);
+  void ReadMetaInfoFromRecordFile();
   bool ReadEventAttrFromRecordFile();
   bool ReadFeaturesFromRecordFile();
   bool ReadSampleTreeFromRecordFile();
@@ -494,8 +450,7 @@ RECORD_FILTER_OPTION_HELP_MSG_FOR_REPORTING
   std::string record_filename_;
   ArchType record_file_arch_;
   std::unique_ptr<RecordFileReader> record_file_reader_;
-  std::vector<perf_event_attr> event_attrs_;
-  std::vector<std::string> attr_names_;
+  std::vector<EventAttrWithName> event_attrs_;
   ThreadTree thread_tree_;
   // Create a SampleTreeBuilder and SampleTree for each event_attr.
   std::vector<SampleTree> sample_tree_;
@@ -506,22 +461,19 @@ RECORD_FILTER_OPTION_HELP_MSG_FOR_REPORTING
   std::unique_ptr<ReportCmdSampleTreeDisplayer> sample_tree_displayer_;
   bool use_branch_address_;
   std::string record_cmdline_;
+  bool system_wide_collection_;
   bool accumulate_callchain_;
   bool print_callgraph_;
   bool callgraph_show_callee_;
   uint32_t callgraph_max_stack_;
-  double percent_limit_;
+  double callgraph_percent_limit_;
   bool raw_period_;
   bool brief_callgraph_;
   bool trace_offcpu_;
   size_t sched_switch_attr_id_;
   bool report_csv_ = false;
-  std::string csv_separator_ = ",";
-  bool print_sample_count_ = false;
-  bool print_event_count_ = false;
-  std::vector<std::string> sort_keys_;
+
   std::string report_filename_;
-  RecordFilter record_filter_;
 };
 
 bool ReportCommand::Run(const std::vector<std::string>& args) {
@@ -535,13 +487,8 @@ bool ReportCommand::Run(const std::vector<std::string>& args) {
   if (record_file_reader_ == nullptr) {
     return false;
   }
-  if (!ReadMetaInfoFromRecordFile()) {
-    return false;
-  }
+  ReadMetaInfoFromRecordFile();
   if (!ReadEventAttrFromRecordFile()) {
-    return false;
-  }
-  if (!BuildSampleComparatorAndDisplayer()) {
     return false;
   }
   // Read features first to prepare build ids used when building SampleTree.
@@ -562,13 +509,12 @@ bool ReportCommand::Run(const std::vector<std::string>& args) {
 }
 
 bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
-  OptionFormatMap option_formats = {
+  static OptionFormatMap option_formats = {
       {"-b", {OptionValueType::NONE, OptionType::SINGLE}},
       {"--children", {OptionValueType::NONE, OptionType::SINGLE}},
       {"--comms", {OptionValueType::STRING, OptionType::MULTIPLE}},
       {"--cpu", {OptionValueType::STRING, OptionType::MULTIPLE}},
       {"--csv", {OptionValueType::NONE, OptionType::SINGLE}},
-      {"--csv-separator", {OptionValueType::STRING, OptionType::SINGLE}},
       {"--dsos", {OptionValueType::STRING, OptionType::MULTIPLE}},
       {"--full-callgraph", {OptionValueType::NONE, OptionType::SINGLE}},
       {"-g", {OptionValueType::OPT_STRING, OptionType::SINGLE}},
@@ -581,7 +527,6 @@ bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
       {"-o", {OptionValueType::STRING, OptionType::SINGLE}},
       {"--percent-limit", {OptionValueType::DOUBLE, OptionType::SINGLE}},
       {"--pids", {OptionValueType::STRING, OptionType::MULTIPLE}},
-      {"--print-event-count", {OptionValueType::NONE, OptionType::SINGLE}},
       {"--tids", {OptionValueType::STRING, OptionType::MULTIPLE}},
       {"--raw-period", {OptionValueType::NONE, OptionType::SINGLE}},
       {"--sort", {OptionValueType::STRING, OptionType::SINGLE}},
@@ -589,8 +534,6 @@ bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
       {"--symfs", {OptionValueType::STRING, OptionType::SINGLE}},
       {"--vmlinux", {OptionValueType::STRING, OptionType::SINGLE}},
   };
-  OptionFormatMap record_filter_options = GetRecordFilterOptionFormats(false);
-  option_formats.insert(record_filter_options.begin(), record_filter_options.end());
 
   OptionValueMap options;
   std::vector<std::pair<OptionName, OptionValue>> ordered_options;
@@ -605,9 +548,6 @@ bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
     std::vector<std::string> strs = Split(*value.str_value, ",");
     sample_tree_builder_options_.comm_filter.insert(strs.begin(), strs.end());
   }
-  if (!record_filter_.ParseOptions(options)) {
-    return false;
-  }
   for (const OptionValue& value : options.PullValues("--cpu")) {
     if (auto cpus = GetCpusFromString(*value.str_value); cpus) {
       sample_tree_builder_options_.cpu_filter.insert(cpus->begin(), cpus->end());
@@ -616,7 +556,6 @@ bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
     }
   }
   report_csv_ = options.PullBoolValue("--csv");
-  options.PullStringValue("--csv-separator", &csv_separator_);
   for (const OptionValue& value : options.PullValues("--dsos")) {
     std::vector<std::string> strs = Split(*value.str_value, ",");
     sample_tree_builder_options_.dso_filter.insert(strs.begin(), strs.end());
@@ -649,7 +588,7 @@ bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
   if (!options.PullUintValue("--max-stack", &callgraph_max_stack_)) {
     return false;
   }
-  print_sample_count_ = options.PullBoolValue("-n");
+  bool print_sample_count = options.PullBoolValue("-n");
 
   Dso::SetDemangle(!options.PullBoolValue("--no-demangle"));
 
@@ -658,30 +597,29 @@ bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
   }
 
   options.PullStringValue("-o", &report_filename_);
-  if (!options.PullDoubleValue("--percent-limit", &percent_limit_, 0)) {
+  if (!options.PullDoubleValue("--percent-limit", &callgraph_percent_limit_, 0)) {
     return false;
   }
 
   for (const OptionValue& value : options.PullValues("--pids")) {
     if (auto pids = GetTidsFromString(*value.str_value, false); pids) {
-      record_filter_.AddPids(pids.value(), false);
+      sample_tree_builder_options_.pid_filter.insert(pids->begin(), pids->end());
     } else {
       return false;
     }
   }
-  print_event_count_ = options.PullBoolValue("--print-event-count");
   for (const OptionValue& value : options.PullValues("--tids")) {
     if (auto tids = GetTidsFromString(*value.str_value, false); tids) {
-      record_filter_.AddTids(tids.value(), false);
+      sample_tree_builder_options_.tid_filter.insert(tids->begin(), tids->end());
     } else {
       return false;
     }
   }
   raw_period_ = options.PullBoolValue("--raw-period");
 
-  sort_keys_ = {"comm", "pid", "tid", "dso", "symbol"};
+  std::vector<std::string> sort_keys = {"comm", "pid", "tid", "dso", "symbol"};
   if (auto value = options.PullValue("--sort"); value) {
-    sort_keys_ = Split(*value->str_value, ",");
+    sort_keys = Split(*value->str_value, ",");
   }
 
   for (const OptionValue& value : options.PullValues("--symbols")) {
@@ -698,109 +636,81 @@ bool ReportCommand::ParseOptions(const std::vector<std::string>& args) {
     Dso::SetVmlinux(*value->str_value);
   }
   CHECK(options.values.empty());
-  return true;
+  return BuildSampleComparatorAndDisplayer(print_sample_count, sort_keys);
 }
 
-bool ReportCommand::BuildSampleComparatorAndDisplayer() {
+bool ReportCommand::BuildSampleComparatorAndDisplayer(bool print_sample_count,
+                                                      const std::vector<std::string>& sort_keys) {
   SampleDisplayer<SampleEntry, SampleTree> displayer;
-  displayer.SetReportFormat(report_csv_, csv_separator_);
+  displayer.SetReportFormat(report_csv_);
   SampleComparator<SampleEntry> comparator;
 
   if (accumulate_callchain_) {
     if (raw_period_) {
-      displayer.AddDisplayFunction("Children", DisplayAccumulatedPeriod<SampleEntry>);
-      displayer.AddDisplayFunction("Self", DisplaySelfPeriod<SampleEntry>);
+      displayer.AddDisplayFunction("Children", DisplayAccumulatedPeriod);
+      displayer.AddDisplayFunction("Self", DisplaySelfPeriod);
     } else {
-      displayer.AddDisplayFunction("Children", DisplayAccumulatedOverhead<SampleEntry, SampleTree>);
-      displayer.AddDisplayFunction("Self", DisplaySelfOverhead<SampleEntry, SampleTree>);
+      displayer.AddDisplayFunction("Children", DisplayAccumulatedOverhead);
+      displayer.AddDisplayFunction("Self", DisplaySelfOverhead);
     }
   } else {
     if (raw_period_) {
-      displayer.AddDisplayFunction("Overhead", DisplaySelfPeriod<SampleEntry>);
+      displayer.AddDisplayFunction("Overhead", DisplaySelfPeriod);
     } else {
-      displayer.AddDisplayFunction("Overhead", DisplaySelfOverhead<SampleEntry, SampleTree>);
+      displayer.AddDisplayFunction("Overhead", DisplaySelfOverhead);
     }
   }
-  if (print_sample_count_) {
-    displayer.AddDisplayFunction("Sample", DisplaySampleCount<SampleEntry>);
-  }
-  if (print_event_count_) {
-    if (event_attrs_.size() == attr_names_.size()) {
-      // Without additional counters, counts field isn't available. So print period field instead.
-      if (accumulate_callchain_) {
-        displayer.AddDisplayFunction("AccEventCount", DisplayAccumulatedPeriod<SampleEntry>);
-        displayer.AddDisplayFunction("SelfEventCount", DisplaySelfPeriod<SampleEntry>);
-      } else {
-        displayer.AddDisplayFunction("EventCount", DisplaySelfPeriod<SampleEntry>);
-      }
-    } else {
-      // With additional counters, print counts field.
-      for (size_t i = 0; i < attr_names_.size(); i++) {
-        auto self_event_count_fn = [i](const SampleEntry* s) {
-          return i < s->counts.size() ? std::to_string(s->counts[i]) : "0";
-        };
-        auto acc_event_count_fn = [i](const SampleEntry* s) {
-          return i < s->acc_counts.size() ? std::to_string(s->acc_counts[i]) : "0";
-        };
-        if (accumulate_callchain_) {
-          displayer.AddDisplayFunction("AccEventCount_" + attr_names_[i], acc_event_count_fn);
-          displayer.AddDisplayFunction("SelfEventCount_" + attr_names_[i], self_event_count_fn);
-        } else {
-          displayer.AddDisplayFunction("EventCount_" + attr_names_[i], self_event_count_fn);
-        }
-      }
-    }
+  if (print_sample_count) {
+    displayer.AddDisplayFunction("Sample", DisplaySampleCount);
   }
 
-  for (auto& key : sort_keys_) {
+  for (auto& key : sort_keys) {
     if (!use_branch_address_ && branch_sort_keys.find(key) != branch_sort_keys.end()) {
       LOG(ERROR) << "sort key '" << key << "' can only be used with -b option.";
       return false;
     }
     if (key == "pid") {
       comparator.AddCompareFunction(ComparePid);
-      displayer.AddDisplayFunction("Pid", DisplayPid<SampleEntry>);
+      displayer.AddDisplayFunction("Pid", DisplayPid);
     } else if (key == "tid") {
       comparator.AddCompareFunction(CompareTid);
-      displayer.AddDisplayFunction("Tid", DisplayTid<SampleEntry>);
+      displayer.AddDisplayFunction("Tid", DisplayTid);
     } else if (key == "comm") {
       comparator.AddCompareFunction(CompareComm);
-      displayer.AddDisplayFunction("Command", DisplayComm<SampleEntry>);
+      displayer.AddDisplayFunction("Command", DisplayComm);
     } else if (key == "dso") {
       comparator.AddCompareFunction(CompareDso);
-      displayer.AddDisplayFunction("Shared Object", DisplayDso<SampleEntry>);
+      displayer.AddDisplayFunction("Shared Object", DisplayDso);
     } else if (key == "symbol") {
       comparator.AddCompareFunction(CompareSymbol);
-      displayer.AddDisplayFunction("Symbol", DisplaySymbol<SampleEntry>);
+      displayer.AddDisplayFunction("Symbol", DisplaySymbol);
     } else if (key == "vaddr_in_file") {
       comparator.AddCompareFunction(CompareVaddrInFile);
-      displayer.AddDisplayFunction("VaddrInFile", DisplayVaddrInFile<SampleEntry>);
+      displayer.AddDisplayFunction("VaddrInFile", DisplayVaddrInFile);
     } else if (key == "dso_from") {
       comparator.AddCompareFunction(CompareDsoFrom);
-      displayer.AddDisplayFunction("Source Shared Object", DisplayDsoFrom<SampleEntry>);
+      displayer.AddDisplayFunction("Source Shared Object", DisplayDsoFrom);
     } else if (key == "dso_to") {
       comparator.AddCompareFunction(CompareDso);
-      displayer.AddDisplayFunction("Target Shared Object", DisplayDso<SampleEntry>);
+      displayer.AddDisplayFunction("Target Shared Object", DisplayDso);
     } else if (key == "symbol_from") {
       comparator.AddCompareFunction(CompareSymbolFrom);
-      displayer.AddDisplayFunction("Source Symbol", DisplaySymbolFrom<SampleEntry>);
+      displayer.AddDisplayFunction("Source Symbol", DisplaySymbolFrom);
     } else if (key == "symbol_to") {
       comparator.AddCompareFunction(CompareSymbol);
-      displayer.AddDisplayFunction("Target Symbol", DisplaySymbol<SampleEntry>);
+      displayer.AddDisplayFunction("Target Symbol", DisplaySymbol);
     } else {
       LOG(ERROR) << "Unknown sort key: " << key;
       return false;
     }
   }
 
-  // Reporting with --csv will add event count and event name columns. But if --print-event-count is
-  // used, there is no need to duplicate printing event counts.
-  if (report_csv_ && !print_event_count_) {
+  if (report_csv_) {
     if (accumulate_callchain_) {
-      displayer.AddDisplayFunction("AccEventCount", DisplayAccumulatedPeriod<SampleEntry>);
-      displayer.AddDisplayFunction("SelfEventCount", DisplaySelfPeriod<SampleEntry>);
+      displayer.AddDisplayFunction("AccEventCount", DisplayAccumulatedPeriod);
+      displayer.AddDisplayFunction("SelfEventCount", DisplaySelfPeriod);
     } else {
-      displayer.AddDisplayFunction("EventCount", DisplaySelfPeriod<SampleEntry>);
+      displayer.AddDisplayFunction("EventCount", DisplaySelfPeriod);
     }
     displayer.AddDisplayFunction("EventName", DisplayEventName);
   }
@@ -808,7 +718,7 @@ bool ReportCommand::BuildSampleComparatorAndDisplayer() {
   if (print_callgraph_) {
     bool has_symbol_key = false;
     bool has_vaddr_in_file_key = false;
-    for (const auto& key : sort_keys_) {
+    for (const auto& key : sort_keys) {
       if (key == "symbol") {
         has_symbol_key = true;
       } else if (key == "vaddr_in_file") {
@@ -819,17 +729,10 @@ bool ReportCommand::BuildSampleComparatorAndDisplayer() {
       if (has_vaddr_in_file_key) {
         displayer.AddExclusiveDisplayFunction(ReportCmdCallgraphDisplayerWithVaddrInFile());
       } else {
-        displayer.AddExclusiveDisplayFunction(
-            ReportCmdCallgraphDisplayer(callgraph_max_stack_, percent_limit_, brief_callgraph_));
+        displayer.AddExclusiveDisplayFunction(ReportCmdCallgraphDisplayer(
+            callgraph_max_stack_, callgraph_percent_limit_, brief_callgraph_));
       }
     }
-  }
-
-  if (percent_limit_ != 0.0) {
-    displayer.SetFilterFunction([this](const SampleEntry* sample, const SampleTree* sample_tree) {
-      uint64_t total_period = sample->period + sample->accumulated_period;
-      return total_period >= sample_tree->total_period * percent_limit_ / 100.0;
-    });
   }
 
   sample_tree_builder_options_.comparator = comparator;
@@ -847,31 +750,28 @@ bool ReportCommand::BuildSampleComparatorAndDisplayer() {
   return true;
 }
 
-bool ReportCommand::ReadMetaInfoFromRecordFile() {
+void ReportCommand::ReadMetaInfoFromRecordFile() {
   auto& meta_info = record_file_reader_->GetMetaInfoFeature();
+  if (auto it = meta_info.find("system_wide_collection"); it != meta_info.end()) {
+    system_wide_collection_ = it->second == "true";
+  }
   if (auto it = meta_info.find("trace_offcpu"); it != meta_info.end()) {
     trace_offcpu_ = it->second == "true";
   }
-  return record_filter_.CheckClock(record_file_reader_->GetClockId());
 }
 
 bool ReportCommand::ReadEventAttrFromRecordFile() {
   std::vector<EventAttrWithId> attrs = record_file_reader_->AttrSection();
   for (const auto& attr_with_id : attrs) {
-    const perf_event_attr& attr = *attr_with_id.attr;
-    attr_names_.emplace_back(GetEventNameByAttr(attr));
-
-    // There are no samples for events added by --add-counter. So skip them.
-    if ((attr.read_format & PERF_FORMAT_GROUP) && (attr.freq == 0) &&
-        (attr.sample_period == INFINITE_SAMPLE_PERIOD)) {
-      continue;
-    }
-    event_attrs_.emplace_back(attr);
+    EventAttrWithName attr;
+    attr.attr = *attr_with_id.attr;
+    attr.name = GetEventNameByAttr(attr.attr);
+    event_attrs_.push_back(attr);
   }
   if (use_branch_address_) {
     bool has_branch_stack = true;
     for (const auto& attr : event_attrs_) {
-      if ((attr.sample_type & PERF_SAMPLE_BRANCH_STACK) == 0) {
+      if ((attr.attr.sample_type & PERF_SAMPLE_BRANCH_STACK) == 0) {
         has_branch_stack = false;
         break;
       }
@@ -884,7 +784,7 @@ bool ReportCommand::ReadEventAttrFromRecordFile() {
   if (trace_offcpu_) {
     size_t i;
     for (i = 0; i < event_attrs_.size(); ++i) {
-      if (attr_names_[i] == "sched:sched_switch") {
+      if (event_attrs_[i].name == "sched:sched_switch") {
         break;
       }
     }
@@ -908,6 +808,22 @@ bool ReportCommand::ReadFeaturesFromRecordFile() {
   std::vector<std::string> cmdline = record_file_reader_->ReadCmdlineFeature();
   if (!cmdline.empty()) {
     record_cmdline_ = android::base::Join(cmdline, ' ');
+    if (record_file_reader_->GetMetaInfoFeature().count("system_wide_collection")) {
+      // TODO: the code to detect system wide collection option is fragile, remove
+      // it once we can do cross unwinding.
+      for (size_t i = 0; i < cmdline.size(); i++) {
+        std::string& s = cmdline[i];
+        if (s == "-a") {
+          system_wide_collection_ = true;
+          break;
+        } else if (s == "--call-graph" || s == "--cpu" || s == "-e" || s == "-f" || s == "-F" ||
+                   s == "-j" || s == "-m" || s == "-o" || s == "-p" || s == "-t") {
+          i++;
+        } else if (!s.empty() && s[0] != '-') {
+          break;
+        }
+      }
+    }
   }
   if (record_file_reader_->HasFeature(PerfFileFormat::FEAT_TRACING_DATA)) {
     std::vector<char> tracing_data;
@@ -930,9 +846,8 @@ bool ReportCommand::ReadSampleTreeFromRecordFile() {
   sample_tree_builder_options_.trace_offcpu = trace_offcpu_;
 
   for (size_t i = 0; i < event_attrs_.size(); ++i) {
-    sample_tree_builder_.push_back(
-        sample_tree_builder_options_.CreateSampleTreeBuilder(*record_file_reader_));
-    sample_tree_builder_.back()->SetEventName(attr_names_[i]);
+    sample_tree_builder_.push_back(sample_tree_builder_options_.CreateSampleTreeBuilder());
+    sample_tree_builder_.back()->SetEventName(event_attrs_[i].name);
     OfflineUnwinder* unwinder = sample_tree_builder_.back()->GetUnwinder();
     if (unwinder != nullptr) {
       unwinder->LoadMetaInfo(record_file_reader_->GetMetaInfoFeature());
@@ -953,9 +868,6 @@ bool ReportCommand::ReadSampleTreeFromRecordFile() {
 bool ReportCommand::ProcessRecord(std::unique_ptr<Record> record) {
   thread_tree_.Update(*record);
   if (record->type() == PERF_RECORD_SAMPLE) {
-    if (!record_filter_.Check(static_cast<SampleRecord*>(record.get()))) {
-      return true;
-    }
     size_t attr_id = record_file_reader_->GetAttrIndexOfRecord(record.get());
     if (!trace_offcpu_) {
       sample_tree_builder_[attr_id]->ReportCmdProcessSampleRecord(
@@ -992,10 +904,10 @@ void ReportCommand::ProcessSampleRecordInTraceOffCpuMode(std::unique_ptr<Record>
 
 bool ReportCommand::ProcessTracingData(const std::vector<char>& data) {
   Tracing tracing(data);
-  for (size_t i = 0; i < event_attrs_.size(); i++) {
-    if (event_attrs_[i].type == PERF_TYPE_TRACEPOINT) {
-      uint64_t trace_event_id = event_attrs_[i].config;
-      attr_names_[i] = tracing.GetTracingEventNameHavingId(trace_event_id);
+  for (auto& attr : event_attrs_) {
+    if (attr.attr.type == PERF_TYPE_TRACEPOINT) {
+      uint64_t trace_event_id = attr.attr.config;
+      attr.name = tracing.GetTracingEventNameHavingId(trace_event_id);
     }
   }
   return true;
@@ -1020,9 +932,10 @@ bool ReportCommand::PrintReport() {
     if (i != 0) {
       fprintf(report_fp, "\n");
     }
+    EventAttrWithName& attr = event_attrs_[i];
     SampleTree& sample_tree = sample_tree_[i];
-    fprintf(report_fp, "Event: %s (type %u, config %llu)\n", attr_names_[i].c_str(),
-            event_attrs_[i].type, event_attrs_[i].config);
+    fprintf(report_fp, "Event: %s (type %u, config %llu)\n", attr.name.c_str(), attr.attr.type,
+            attr.attr.config);
     fprintf(report_fp, "Samples: %" PRIu64 "\n", sample_tree.total_samples);
     if (sample_tree.total_error_callchains != 0) {
       fprintf(report_fp, "Error Callchains: %" PRIu64 ", %f%%\n",

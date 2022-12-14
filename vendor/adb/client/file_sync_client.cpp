@@ -544,17 +544,7 @@ class SyncConnection {
 
             if (!ReadFdExactly(fd, buf, len)) return false;
             buf[len] = 0;
-            // Address the unlikely scenario wherein a
-            // compromised device/service might be able to
-            // traverse across directories on the host. Let's
-            // shut that door!
-            if (strchr(buf, '/')
-#if defined(_WIN32)
-                || strchr(buf, '\\')
-#endif
-            ) {
-                return false;
-            }
+
             callback(dent.mode, dent.size, dent.mtime, buf);
         }
     }
@@ -1286,12 +1276,14 @@ static bool local_build_list(SyncConnection& sc, std::vector<copyinfo>* file_lis
         return false;
     }
 
+    bool empty_dir = true;
     dirent* de;
     while ((de = readdir(dir.get()))) {
         if (IsDotOrDotDot(de->d_name)) {
             continue;
         }
 
+        empty_dir = false;
         std::string stat_path = lpath + de->d_name;
 
         struct stat st;

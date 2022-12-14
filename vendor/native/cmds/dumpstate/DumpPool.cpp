@@ -33,20 +33,6 @@ namespace dumpstate {
 
 const std::string DumpPool::PREFIX_TMPFILE_NAME = "dump-tmp.";
 
-
-void WaitForTask(std::future<std::string> future, const std::string& title, int out_fd) {
-    DurationReporter duration_reporter("Wait for " + title, true);
-
-    std::string result = future.get();
-    if (result.empty()) {
-        return;
-    }
-    DumpFileToFd(out_fd, title, result);
-    if (unlink(result.c_str())) {
-        MYLOGE("Failed to unlink (%s): %s\n", result.c_str(), strerror(errno));
-    }
-}
-
 DumpPool::DumpPool(const std::string& tmp_root) : tmp_root_(tmp_root), shutdown_(false),
         log_duration_(true) {
     assert(!tmp_root.empty());
@@ -54,10 +40,31 @@ DumpPool::DumpPool(const std::string& tmp_root) : tmp_root_(tmp_root), shutdown_
 }
 
 DumpPool::~DumpPool() {
+    shutdown();
+}
+
+void DumpPool::start(int thread_counts) {
+    assert(thread_counts > 0);
+    assert(threads_.empty());
+    if (thread_counts > MAX_THREAD_COUNT) {
+        thread_counts = MAX_THREAD_COUNT;
+    }
+    MYLOGI("Start thread pool:%d", thread_counts);
+    shutdown_ = false;
+    for (int i = 0; i < thread_counts; i++) {
+        threads_.emplace_back(std::thread([=]() {
+            setThreadName(pthread_self(), i + 1);
+            loop();
+        }));
+    }
+}
+
+void DumpPool::shutdown() {
     std::unique_lock lock(lock_);
     if (shutdown_ || threads_.empty()) {
         return;
     }
+    futures_map_.clear();
     while (!tasks_.empty()) tasks_.pop();
 
     shutdown_ = true;
@@ -69,22 +76,27 @@ DumpPool::~DumpPool() {
     }
     threads_.clear();
     deleteTempFiles(tmp_root_);
-    MYLOGI("shutdown thread pool\n");
+    MYLOGI("shutdown thread pool");
 }
 
-void DumpPool::start(int thread_counts) {
-    assert(thread_counts > 0);
-    assert(threads_.empty());
-    if (thread_counts > MAX_THREAD_COUNT) {
-        thread_counts = MAX_THREAD_COUNT;
+void DumpPool::waitForTask(const std::string& task_name, const std::string& title,
+        int out_fd) {
+    DurationReporter duration_reporter("Wait for " + task_name, true);
+    auto iterator = futures_map_.find(task_name);
+    if (iterator == futures_map_.end()) {
+        MYLOGW("Task %s does not exist", task_name.c_str());
+        return;
     }
-    MYLOGI("Start thread pool:%d\n", thread_counts);
-    shutdown_ = false;
-    for (int i = 0; i < thread_counts; i++) {
-        threads_.emplace_back(std::thread([=]() {
-            setThreadName(pthread_self(), i + 1);
-            loop();
-        }));
+    Future future = iterator->second;
+    futures_map_.erase(iterator);
+
+    std::string result = future.get();
+    if (result.empty()) {
+        return;
+    }
+    DumpFileToFd(out_fd, title, result);
+    if (unlink(result.c_str())) {
+        MYLOGE("Failed to unlink (%s): %s\n", result.c_str(), strerror(errno));
     }
 }
 

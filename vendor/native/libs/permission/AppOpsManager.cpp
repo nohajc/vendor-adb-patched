@@ -22,7 +22,6 @@
 #include <utils/SystemClock.h>
 
 #include <sys/types.h>
-#include <private/android_filesystem_config.h>
 
 #ifdef LOG_TAG
 #undef LOG_TAG
@@ -101,7 +100,7 @@ int32_t AppOpsManager::noteOp(int32_t op, int32_t uid, const String16& callingPa
     sp<IAppOpsService> service = getService();
     int32_t mode = service != nullptr
             ? service->noteOperation(op, uid, callingPackage, attributionTag,
-                    shouldCollectNotes(op), message, uid == AID_SYSTEM)
+                    shouldCollectNotes(op), message)
             : AppOpsManager::MODE_IGNORED;
 
     return mode;
@@ -119,8 +118,7 @@ int32_t AppOpsManager::startOpNoThrow(int32_t op, int32_t uid, const String16& c
     sp<IAppOpsService> service = getService();
     int32_t mode = service != nullptr
             ? service->startOperation(getClientId(), op, uid, callingPackage,
-                    attributionTag, startIfModeDefault, shouldCollectNotes(op), message,
-                    uid == AID_SYSTEM)
+                    attributionTag, startIfModeDefault, shouldCollectNotes(op), message)
             : AppOpsManager::MODE_IGNORED;
 
     return mode;

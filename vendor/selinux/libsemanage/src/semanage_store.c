@@ -59,7 +59,6 @@ typedef struct dbase_policydb dbase_t;
 
 #include "debug.h"
 #include "utilities.h"
-#include "compressed_file.h"
 
 #define SEMANAGE_CONF_FILE "semanage.conf"
 /* relative path names to enum semanage_paths to special files and
@@ -115,7 +114,6 @@ static const char *semanage_sandbox_paths[SEMANAGE_STORE_NUM_PATHS] = {
 	"/disable_dontaudit",
 	"/preserve_tunables",
 	"/modules/disabled",
-	"/modules_checksum",
 	"/policy.kern",
 	"/file_contexts.local",
 	"/file_contexts.homedirs",
@@ -709,8 +707,7 @@ static int semanage_filename_select(const struct dirent *d)
 
 /* Copies a file from src to dst.  If dst already exists then
  * overwrite it.  Returns 0 on success, -1 on error. */
-int semanage_copy_file(const char *src, const char *dst, mode_t mode,
-		bool syncrequired)
+int semanage_copy_file(const char *src, const char *dst, mode_t mode)
 {
 	int in, out, retval = 0, amount_read, n, errsv = errno;
 	char tmp[PATH_MAX];
@@ -738,11 +735,8 @@ int semanage_copy_file(const char *src, const char *dst, mode_t mode,
 	}
 	umask(mask);
 	while (retval == 0 && (amount_read = read(in, buf, sizeof(buf))) > 0) {
-		if (write(out, buf, amount_read) != amount_read) {
-			if (errno)
-				errsv = errno;
-			else
-				errsv = EIO;
+		if (write(out, buf, amount_read) < 0) {
+			errsv = errno;
 			retval = -1;
 		}
 	}
@@ -751,10 +745,6 @@ int semanage_copy_file(const char *src, const char *dst, mode_t mode,
 		retval = -1;
 	}
 	close(in);
-	if (syncrequired && fsync(out) < 0) {
-		errsv = errno;
-		retval = -1;
-	}
 	if (close(out) < 0) {
 		errsv = errno;
 		retval = -1;
@@ -821,8 +811,7 @@ static int semanage_copy_dir_flags(const char *src, const char *dst, int flag)
 			umask(mask);
 		} else if (S_ISREG(sb.st_mode) && flag == 1) {
 			mask = umask(0077);
-			if (semanage_copy_file(path, path2, sb.st_mode,
-						false) < 0) {
+			if (semanage_copy_file(path, path2, sb.st_mode) < 0) {
 				umask(mask);
 				goto cleanup;
 			}
@@ -1487,6 +1476,7 @@ int semanage_reload_policy(semanage_handle_t * sh)
 	return r;
 }
 
+hidden_def(semanage_reload_policy)
 
 /* This expands the file_context.tmpl file to file_context and homedirs.template */
 int semanage_split_fc(semanage_handle_t * sh)
@@ -1650,8 +1640,7 @@ static int semanage_install_final_tmp(semanage_handle_t * sh)
 			goto cleanup;
 		}
 
-		ret = semanage_copy_file(src, dst, sh->conf->file_mode,
-					true);
+		ret = semanage_copy_file(src, dst, sh->conf->file_mode);
 		if (ret < 0) {
 			ERR(sh, "Could not copy %s to %s.", src, dst);
 			goto cleanup;
@@ -1733,19 +1722,6 @@ static int semanage_commit_sandbox(semanage_handle_t * sh)
 	if (amount_written == -1) {
 		ERR(sh, "Error while writing commit number to %s.",
 		    commit_filename);
-		close(fd);
-		return -1;
-	}
-	close(fd);
-
-	/* sync changes in sandbox to filesystem */
-	fd = open(sandbox, O_DIRECTORY);
-	if (fd == -1) {
-		ERR(sh, "Error while opening %s for syncfs(): %d", sandbox, errno);
-		return -1;
-	}
-	if (syncfs(fd) == -1) {
-		ERR(sh, "Error while syncing %s to filesystem: %d", sandbox, errno);
 		close(fd);
 		return -1;
 	}
@@ -2056,27 +2032,60 @@ int semanage_direct_get_serial(semanage_handle_t * sh)
 
 int semanage_load_files(semanage_handle_t * sh, cil_db_t *cildb, char **filenames, int numfiles)
 {
-	int i, retval = 0;
+	int retval = 0;
+	FILE *fp;
+	ssize_t size;
+	char *data = NULL;
 	char *filename;
-	struct file_contents contents = {};
+	int i;
 
 	for (i = 0; i < numfiles; i++) {
 		filename = filenames[i];
 
-		retval = map_compressed_file(sh, filename, &contents);
-		if (retval < 0)
-			return -1;
+		if ((fp = fopen(filename, "rb")) == NULL) {
+			ERR(sh, "Could not open module file %s for reading.", filename);
+			goto cleanup;
+		}
 
-		retval = cil_add_file(cildb, filename, contents.data, contents.len);
-		unmap_compressed_file(&contents);
+		if ((size = bunzip(sh, fp, &data)) <= 0) {
+			rewind(fp);
+			__fsetlocking(fp, FSETLOCKING_BYCALLER);
 
+			if (fseek(fp, 0, SEEK_END) != 0) {
+				ERR(sh, "Failed to determine size of file %s.", filename);
+				goto cleanup;
+			}
+			size = ftell(fp);
+			rewind(fp);
+
+			data = malloc(size);
+			if (fread(data, size, 1, fp) != 1) {
+				ERR(sh, "Failed to read file %s.", filename);
+				goto cleanup;
+			}
+		}
+
+		fclose(fp);
+		fp = NULL;
+
+		retval = cil_add_file(cildb, filename, data, size);
 		if (retval != SEPOL_OK) {
 			ERR(sh, "Error while reading from file %s.", filename);
-			return -1;
+			goto cleanup;
 		}
+	
+		free(data);
+		data = NULL;
 	}
 
-	return 0;
+	return retval;
+
+      cleanup:
+	if (fp != NULL) {
+		fclose(fp);
+	}
+	free(data);
+	return -1;
 }
 
 /* 

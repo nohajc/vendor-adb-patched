@@ -1,6 +1,6 @@
 LIBADBD_FS {
   global:
-    adbd_fs_config; # systemapi
+    adbd_fs_config; # apex
   local:
     *;
 };

@@ -37,6 +37,7 @@ cc_library_shared {
 
 cc_library_static {
     name: "libvkjson_ndk",
+    clang: true,
     srcs: [
         "vkjson.cc",
         "vkjson_instance.cc",

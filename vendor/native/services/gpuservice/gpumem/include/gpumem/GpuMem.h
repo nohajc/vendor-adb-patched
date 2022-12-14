@@ -57,9 +57,9 @@ private:
     static constexpr char kGpuMemTotalTracepoint[] = "gpu_mem_total";
     // pinned gpu memory total bpf c program path in bpf sysfs
     static constexpr char kGpuMemTotalProgPath[] =
-            "/sys/fs/bpf/prog_gpuMem_tracepoint_gpu_mem_gpu_mem_total";
+            "/sys/fs/bpf/prog_gpu_mem_tracepoint_gpu_mem_gpu_mem_total";
     // pinned gpu memory total bpf map path in bpf sysfs
-    static constexpr char kGpuMemTotalMapPath[] = "/sys/fs/bpf/map_gpuMem_gpu_mem_total_map";
+    static constexpr char kGpuMemTotalMapPath[] = "/sys/fs/bpf/map_gpu_mem_gpu_mem_total_map";
     // 30 seconds timeout for trying to attach bpf program to tracepoint
     static constexpr int kGpuWaitTimeout = 30;
 };

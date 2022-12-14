@@ -1187,15 +1187,14 @@ bool convertTo(::android::Region* l, Region const& t) {
  */
 constexpr size_t minFlattenedSize(
         HGraphicBufferProducer::QueueBufferInput const& /* t */) {
-    return sizeof(int64_t) +            // timestamp
-            sizeof(int) +               // isAutoTimestamp
+    return sizeof(int64_t) + // timestamp
+            sizeof(int) + // isAutoTimestamp
             sizeof(android_dataspace) + // dataSpace
-            sizeof(::android::Rect) +   // crop
-            sizeof(int) +               // scalingMode
-            sizeof(uint32_t) +          // transform
-            sizeof(uint32_t) +          // stickyTransform
-            sizeof(bool) +              // getFrameTimestamps
-            sizeof(int);                // slot
+            sizeof(::android::Rect) + // crop
+            sizeof(int) + // scalingMode
+            sizeof(uint32_t) + // transform
+            sizeof(uint32_t) + // stickyTransform
+            sizeof(bool); // getFrameTimestamps
 }
 
 /**
@@ -1268,7 +1267,6 @@ status_t flatten(HGraphicBufferProducer::QueueBufferInput const& t,
         return status;
     }
     FlattenableUtils::write(buffer, size, decltype(HdrMetadata::validTypes)(0));
-    FlattenableUtils::write(buffer, size, -1 /*slot*/);
     return NO_ERROR;
 }
 
@@ -1321,7 +1319,7 @@ status_t unflatten(
     if (status != NO_ERROR) {
         return status;
     }
-    // HdrMetadata and slot ignored
+    // HdrMetadata ignored
     return unflatten(&(t->surfaceDamage), buffer, size);
 }
 

@@ -69,6 +69,7 @@ def transaction_menu():
     print ("5. Crop Change")
     print ("6. Final Crop Change")
     print ("7. Matrix Change")
+    print ("8. Override Scaling Mode Change")
     print ("9. Transparent Region Hint Change")
     print ("10. Layer Stack Change")
     print ("11. Hidden Flag Change")
@@ -127,6 +128,9 @@ def transaction(increment):
             change.matrix.dtdx,\
             change.matrix.dsdy,\
             change.matrix.dtdy = layer()
+        elif option == 8:
+            change.override_scaling_mode.override_scaling_mode \
+                                     = override_scaling_mode()
         elif option == 9:
             for rect in transparent_region_hint():
                 new = increment.transparent_region_hint.region.add()
@@ -222,6 +226,11 @@ def matrix():
     dtdy = input("Enter dtdy: ")
 
     return float(dsdx)
+
+def override_scaling_mode():
+    mode = input("Enter override scaling mode: ")
+
+    return int(mode)
 
 def transparent_region_hint():
     num = input("Enter number of rectangles in region: ")

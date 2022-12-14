@@ -53,7 +53,6 @@ static const char* __adb_serial = nullptr;
 static TransportId __adb_transport_id = 0;
 
 static const char* __adb_server_socket_spec;
-static const char* __adb_client_one_device;
 
 void adb_set_transport(TransportType type, const char* serial, TransportId transport_id) {
     __adb_transport = type;
@@ -72,10 +71,6 @@ void adb_set_socket_spec(const char* socket_spec) {
         LOG(FATAL) << "attempted to reinitialize adb_server_socket_spec " << socket_spec << " (was " << __adb_server_socket_spec << ")";
     }
     __adb_server_socket_spec = socket_spec;
-}
-
-void adb_set_one_device(const char* one_device) {
-    __adb_client_one_device = one_device;
 }
 
 static std::optional<TransportId> switch_socket_transport(int fd, std::string* error) {
@@ -262,7 +257,7 @@ static bool __adb_check_server_version(std::string* error) {
     } else if (fd == -2) {
         fprintf(stderr, "* daemon not running; starting now at %s\n", __adb_server_socket_spec);
     start_server:
-        if (launch_server(__adb_server_socket_spec, __adb_client_one_device)) {
+        if (launch_server(__adb_server_socket_spec)) {
             fprintf(stderr, "* failed to start daemon\n");
             // launch_server() has already printed detailed error info, so just
             // return a generic error string about the overall adb_connect()

@@ -34,17 +34,17 @@ AutomotiveDisplayProxyService::getIGraphicBufferProducer(uint64_t id) {
     sp<IBinder> displayToken = nullptr;
     sp<SurfaceControl> surfaceControl = nullptr;
     if (it == mDisplays.end()) {
-        displayToken = SurfaceComposerClient::getPhysicalDisplayToken(PhysicalDisplayId(id));
+        displayToken = SurfaceComposerClient::getPhysicalDisplayToken(id);
         if (displayToken == nullptr) {
             ALOGE("Given display id, 0x%lX, is invalid.", (unsigned long)id);
             return nullptr;
         }
 
         // Get the resolution from stored display state.
-        ui::DisplayMode displayMode = {};
-        auto err = SurfaceComposerClient::getActiveDisplayMode(displayToken, &displayMode);
+        DisplayConfig displayConfig = {};
+        auto err = SurfaceComposerClient::getActiveDisplayConfig(displayToken, &displayConfig);
         if (err != NO_ERROR) {
-            ALOGE("Failed to get display mode of %lX.  "
+            ALOGE("Failed to get display configuration of %lX.  "
                   "This display will be ignored.", (unsigned long)id);
             return nullptr;
         }
@@ -57,8 +57,8 @@ AutomotiveDisplayProxyService::getIGraphicBufferProducer(uint64_t id) {
             return nullptr;
         }
 
-        auto displayWidth  = displayMode.resolution.getWidth();
-        auto displayHeight = displayMode.resolution.getHeight();
+        auto displayWidth  = displayConfig.resolution.getWidth();
+        auto displayHeight = displayConfig.resolution.getHeight();
         if ((displayState.orientation != ui::ROTATION_0) &&
             (displayState.orientation != ui::ROTATION_180)) {
             std::swap(displayWidth, displayHeight);
@@ -145,7 +145,7 @@ Return<void> AutomotiveDisplayProxyService::getDisplayIdList(getDisplayIdList_cb
     auto displayIds = SurfaceComposerClient::getPhysicalDisplayIds();
     ids.resize(displayIds.size());
     for (auto i = 0; i < displayIds.size(); ++i) {
-        ids[i] = displayIds[i].value;
+        ids[i] = displayIds[i];
     }
 
     _cb(ids);
@@ -157,14 +157,14 @@ Return<void> AutomotiveDisplayProxyService::getDisplayInfo(uint64_t id, getDispl
     HwDisplayConfig activeConfig;
     HwDisplayState  activeState;
 
-    auto displayToken = SurfaceComposerClient::getPhysicalDisplayToken(PhysicalDisplayId(id));
+    auto displayToken = SurfaceComposerClient::getPhysicalDisplayToken(id);
     if (displayToken == nullptr) {
         ALOGE("Given display id, 0x%lX, is invalid.", (unsigned long)id);
     } else {
-        ui::DisplayMode displayMode = {};
-        auto err = SurfaceComposerClient::getActiveDisplayMode(displayToken, &displayMode);
+        DisplayConfig displayConfig = {};
+        auto err = SurfaceComposerClient::getActiveDisplayConfig(displayToken, &displayConfig);
         if (err != NO_ERROR) {
-            ALOGW("Failed to get display mode of %lX.  "
+            ALOGW("Failed to get display configuration of %lX.  "
                   "This display will be ignored.", (unsigned long)id);
         }
 
@@ -175,7 +175,7 @@ Return<void> AutomotiveDisplayProxyService::getDisplayInfo(uint64_t id, getDispl
                   "This display will be ignored.", (unsigned long)id);
         }
 
-        activeConfig.setToExternal((uint8_t*)&displayMode, sizeof(ui::DisplayMode));
+        activeConfig.setToExternal((uint8_t*)&displayConfig, sizeof(DisplayConfig));
         activeState.setToExternal((uint8_t*)&displayState, sizeof(DisplayState));
     }
 

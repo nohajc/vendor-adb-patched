@@ -19,15 +19,13 @@
 
 namespace android {
 
-namespace gui {
-class WindowInfoHandle;
-}
+class InputWindowHandle;
 
 namespace inputdispatcher {
 
 // Focus tracking for touch.
 struct TouchedWindow {
-    sp<gui::WindowInfoHandle> windowHandle;
+    sp<android::InputWindowHandle> windowHandle;
     int32_t targetFlags;
     BitSet32 pointerIds; // zero unless target flag FLAG_SPLIT is set
 };

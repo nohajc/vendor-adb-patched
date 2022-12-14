@@ -142,18 +142,14 @@ static inline uint64_t GetSystemClock() {
   return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
-#if defined(__ANDROID__)
-bool IsInAppUid();
-#endif
-#if !defined(__ANDROID__) && !defined(ANDROID_HOST_MUSL)
+#if !defined(__ANDROID__)
 static inline int gettid() {
   return syscall(__NR_gettid);
 }
 #endif
 
+std::optional<uid_t> GetProcessUid(pid_t pid);
 #endif  // defined(__linux__)
-
-std::optional<uint32_t> GetProcessUid(pid_t pid);
 
 }  // namespace simpleperf
 

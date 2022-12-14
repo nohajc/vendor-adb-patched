@@ -19,5 +19,5 @@
 
 int main(const int argc, const char* const argv[]) {
     using namespace ::android::idlcli;
-    return IdlCli::Get().main(Args{argc, argv});
+    return IdlCli{}.main(Args{argc, argv});
 }

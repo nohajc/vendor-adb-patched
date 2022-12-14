@@ -17,22 +17,27 @@
 //! This module implements safe wrappers for GetServerConfigurableFlag method
 //! from libflags.
 
-pub use ffi::GetServerConfigurableFlag;
+use std::ffi::{CStr, CString};
 
-#[cxx::bridge]
-mod ffi {
-    unsafe extern "C++" {
-        include!("get_flags.hpp");
-
-        /// Use the category name and flag name registered in SettingsToPropertiesMapper.java
-        /// to query the experiment flag value. This method will return default_value if
-        /// querying fails.
-        /// Note that for flags from Settings.Global, experiment_category_name should
-        /// always be global_settings.
-        fn GetServerConfigurableFlag(
-            experiment_category_name: &str,
-            experiment_flag_name: &str,
-            default_value: &str,
-        ) -> String;
+/// Use the category name and flag name registered in SettingsToPropertiesMapper.java
+/// to query the experiment flag value. This method will return default_value if
+/// querying fails.
+/// Note that for flags from Settings.Global, experiment_category_name should
+/// always be global_settings.
+pub fn get_server_configurable_flag<'a>(
+    experiment_category_name: &str,
+    experiment_flag_name: &str,
+    default_value: &'a str,
+) -> &'a str {
+    let experiment_category_name = CString::new(experiment_category_name).unwrap();
+    let experiment_flag_name = CString::new(experiment_flag_name).unwrap();
+    let default_value = CString::new(default_value).unwrap();
+    unsafe {
+        let cstr = profcollect_libflags_bindgen::GetServerConfigurableFlag(
+            experiment_category_name.as_ptr(),
+            experiment_flag_name.as_ptr(),
+            default_value.as_ptr(),
+        );
+        CStr::from_ptr(cstr).to_str().unwrap()
     }
 }

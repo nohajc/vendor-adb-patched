@@ -23,15 +23,15 @@ public:
 
     static float getCaptureFillValue(CaptureFill captureFill);
 
-    RenderArea(ui::Size reqSize, CaptureFill captureFill, ui::Dataspace reqDataSpace,
-               const Rect& layerStackRect, bool allowSecureLayers = false,
+    RenderArea(uint32_t reqWidth, uint32_t reqHeight, CaptureFill captureFill,
+               ui::Dataspace reqDataSpace, const Rect& displayViewport,
                RotationFlags rotation = ui::Transform::ROT_0)
-          : mAllowSecureLayers(allowSecureLayers),
-            mReqSize(reqSize),
+          : mReqWidth(reqWidth),
+            mReqHeight(reqHeight),
             mReqDataSpace(reqDataSpace),
             mCaptureFill(captureFill),
             mRotationFlags(rotation),
-            mLayerStackSpaceRect(layerStackRect) {}
+            mDisplayViewport(displayViewport) {}
 
     virtual ~RenderArea() = default;
 
@@ -70,8 +70,8 @@ public:
     RotationFlags getRotationFlags() const { return mRotationFlags; }
 
     // Returns the size of the physical render area.
-    int getReqWidth() const { return mReqSize.width; }
-    int getReqHeight() const { return mReqSize.height; }
+    int getReqWidth() const { return static_cast<int>(mReqWidth); }
+    int getReqHeight() const { return static_cast<int>(mReqHeight); }
 
     // Returns the composition data space of the render area.
     ui::Dataspace getReqDataSpace() const { return mReqDataSpace; }
@@ -83,17 +83,15 @@ public:
     virtual sp<const DisplayDevice> getDisplayDevice() const = 0;
 
     // Returns the source display viewport.
-    const Rect& getLayerStackSpaceRect() const { return mLayerStackSpaceRect; }
-
-protected:
-    const bool mAllowSecureLayers;
+    const Rect& getDisplayViewport() const { return mDisplayViewport; }
 
 private:
-    const ui::Size mReqSize;
+    const uint32_t mReqWidth;
+    const uint32_t mReqHeight;
     const ui::Dataspace mReqDataSpace;
     const CaptureFill mCaptureFill;
     const RotationFlags mRotationFlags;
-    const Rect mLayerStackSpaceRect;
+    const Rect mDisplayViewport;
 };
 
 } // namespace android

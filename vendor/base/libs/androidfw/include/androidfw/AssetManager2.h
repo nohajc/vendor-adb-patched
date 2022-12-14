@@ -94,7 +94,6 @@ class AssetManager2 {
   };
 
   AssetManager2();
-  explicit AssetManager2(AssetManager2&& other) = default;
 
   // Sets/resets the underlying ApkAssets for this AssetManager. The ApkAssets
   // are not owned by the AssetManager, and must have a longer lifetime.
@@ -102,7 +101,12 @@ class AssetManager2 {
   // Only pass invalidate_caches=false when it is known that the structure
   // change in ApkAssets is due to a safe addition of resources with completely
   // new resource IDs.
-  bool SetApkAssets(std::vector<const ApkAssets*> apk_assets, bool invalidate_caches = true);
+  //
+  // Only pass in filter_incompatible_configs=false when you want to load all
+  // configurations (including incompatible ones) such as when constructing an
+  // idmap.
+  bool SetApkAssets(const std::vector<const ApkAssets*>& apk_assets, bool invalidate_caches = true,
+          bool filter_incompatible_configs = true);
 
   inline const std::vector<const ApkAssets*> GetApkAssets() const {
     return apk_assets_;
@@ -294,12 +298,6 @@ class AssetManager2 {
   // data failed.
   base::expected<const ResolvedBag*, NullOrIOError> ResolveBag(SelectedValue& value) const;
 
-  // Returns the android::ResTable_typeSpec flags of the resource ID.
-  //
-  // Returns a null error if the resource could not be resolved, or an I/O error if reading
-  // resource data failed.
-  base::expected<uint32_t, NullOrIOError> GetResourceTypeSpecFlags(uint32_t resid) const;
-
   const std::vector<uint32_t> GetBagResIdStack(uint32_t resid) const;
 
   // Resets the resource resolution structures in preparation for the next resource retrieval.
@@ -332,10 +330,15 @@ class AssetManager2 {
  private:
   DISALLOW_COPY_AND_ASSIGN(AssetManager2);
 
+  struct TypeConfig {
+    incfs::verified_map_ptr<ResTable_type> type;
+    ResTable_config config;
+  };
+
   // A collection of configurations and their associated ResTable_type that match the current
   // AssetManager configuration.
   struct FilteredConfigGroup {
-      std::vector<const TypeSpec::TypeEntry*> type_entries;
+      std::vector<TypeConfig> type_configs;
   };
 
   // Represents an single package.
@@ -410,10 +413,10 @@ class AssetManager2 {
 
   // Triggers the re-construction of lists of types that match the set configuration.
   // This should always be called when mutating the AssetManager's configuration or ApkAssets set.
-  void RebuildFilterList();
+  void RebuildFilterList(bool filter_incompatible_configs = true);
 
   // Retrieves the APK paths of overlays that overlay non-system packages.
-  std::set<const ApkAssets*> GetNonSystemOverlays() const;
+  std::set<std::string> GetNonSystemOverlayPaths() const;
 
   // AssetManager2::GetBag(resid) wraps this function to track which resource ids have already
   // been seen while traversing bag parents.
@@ -457,10 +460,13 @@ class AssetManager2 {
       enum class Type {
         INITIAL,
         BETTER_MATCH,
+        BETTER_MATCH_LOADER,
         OVERLAID,
-        OVERLAID_INLINE,
+        OVERLAID_LOADER,
         SKIPPED,
+        SKIPPED_LOADER,
         NO_ENTRY,
+        NO_ENTRY_LOADER,
       };
 
       // Marks what kind of override this step was.
@@ -469,7 +475,8 @@ class AssetManager2 {
       // Built name of configuration for this step.
       String8 config_name;
 
-      ApkAssetsCookie cookie = kInvalidCookie;
+      // Marks the package name of the better resource found in this step.
+      const std::string* package_name;
     };
 
     // Last resolved resource ID.
@@ -508,18 +515,13 @@ class Theme {
   // data failed.
   base::expected<std::monostate, NullOrIOError> ApplyStyle(uint32_t resid, bool force = false);
 
-  // Clears the existing theme, sets the new asset manager to use for this theme, and applies the
-  // styles in `style_ids` through repeated invocations of `ApplyStyle`.
-  void Rebase(AssetManager2* am, const uint32_t* style_ids, const uint8_t* force,
-              size_t style_count);
-
-  // Sets this Theme to be a copy of `source` if `source` has the same AssetManager as this Theme.
+  // Sets this Theme to be a copy of `other` if `other` has the same AssetManager as this Theme.
   //
-  // If `source` does not have the same AssetManager as this theme, only attributes from ApkAssets
+  // If `other` does not have the same AssetManager as this theme, only attributes from ApkAssets
   // loaded into both AssetManagers will be copied to this theme.
   //
   // Returns an I/O error if reading resource data failed.
-  base::expected<std::monostate, IOError> SetTo(const Theme& source);
+  base::expected<std::monostate, IOError> SetTo(const Theme& other);
 
   void Clear();
 
@@ -551,16 +553,20 @@ class Theme {
 
   void Dump() const;
 
-  struct Entry;
  private:
   DISALLOW_COPY_AND_ASSIGN(Theme);
 
+  // Called by AssetManager2.
   explicit Theme(AssetManager2* asset_manager);
 
-  AssetManager2* asset_manager_ = nullptr;
+  AssetManager2* asset_manager_;
   uint32_t type_spec_flags_ = 0u;
 
-  std::vector<Entry> entries_;
+  // Defined in the cpp.
+  struct Package;
+
+  constexpr static size_t kPackageCount = std::numeric_limits<uint8_t>::max() + 1;
+  std::array<std::unique_ptr<Package>, kPackageCount> packages_;
 };
 
 inline const ResolvedBag::Entry* begin(const ResolvedBag* bag) {

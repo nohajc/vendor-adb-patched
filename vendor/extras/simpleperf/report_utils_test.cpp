@@ -35,37 +35,48 @@ class CallChainReportBuilderTest : public testing::Test {
     thread = thread_tree.FindThread(1);
 
     // Add symbol info for the native library.
-    SetSymbols(fake_native_lib_path, DSO_ELF_FILE,
-               {
-                   Symbol("native_func1", 0x0, 0x100),
-                   Symbol("art_jni_trampoline", 0x100, 0x100),
-               });
+    FileFeature file;
+    file.path = fake_native_lib_path;
+    file.type = DSO_ELF_FILE;
+    file.min_vaddr = file.file_offset_of_min_vaddr = 0;
+    file.symbols = {
+        Symbol("native_func1", 0x0, 0x100),
+        Symbol("art_jni_trampoline", 0x100, 0x100),
+    };
+    thread_tree.AddDsoInfo(file);
 
     // Add symbol info for the interpreter library.
-    SetSymbols(
-        fake_interpreter_path, DSO_ELF_FILE,
-        {
-            Symbol("art_func1", 0x0, 0x100),
-            Symbol("art_func2", 0x100, 0x100),
-            Symbol("_ZN3artL13Method_invokeEP7_JNIEnvP8_jobjectS3_P13_jobjectArray", 0x200, 0x100),
-            Symbol("art_quick_generic_jni_trampoline", 0x300, 0x100),
-        });
+    file.path = fake_interpreter_path;
+    file.type = DSO_ELF_FILE;
+    file.min_vaddr = file.file_offset_of_min_vaddr = 0;
+    file.symbols = {
+        Symbol("art_func1", 0x0, 0x100),
+        Symbol("art_func2", 0x100, 0x100),
+        Symbol("_ZN3artL13Method_invokeEP7_JNIEnvP8_jobjectS3_P13_jobjectArray", 0x200, 0x100),
+    };
+    thread_tree.AddDsoInfo(file);
 
     // Add symbol info for the dex file.
-    SetSymbols(fake_dex_file_path, DSO_DEX_FILE,
-               {
-                   Symbol("java_method1", 0x0, 0x100),
-                   Symbol("java_method2", 0x100, 0x100),
-                   Symbol("obfuscated_class.obfuscated_java_method", 0x200, 0x100),
-               });
+    file.path = fake_dex_file_path;
+    file.type = DSO_DEX_FILE;
+    file.min_vaddr = file.file_offset_of_min_vaddr = 0;
+    file.symbols = {
+        Symbol("java_method1", 0x0, 0x100),
+        Symbol("java_method2", 0x100, 0x100),
+        Symbol("obfuscated_class.obfuscated_java_method", 0x200, 0x100),
+    };
+    thread_tree.AddDsoInfo(file);
 
     // Add symbol info for the jit cache.
-    SetSymbols(fake_jit_cache_path, DSO_ELF_FILE,
-               {
-                   Symbol("java_method2", 0x3000, 0x100),
-                   Symbol("java_method3", 0x3100, 0x100),
-                   Symbol("obfuscated_class.obfuscated_java_method2", 0x3200, 0x100),
-               });
+    file.path = fake_jit_cache_path;
+    file.type = DSO_ELF_FILE;
+    file.min_vaddr = file.file_offset_of_min_vaddr = 0;
+    file.symbols = {
+        Symbol("java_method2", 0x3000, 0x100),
+        Symbol("java_method3", 0x3100, 0x100),
+        Symbol("obfuscated_class.obfuscated_java_method2", 0x3200, 0x100),
+    };
+    thread_tree.AddDsoInfo(file);
 
     // Add map layout for libraries used in the thread:
     // 0x0000 - 0x1000 is mapped to the native library.
@@ -77,15 +88,6 @@ class CallChainReportBuilderTest : public testing::Test {
     thread_tree.AddThreadMap(1, 1, 0x2000, 0x1000, 0x0, fake_dex_file_path);
     thread_tree.AddThreadMap(1, 1, 0x3000, 0x1000, 0x0, fake_jit_cache_path,
                              map_flags::PROT_JIT_SYMFILE_MAP);
-  }
-
-  void SetSymbols(const std::string& path, DsoType dso_type, const std::vector<Symbol>& symbols) {
-    FileFeature file;
-    file.path = path;
-    file.type = dso_type;
-    file.min_vaddr = file.file_offset_of_min_vaddr = 0;
-    file.symbols = symbols;
-    thread_tree.AddDsoInfo(file);
   }
 
   ThreadTree thread_tree;
@@ -241,7 +243,7 @@ TEST_F(CallChainReportBuilderTest, keep_art_jni_method) {
       0x100,   // art_jni_trampoline
       0x2000,  // java_method1 in dex file
       0x1200,  // art::Method_invoke(_JNIEnv*, _jobject*, _jobject*, _jobjectArray*)
-      0x1300,  // art_quick_generic_jni_trampoline
+      0x100,   // art_jni_trampoline
   };
   CallChainReportBuilder builder(thread_tree);
   std::vector<CallChainReportEntry> entries = builder.Build(thread, fake_ips, 0);
@@ -306,110 +308,5 @@ TEST_F(CallChainReportBuilderTest, add_proguard_mapping_file) {
                "android.support.v4.app.RemoteActionCompatParcelizer.read2");
   ASSERT_EQ(entries[1].dso->Path(), fake_jit_cache_path);
   ASSERT_EQ(entries[1].vaddr_in_file, 0x3200);
-  ASSERT_EQ(entries[1].execution_type, CallChainExecutionType::JIT_JVM_METHOD);
-}
-
-TEST_F(CallChainReportBuilderTest, add_proguard_mapping_file_for_jit_method_with_signature) {
-  std::vector<uint64_t> fake_ips = {
-      0x3200,  // 3200,  // void ctep.v(cteo, ctgc, ctbn)
-  };
-  SetSymbols(fake_jit_cache_path, DSO_ELF_FILE,
-             {Symbol("void ctep.v(cteo, ctgc, ctbn)", 0x3200, 0x100)});
-  CallChainReportBuilder builder(thread_tree);
-  TemporaryFile tmpfile;
-  close(tmpfile.release());
-  ASSERT_TRUE(android::base::WriteStringToFile(
-      "android.support.v4.app.RemoteActionCompatParcelizer -> ctep:\n"
-      "    13:13:androidx.core.app.RemoteActionCompat read(androidx.versionedparcelable.Versioned"
-      "Parcel) -> v\n",
-      tmpfile.path));
-  builder.AddProguardMappingFile(tmpfile.path);
-  std::vector<CallChainReportEntry> entries = builder.Build(thread, fake_ips, 0);
-  ASSERT_EQ(entries.size(), 1);
-  ASSERT_EQ(entries[0].ip, 0x3200);
-  ASSERT_STREQ(entries[0].symbol->DemangledName(),
-               "android.support.v4.app.RemoteActionCompatParcelizer.read");
-  ASSERT_EQ(entries[0].dso->Path(), fake_jit_cache_path);
-  ASSERT_EQ(entries[0].vaddr_in_file, 0x3200);
-  ASSERT_EQ(entries[0].execution_type, CallChainExecutionType::JIT_JVM_METHOD);
-}
-
-TEST_F(CallChainReportBuilderTest,
-       add_proguard_mapping_file_for_compiled_java_method_with_signature) {
-  TemporaryFile tmpfile;
-  close(tmpfile.release());
-  ASSERT_TRUE(android::base::WriteStringToFile(
-      "android.support.v4.app.RemoteActionCompatParcelizer -> ctep:\n"
-      "    13:13:androidx.core.app.RemoteActionCompat read(androidx.versionedparcelable.Versioned"
-      "Parcel) -> v\n",
-      tmpfile.path));
-
-  for (const char* suffix : {".odex", ".oat", ".dex"}) {
-    std::string compiled_java_path = "compiled_java" + std::string(suffix);
-    SetSymbols(compiled_java_path, DSO_ELF_FILE,
-               {Symbol("void ctep.v(cteo, ctgc, ctbn)", 0x0, 0x100)});
-    thread_tree.AddThreadMap(1, 1, 0x4000, 0x1000, 0x0, compiled_java_path);
-    std::vector<uint64_t> fake_ips = {
-        0x4000,  // 4000,  // void ctep.v(cteo, ctgc, ctbn)
-    };
-
-    CallChainReportBuilder builder(thread_tree);
-    builder.AddProguardMappingFile(tmpfile.path);
-    std::vector<CallChainReportEntry> entries = builder.Build(thread, fake_ips, 0);
-    ASSERT_EQ(entries.size(), 1);
-    ASSERT_EQ(entries[0].ip, 0x4000);
-    ASSERT_STREQ(entries[0].symbol->DemangledName(),
-                 "android.support.v4.app.RemoteActionCompatParcelizer.read");
-    ASSERT_EQ(entries[0].dso->Path(), compiled_java_path);
-    ASSERT_EQ(entries[0].vaddr_in_file, 0x0);
-    ASSERT_EQ(entries[0].execution_type, CallChainExecutionType::NATIVE_METHOD);
-  }
-}
-
-TEST_F(CallChainReportBuilderTest, convert_jit_frame_for_jit_method_with_signature) {
-  std::vector<uint64_t> fake_ips = {
-      0x2200,  // 2200,  // ctep.v
-      0x3200,  // 3200,  // void ctep.v(cteo, ctgc, ctbn)
-  };
-  SetSymbols(fake_dex_file_path, DSO_DEX_FILE, {Symbol("ctep.v", 0x200, 0x100)});
-  SetSymbols(fake_jit_cache_path, DSO_ELF_FILE,
-             {Symbol("void ctep.v(cteo, ctgc, ctbn)", 0x3200, 0x100)});
-  CallChainReportBuilder builder(thread_tree);
-  // Test if we can convert jit method with signature.
-  std::vector<CallChainReportEntry> entries = builder.Build(thread, fake_ips, 0);
-  ASSERT_EQ(entries.size(), 2);
-  ASSERT_EQ(entries[0].ip, 0x2200);
-  ASSERT_STREQ(entries[0].symbol->DemangledName(), "ctep.v");
-  ASSERT_EQ(entries[0].dso->Path(), fake_dex_file_path);
-  ASSERT_EQ(entries[0].vaddr_in_file, 0x200);
-  ASSERT_EQ(entries[0].execution_type, CallChainExecutionType::INTERPRETED_JVM_METHOD);
-  ASSERT_EQ(entries[1].ip, 0x3200);
-  ASSERT_STREQ(entries[1].symbol->DemangledName(), "ctep.v");
-  ASSERT_EQ(entries[1].dso->Path(), fake_dex_file_path);
-  ASSERT_EQ(entries[1].vaddr_in_file, 0x200);
-  ASSERT_EQ(entries[1].execution_type, CallChainExecutionType::JIT_JVM_METHOD);
-
-  // Test adding proguard mapping file.
-  TemporaryFile tmpfile;
-  close(tmpfile.release());
-  ASSERT_TRUE(android::base::WriteStringToFile(
-      "android.support.v4.app.RemoteActionCompatParcelizer -> ctep:\n"
-      "    13:13:androidx.core.app.RemoteActionCompat read(androidx.versionedparcelable.Versioned"
-      "Parcel) -> v\n",
-      tmpfile.path));
-  builder.AddProguardMappingFile(tmpfile.path);
-  entries = builder.Build(thread, fake_ips, 0);
-  ASSERT_EQ(entries.size(), 2);
-  ASSERT_EQ(entries[0].ip, 0x2200);
-  ASSERT_STREQ(entries[0].symbol->DemangledName(),
-               "android.support.v4.app.RemoteActionCompatParcelizer.read");
-  ASSERT_EQ(entries[0].dso->Path(), fake_dex_file_path);
-  ASSERT_EQ(entries[0].vaddr_in_file, 0x200);
-  ASSERT_EQ(entries[0].execution_type, CallChainExecutionType::INTERPRETED_JVM_METHOD);
-  ASSERT_EQ(entries[1].ip, 0x3200);
-  ASSERT_STREQ(entries[1].symbol->DemangledName(),
-               "android.support.v4.app.RemoteActionCompatParcelizer.read");
-  ASSERT_EQ(entries[1].dso->Path(), fake_dex_file_path);
-  ASSERT_EQ(entries[1].vaddr_in_file, 0x200);
   ASSERT_EQ(entries[1].execution_type, CallChainExecutionType::JIT_JVM_METHOD);
 }

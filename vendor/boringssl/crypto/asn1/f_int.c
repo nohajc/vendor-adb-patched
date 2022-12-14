@@ -95,8 +95,3 @@ int i2a_ASN1_INTEGER(BIO *bp, const ASN1_INTEGER *a)
  err:
     return (-1);
 }
-
-int i2a_ASN1_ENUMERATED(BIO *bp, const ASN1_ENUMERATED *a)
-{
-    return i2a_ASN1_INTEGER(bp, a);
-}

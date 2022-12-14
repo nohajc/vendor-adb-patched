@@ -21,7 +21,7 @@
 
 bool should_dump_native_traces(const char* path);
 
-std::set<int> get_interesting_pids();
+std::set<int> get_interesting_hal_pids();
 
 bool IsZygote(int pid);
 

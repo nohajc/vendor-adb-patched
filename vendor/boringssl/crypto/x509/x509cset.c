@@ -60,33 +60,16 @@
 #include <openssl/x509.h>
 
 #include "../internal.h"
-#include "internal.h"
 
 int X509_CRL_set_version(X509_CRL *x, long version)
 {
-    if (x == NULL) {
-        return 0;
-    }
-
-    if (version < X509_CRL_VERSION_1 || version > X509_CRL_VERSION_2) {
-        OPENSSL_PUT_ERROR(X509, X509_R_INVALID_VERSION);
-        return 0;
-    }
-
-    /* v1(0) is default and is represented by omitting the version. */
-    if (version == X509_CRL_VERSION_1) {
-        ASN1_INTEGER_free(x->crl->version);
-        x->crl->version = NULL;
-        return 1;
-    }
-
+    if (x == NULL)
+        return (0);
     if (x->crl->version == NULL) {
-        x->crl->version = ASN1_INTEGER_new();
-        if (x->crl->version == NULL) {
-            return 0;
-        }
+        if ((x->crl->version = ASN1_INTEGER_new()) == NULL)
+            return (0);
     }
-    return ASN1_INTEGER_set(x->crl->version, version);
+    return (ASN1_INTEGER_set(x->crl->version, version));
 }
 
 int X509_CRL_set_issuer_name(X509_CRL *x, X509_NAME *name)
@@ -132,8 +115,16 @@ int X509_CRL_set1_nextUpdate(X509_CRL *x, const ASN1_TIME *tm)
 
 int X509_CRL_sort(X509_CRL *c)
 {
-    /* Sort the data so it will be written in serial number order. */
+    size_t i;
+    X509_REVOKED *r;
+    /*
+     * sort the data so it will be written in serial number order
+     */
     sk_X509_REVOKED_sort(c->crl->revoked);
+    for (i = 0; i < sk_X509_REVOKED_num(c->crl->revoked); i++) {
+        r = sk_X509_REVOKED_value(c->crl->revoked, i);
+        r->sequence = i;
+    }
     c->crl->enc.modified = 1;
     return 1;
 }
@@ -258,35 +249,4 @@ int i2d_re_X509_CRL_tbs(X509_CRL *crl, unsigned char **outp)
 int i2d_X509_CRL_tbs(X509_CRL *crl, unsigned char **outp)
 {
     return i2d_X509_CRL_INFO(crl->crl, outp);
-}
-
-int X509_CRL_set1_signature_algo(X509_CRL *crl, const X509_ALGOR *algo)
-{
-    /* TODO(davidben): Const-correct generated ASN.1 dup functions.
-     * Alternatively, when the types are hidden and we can embed required fields
-     * directly in structs, import |X509_ALGOR_copy| from upstream. */
-    X509_ALGOR *copy1 = X509_ALGOR_dup((X509_ALGOR *)algo);
-    X509_ALGOR *copy2 = X509_ALGOR_dup((X509_ALGOR *)algo);
-    if (copy1 == NULL || copy2 == NULL) {
-        X509_ALGOR_free(copy1);
-        X509_ALGOR_free(copy2);
-        return 0;
-    }
-
-    X509_ALGOR_free(crl->sig_alg);
-    crl->sig_alg = copy1;
-    X509_ALGOR_free(crl->crl->sig_alg);
-    crl->crl->sig_alg = copy2;
-    return 1;
-}
-
-int X509_CRL_set1_signature_value(X509_CRL *crl, const uint8_t *sig,
-                                  size_t sig_len)
-{
-    if (!ASN1_STRING_set(crl->signature, sig, sig_len)) {
-      return 0;
-    }
-    crl->signature->flags &= ~(ASN1_STRING_FLAG_BITS_LEFT | 0x07);
-    crl->signature->flags |= ASN1_STRING_FLAG_BITS_LEFT;
-    return 1;
 }

@@ -2,4 +2,4 @@ service virtual_touchpad /system/bin/virtual_touchpad
   class core
   user system
   group system input uhid
-  task_profiles VrServiceCapacityNormal
+  writepid /dev/cpuset/system/tasks

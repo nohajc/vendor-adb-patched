@@ -17,7 +17,6 @@
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
-#pragma clang diagnostic ignored "-Wextra"
 
 //#define LOG_NDEBUG 0
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
@@ -29,18 +28,15 @@
 #include <compositionengine/Display.h>
 #include <compositionengine/impl/OutputCompositionState.h>
 #include <cutils/properties.h>
-#include <ftl/future.h>
 #include <gui/IRegionSamplingListener.h>
-#include <gui/SyncScreenCaptureListener.h>
 #include <ui/DisplayStatInfo.h>
 #include <utils/Trace.h>
 
 #include <string>
 
 #include "DisplayDevice.h"
-#include "DisplayRenderArea.h"
 #include "Layer.h"
-#include "Scheduler/VsyncController.h"
+#include "Scheduler/DispSync.h"
 #include "SurfaceFlinger.h"
 
 namespace android {
@@ -56,14 +52,16 @@ enum class samplingStep {
     noWorkNeeded,
     idleTimerWaiting,
     waitForQuietFrame,
+    waitForZeroPhase,
     waitForSamplePhase,
     sample
 };
 
-constexpr auto defaultRegionSamplingWorkDuration = 3ms;
+constexpr auto timeForRegionSampling = 5000000ns;
+constexpr auto maxRegionSamplingSkips = 10;
+constexpr auto defaultRegionSamplingOffset = -3ms;
 constexpr auto defaultRegionSamplingPeriod = 100ms;
 constexpr auto defaultRegionSamplingTimerTimeout = 100ms;
-constexpr auto maxRegionSamplingDelay = 100ms;
 // TODO: (b/127403193) duration to string conversion could probably be constexpr
 template <typename Rep, typename Per>
 inline std::string toNsString(std::chrono::duration<Rep, Per> t) {
@@ -73,9 +71,9 @@ inline std::string toNsString(std::chrono::duration<Rep, Per> t) {
 RegionSamplingThread::EnvironmentTimingTunables::EnvironmentTimingTunables() {
     char value[PROPERTY_VALUE_MAX] = {};
 
-    property_get("debug.sf.region_sampling_duration_ns", value,
-                 toNsString(defaultRegionSamplingWorkDuration).c_str());
-    int const samplingDurationNsRaw = atoi(value);
+    property_get("debug.sf.region_sampling_offset_ns", value,
+                 toNsString(defaultRegionSamplingOffset).c_str());
+    int const samplingOffsetNsRaw = atoi(value);
 
     property_get("debug.sf.region_sampling_period_ns", value,
                  toNsString(defaultRegionSamplingPeriod).c_str());
@@ -87,33 +85,103 @@ RegionSamplingThread::EnvironmentTimingTunables::EnvironmentTimingTunables() {
 
     if ((samplingPeriodNsRaw < 0) || (samplingTimerTimeoutNsRaw < 0)) {
         ALOGW("User-specified sampling tuning options nonsensical. Using defaults");
-        mSamplingDuration = defaultRegionSamplingWorkDuration;
+        mSamplingOffset = defaultRegionSamplingOffset;
         mSamplingPeriod = defaultRegionSamplingPeriod;
         mSamplingTimerTimeout = defaultRegionSamplingTimerTimeout;
     } else {
-        mSamplingDuration = std::chrono::nanoseconds(samplingDurationNsRaw);
+        mSamplingOffset = std::chrono::nanoseconds(samplingOffsetNsRaw);
         mSamplingPeriod = std::chrono::nanoseconds(samplingPeriodNsRaw);
         mSamplingTimerTimeout = std::chrono::nanoseconds(samplingTimerTimeoutNsRaw);
     }
 }
 
-RegionSamplingThread::RegionSamplingThread(SurfaceFlinger& flinger, const TimingTunables& tunables)
+struct SamplingOffsetCallback : DispSync::Callback {
+    SamplingOffsetCallback(RegionSamplingThread& samplingThread, Scheduler& scheduler,
+                           std::chrono::nanoseconds targetSamplingOffset)
+          : mRegionSamplingThread(samplingThread),
+            mScheduler(scheduler),
+            mTargetSamplingOffset(targetSamplingOffset) {}
+
+    ~SamplingOffsetCallback() { stopVsyncListener(); }
+
+    SamplingOffsetCallback(const SamplingOffsetCallback&) = delete;
+    SamplingOffsetCallback& operator=(const SamplingOffsetCallback&) = delete;
+
+    void startVsyncListener() {
+        std::lock_guard lock(mMutex);
+        if (mVsyncListening) return;
+
+        mPhaseIntervalSetting = Phase::ZERO;
+        mScheduler.getPrimaryDispSync().addEventListener("SamplingThreadDispSyncListener", 0, this,
+                                                         mLastCallbackTime);
+        mVsyncListening = true;
+    }
+
+    void stopVsyncListener() {
+        std::lock_guard lock(mMutex);
+        stopVsyncListenerLocked();
+    }
+
+private:
+    void stopVsyncListenerLocked() /*REQUIRES(mMutex)*/ {
+        if (!mVsyncListening) return;
+
+        mScheduler.getPrimaryDispSync().removeEventListener(this, &mLastCallbackTime);
+        mVsyncListening = false;
+    }
+
+    void onDispSyncEvent(nsecs_t /*when*/, nsecs_t /*expectedVSyncTimestamp*/) final {
+        std::unique_lock<decltype(mMutex)> lock(mMutex);
+
+        if (mPhaseIntervalSetting == Phase::ZERO) {
+            ATRACE_INT(lumaSamplingStepTag, static_cast<int>(samplingStep::waitForSamplePhase));
+            mPhaseIntervalSetting = Phase::SAMPLING;
+            mScheduler.getPrimaryDispSync().changePhaseOffset(this, mTargetSamplingOffset.count());
+            return;
+        }
+
+        if (mPhaseIntervalSetting == Phase::SAMPLING) {
+            mPhaseIntervalSetting = Phase::ZERO;
+            mScheduler.getPrimaryDispSync().changePhaseOffset(this, 0);
+            stopVsyncListenerLocked();
+            lock.unlock();
+            mRegionSamplingThread.notifySamplingOffset();
+            return;
+        }
+    }
+
+    RegionSamplingThread& mRegionSamplingThread;
+    Scheduler& mScheduler;
+    const std::chrono::nanoseconds mTargetSamplingOffset;
+    mutable std::mutex mMutex;
+    nsecs_t mLastCallbackTime = 0;
+    enum class Phase {
+        ZERO,
+        SAMPLING
+    } mPhaseIntervalSetting /*GUARDED_BY(mMutex) macro doesnt work with unique_lock?*/
+            = Phase::ZERO;
+    bool mVsyncListening /*GUARDED_BY(mMutex)*/ = false;
+};
+
+RegionSamplingThread::RegionSamplingThread(SurfaceFlinger& flinger, Scheduler& scheduler,
+                                           const TimingTunables& tunables)
       : mFlinger(flinger),
+        mScheduler(scheduler),
         mTunables(tunables),
-        mIdleTimer(
-                "RegSampIdle",
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                        mTunables.mSamplingTimerTimeout),
-                [] {}, [this] { checkForStaleLuma(); }),
-        mLastSampleTime(0ns) {
+        mIdleTimer(std::chrono::duration_cast<std::chrono::milliseconds>(
+                           mTunables.mSamplingTimerTimeout),
+                   [] {}, [this] { checkForStaleLuma(); }),
+        mPhaseCallback(std::make_unique<SamplingOffsetCallback>(*this, mScheduler,
+                                                                tunables.mSamplingOffset)),
+        lastSampleTime(0ns) {
     mThread = std::thread([this]() { threadMain(); });
-    pthread_setname_np(mThread.native_handle(), "RegionSampling");
+    pthread_setname_np(mThread.native_handle(), "RegionSamplingThread");
     mIdleTimer.start();
 }
 
-RegionSamplingThread::RegionSamplingThread(SurfaceFlinger& flinger)
-      : RegionSamplingThread(flinger,
-                             TimingTunables{defaultRegionSamplingWorkDuration,
+RegionSamplingThread::RegionSamplingThread(SurfaceFlinger& flinger, Scheduler& scheduler)
+      : RegionSamplingThread(flinger, scheduler,
+                             TimingTunables{defaultRegionSamplingOffset,
                                             defaultRegionSamplingPeriod,
                                             defaultRegionSamplingTimerTimeout}) {}
 
@@ -147,46 +215,49 @@ void RegionSamplingThread::removeListener(const sp<IRegionSamplingListener>& lis
 void RegionSamplingThread::checkForStaleLuma() {
     std::lock_guard lock(mThreadControlMutex);
 
-    if (mSampleRequestTime.has_value()) {
-        ATRACE_INT(lumaSamplingStepTag, static_cast<int>(samplingStep::waitForSamplePhase));
-        mSampleRequestTime.reset();
-        mFlinger.scheduleRegionSamplingThread();
+    if (mDiscardedFrames > 0) {
+        ATRACE_INT(lumaSamplingStepTag, static_cast<int>(samplingStep::waitForZeroPhase));
+        mDiscardedFrames = 0;
+        mPhaseCallback->startVsyncListener();
     }
 }
 
-void RegionSamplingThread::onCompositionComplete(
-        std::optional<std::chrono::steady_clock::time_point> samplingDeadline) {
-    doSample(samplingDeadline);
+void RegionSamplingThread::notifyNewContent() {
+    doSample();
 }
 
-void RegionSamplingThread::doSample(
-        std::optional<std::chrono::steady_clock::time_point> samplingDeadline) {
+void RegionSamplingThread::notifySamplingOffset() {
+    doSample();
+}
+
+void RegionSamplingThread::doSample() {
     std::lock_guard lock(mThreadControlMutex);
-    const auto now = std::chrono::steady_clock::now();
-    if (mLastSampleTime + mTunables.mSamplingPeriod > now) {
-        // content changed, but we sampled not too long ago, so we need to sample some time in the
-        // future.
+    auto now = std::chrono::nanoseconds(systemTime(SYSTEM_TIME_MONOTONIC));
+    if (lastSampleTime + mTunables.mSamplingPeriod > now) {
         ATRACE_INT(lumaSamplingStepTag, static_cast<int>(samplingStep::idleTimerWaiting));
-        mSampleRequestTime = now;
+        if (mDiscardedFrames == 0) mDiscardedFrames++;
         return;
     }
-    if (!mSampleRequestTime.has_value() || now - *mSampleRequestTime < maxRegionSamplingDelay) {
+    if (mDiscardedFrames < maxRegionSamplingSkips) {
         // If there is relatively little time left for surfaceflinger
         // until the next vsync deadline, defer this sampling work
         // to a later frame, when hopefully there will be more time.
-        if (samplingDeadline.has_value() && now + mTunables.mSamplingDuration > *samplingDeadline) {
+        DisplayStatInfo stats;
+        mScheduler.getDisplayStatInfo(&stats);
+        if (std::chrono::nanoseconds(stats.vsyncTime) - now < timeForRegionSampling) {
             ATRACE_INT(lumaSamplingStepTag, static_cast<int>(samplingStep::waitForQuietFrame));
-            mSampleRequestTime = mSampleRequestTime.value_or(now);
+            mDiscardedFrames++;
             return;
         }
     }
 
     ATRACE_INT(lumaSamplingStepTag, static_cast<int>(samplingStep::sample));
 
-    mSampleRequestTime.reset();
-    mLastSampleTime = now;
+    mDiscardedFrames = 0;
+    lastSampleTime = now;
 
     mIdleTimer.reset();
+    mPhaseCallback->stopVsyncListener();
 
     mSampleRequested = true;
     mCondition.notify_one();
@@ -265,20 +336,8 @@ void RegionSamplingThread::captureSample() {
         return;
     }
 
-    wp<const DisplayDevice> displayWeak;
-
-    ui::LayerStack layerStack;
-    ui::Transform::RotationFlags orientation;
-    ui::Size displaySize;
-
-    {
-        // TODO(b/159112860): Don't keep sp<DisplayDevice> outside of SF main thread
-        const sp<const DisplayDevice> display = mFlinger.getDefaultDisplayDevice();
-        displayWeak = display;
-        layerStack = display->getLayerStack();
-        orientation = ui::Transform::toRotationFlags(display->getOrientation());
-        displaySize = display->getSize();
-    }
+    const auto device = mFlinger.getDefaultDisplayDevice();
+    const auto orientation = ui::Transform::toRotationFlags(device->getOrientation());
 
     std::vector<RegionSamplingThread::Descriptor> descriptors;
     Region sampleRegion;
@@ -287,13 +346,30 @@ void RegionSamplingThread::captureSample() {
         descriptors.emplace_back(descriptor);
     }
 
-    const Rect sampledBounds = sampleRegion.bounds();
-    constexpr bool kUseIdentityTransform = false;
+    const Rect sampledArea = sampleRegion.bounds();
 
-    SurfaceFlinger::RenderAreaFuture renderAreaFuture = ftl::defer([=] {
-        return DisplayRenderArea::create(displayWeak, sampledBounds, sampledBounds.getSize(),
-                                         ui::Dataspace::V0_SRGB, kUseIdentityTransform);
-    });
+    auto dx = 0;
+    auto dy = 0;
+    switch (orientation) {
+        case ui::Transform::ROT_90:
+            dx = device->getWidth();
+            break;
+        case ui::Transform::ROT_180:
+            dx = device->getWidth();
+            dy = device->getHeight();
+            break;
+        case ui::Transform::ROT_270:
+            dy = device->getHeight();
+            break;
+        default:
+            break;
+    }
+
+    ui::Transform t(orientation);
+    auto screencapRegion = t.transform(sampleRegion);
+    screencapRegion = screencapRegion.translate(dx, dy);
+    DisplayRenderArea renderArea(device, screencapRegion.bounds(), sampledArea.getWidth(),
+                                 sampledArea.getHeight(), ui::Dataspace::V0_SRGB, orientation);
 
     std::unordered_set<sp<IRegionSamplingListener>, SpHash<IRegionSamplingListener>> listeners;
 
@@ -317,9 +393,9 @@ void RegionSamplingThread::captureSample() {
             constexpr bool roundOutwards = true;
             Rect transformed = transform.transform(bounds, roundOutwards);
 
-            // If this layer doesn't intersect with the larger sampledBounds, skip capturing it
+            // If this layer doesn't intersect with the larger sampledArea, skip capturing it
             Rect ignore;
-            if (!transformed.intersect(sampledBounds, &ignore)) return;
+            if (!transformed.intersect(sampledArea, &ignore)) return;
 
             // If the layer doesn't intersect a sampling area, skip capturing it
             bool intersectsAnyArea = false;
@@ -335,31 +411,22 @@ void RegionSamplingThread::captureSample() {
                   bounds.top, bounds.right, bounds.bottom);
             visitor(layer);
         };
-        mFlinger.traverseLayersInLayerStack(layerStack, CaptureArgs::UNSET_UID, filterVisitor);
+        mFlinger.traverseLayersInDisplay(device, filterVisitor);
     };
 
-    std::shared_ptr<renderengine::ExternalTexture> buffer = nullptr;
-    if (mCachedBuffer && mCachedBuffer->getBuffer()->getWidth() == sampledBounds.getWidth() &&
-        mCachedBuffer->getBuffer()->getHeight() == sampledBounds.getHeight()) {
+    sp<GraphicBuffer> buffer = nullptr;
+    if (mCachedBuffer && mCachedBuffer->getWidth() == sampledArea.getWidth() &&
+        mCachedBuffer->getHeight() == sampledArea.getHeight()) {
         buffer = mCachedBuffer;
     } else {
-        const uint32_t usage =
-                GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE;
-        sp<GraphicBuffer> graphicBuffer =
-                new GraphicBuffer(sampledBounds.getWidth(), sampledBounds.getHeight(),
-                                  PIXEL_FORMAT_RGBA_8888, 1, usage, "RegionSamplingThread");
-        const status_t bufferStatus = graphicBuffer->initCheck();
-        LOG_ALWAYS_FATAL_IF(bufferStatus != OK, "captureSample: Buffer failed to allocate: %d",
-                            bufferStatus);
-        buffer = std::make_shared<
-                renderengine::ExternalTexture>(graphicBuffer, mFlinger.getRenderEngine(),
-                                               renderengine::ExternalTexture::Usage::WRITEABLE);
+        const uint32_t usage = GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_HW_RENDER;
+        buffer = new GraphicBuffer(sampledArea.getWidth(), sampledArea.getHeight(),
+                                   PIXEL_FORMAT_RGBA_8888, 1, usage, "RegionSamplingThread");
     }
 
-    const sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
-    mFlinger.captureScreenCommon(std::move(renderAreaFuture), traverseLayers, buffer,
-                                 true /* regionSampling */, false /* grayscale */, captureListener);
-    ScreenCaptureResults captureResults = captureListener->waitForResults();
+    bool ignored;
+    mFlinger.captureScreenCommon(renderArea, traverseLayers, buffer, false /* identityTransform */,
+                                 true /* regionSampling */, ignored);
 
     std::vector<Descriptor> activeDescriptors;
     for (const auto& descriptor : descriptors) {
@@ -369,8 +436,8 @@ void RegionSamplingThread::captureSample() {
     }
 
     ALOGV("Sampling %zu descriptors", activeDescriptors.size());
-    std::vector<float> lumas = sampleBuffer(buffer->getBuffer(), sampledBounds.leftTop(),
-                                            activeDescriptors, orientation);
+    std::vector<float> lumas =
+            sampleBuffer(buffer, sampledArea.leftTop(), activeDescriptors, orientation);
     if (lumas.size() != activeDescriptors.size()) {
         ALOGW("collected %zu median luma values for %zu descriptors", lumas.size(),
               activeDescriptors.size());
@@ -381,6 +448,10 @@ void RegionSamplingThread::captureSample() {
         activeDescriptors[d].listener->onSampleCollected(lumas[d]);
     }
 
+    // Extend the lifetime of mCachedBuffer from the previous frame to here to ensure that:
+    // 1) The region sampling thread is the last owner of the buffer, and the freeing of the buffer
+    // happens in this thread, as opposed to the main thread.
+    // 2) The listener(s) receive their notifications prior to freeing the buffer.
     mCachedBuffer = buffer;
     ATRACE_INT(lumaSamplingStepTag, static_cast<int>(samplingStep::noWorkNeeded));
 }
@@ -404,4 +475,4 @@ void RegionSamplingThread::threadMain() NO_THREAD_SAFETY_ANALYSIS {
 } // namespace android
 
 // TODO(b/129481165): remove the #pragma below and fix conversion issues
-#pragma clang diagnostic pop // ignored "-Wconversion -Wextra"
+#pragma clang diagnostic pop // ignored "-Wconversion"

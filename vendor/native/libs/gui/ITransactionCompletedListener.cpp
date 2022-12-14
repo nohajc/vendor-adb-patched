@@ -17,10 +17,7 @@
 #define LOG_TAG "ITransactionCompletedListener"
 //#define LOG_NDEBUG 0
 
-#include <gui/ISurfaceComposer.h>
 #include <gui/ITransactionCompletedListener.h>
-#include <gui/LayerState.h>
-#include <private/gui/ParcelUtils.h>
 
 namespace android {
 
@@ -28,8 +25,7 @@ namespace { // Anonymous
 
 enum class Tag : uint32_t {
     ON_TRANSACTION_COMPLETED = IBinder::FIRST_CALL_TRANSACTION,
-    ON_RELEASE_BUFFER,
-    LAST = ON_RELEASE_BUFFER,
+    LAST = ON_TRANSACTION_COMPLETED,
 };
 
 } // Anonymous namespace
@@ -94,67 +90,65 @@ status_t FrameEventHistoryStats::readFromParcel(const Parcel* input) {
     return err;
 }
 
-JankData::JankData()
-      : frameVsyncId(FrameTimelineInfo::INVALID_VSYNC_ID), jankType(JankType::None) {}
-
-status_t JankData::writeToParcel(Parcel* output) const {
-    SAFE_PARCEL(output->writeInt64, frameVsyncId);
-    SAFE_PARCEL(output->writeInt32, jankType);
-    return NO_ERROR;
-}
-
-status_t JankData::readFromParcel(const Parcel* input) {
-    SAFE_PARCEL(input->readInt64, &frameVsyncId);
-    SAFE_PARCEL(input->readInt32, &jankType);
-    return NO_ERROR;
-}
-
 status_t SurfaceStats::writeToParcel(Parcel* output) const {
-    SAFE_PARCEL(output->writeStrongBinder, surfaceControl);
-    SAFE_PARCEL(output->writeInt64, acquireTime);
+    status_t err = output->writeStrongBinder(surfaceControl);
+    if (err != NO_ERROR) {
+        return err;
+    }
+    err = output->writeInt64(acquireTime);
+    if (err != NO_ERROR) {
+        return err;
+    }
     if (previousReleaseFence) {
-        SAFE_PARCEL(output->writeBool, true);
-        SAFE_PARCEL(output->write, *previousReleaseFence);
+        err = output->writeBool(true);
+        if (err != NO_ERROR) {
+            return err;
+        }
+        err = output->write(*previousReleaseFence);
     } else {
-        SAFE_PARCEL(output->writeBool, false);
+        err = output->writeBool(false);
     }
-    SAFE_PARCEL(output->writeUint32, transformHint);
-    SAFE_PARCEL(output->writeUint32, currentMaxAcquiredBufferCount);
-    SAFE_PARCEL(output->writeParcelable, eventStats);
-    SAFE_PARCEL(output->writeInt32, static_cast<int32_t>(jankData.size()));
-    for (const auto& data : jankData) {
-        SAFE_PARCEL(output->writeParcelable, data);
+    err = output->writeUint32(transformHint);
+    if (err != NO_ERROR) {
+        return err;
     }
-    SAFE_PARCEL(output->writeParcelable, previousReleaseCallbackId);
-    return NO_ERROR;
+
+    err = output->writeParcelable(eventStats);
+    return err;
 }
 
 status_t SurfaceStats::readFromParcel(const Parcel* input) {
-    SAFE_PARCEL(input->readStrongBinder, &surfaceControl);
-    SAFE_PARCEL(input->readInt64, &acquireTime);
+    status_t err = input->readStrongBinder(&surfaceControl);
+    if (err != NO_ERROR) {
+        return err;
+    }
+    err = input->readInt64(&acquireTime);
+    if (err != NO_ERROR) {
+        return err;
+    }
     bool hasFence = false;
-    SAFE_PARCEL(input->readBool, &hasFence);
+    err = input->readBool(&hasFence);
+    if (err != NO_ERROR) {
+        return err;
+    }
     if (hasFence) {
         previousReleaseFence = new Fence();
-        SAFE_PARCEL(input->read, *previousReleaseFence);
+        err = input->read(*previousReleaseFence);
+        if (err != NO_ERROR) {
+            return err;
+        }
     }
-    SAFE_PARCEL(input->readUint32, &transformHint);
-    SAFE_PARCEL(input->readUint32, &currentMaxAcquiredBufferCount);
-    SAFE_PARCEL(input->readParcelable, &eventStats);
+    err = input->readUint32(&transformHint);
+    if (err != NO_ERROR) {
+        return err;
+    }
 
-    int32_t jankData_size = 0;
-    SAFE_PARCEL_READ_SIZE(input->readInt32, &jankData_size, input->dataSize());
-    for (int i = 0; i < jankData_size; i++) {
-        JankData data;
-        SAFE_PARCEL(input->readParcelable, &data);
-        jankData.push_back(data);
-    }
-    SAFE_PARCEL(input->readParcelable, &previousReleaseCallbackId);
-    return NO_ERROR;
+    err = input->readParcelable(&eventStats);
+    return err;
 }
 
 status_t TransactionStats::writeToParcel(Parcel* output) const {
-    status_t err = output->writeParcelableVector(callbackIds);
+    status_t err = output->writeInt64Vector(callbackIds);
     if (err != NO_ERROR) {
         return err;
     }
@@ -178,7 +172,7 @@ status_t TransactionStats::writeToParcel(Parcel* output) const {
 }
 
 status_t TransactionStats::readFromParcel(const Parcel* input) {
-    status_t err = input->readParcelableVector(&callbackIds);
+    status_t err = input->readInt64Vector(&callbackIds);
     if (err != NO_ERROR) {
         return err;
     }
@@ -229,9 +223,8 @@ status_t ListenerStats::readFromParcel(const Parcel* input) {
     return NO_ERROR;
 }
 
-ListenerStats ListenerStats::createEmpty(
-        const sp<IBinder>& listener,
-        const std::unordered_set<CallbackId, CallbackIdHash>& callbackIds) {
+ListenerStats ListenerStats::createEmpty(const sp<IBinder>& listener,
+                                         const std::unordered_set<CallbackId>& callbackIds) {
     ListenerStats listenerStats;
     listenerStats.listener = listener;
     listenerStats.transactionStats.emplace_back(callbackIds);
@@ -252,15 +245,6 @@ public:
                                          onTransactionCompleted)>(Tag::ON_TRANSACTION_COMPLETED,
                                                                   stats);
     }
-
-    void onReleaseBuffer(ReleaseCallbackId callbackId, sp<Fence> releaseFence,
-                         uint32_t transformHint, uint32_t currentMaxAcquiredBufferCount) override {
-        callRemoteAsync<decltype(
-                &ITransactionCompletedListener::onReleaseBuffer)>(Tag::ON_RELEASE_BUFFER,
-                                                                  callbackId, releaseFence,
-                                                                  transformHint,
-                                                                  currentMaxAcquiredBufferCount);
-    }
 };
 
 // Out-of-line virtual method definitions to trigger vtable emission in this translation unit (see
@@ -279,47 +263,7 @@ status_t BnTransactionCompletedListener::onTransact(uint32_t code, const Parcel&
         case Tag::ON_TRANSACTION_COMPLETED:
             return callLocalAsync(data, reply,
                                   &ITransactionCompletedListener::onTransactionCompleted);
-        case Tag::ON_RELEASE_BUFFER:
-            return callLocalAsync(data, reply, &ITransactionCompletedListener::onReleaseBuffer);
     }
 }
-
-ListenerCallbacks ListenerCallbacks::filter(CallbackId::Type type) const {
-    std::vector<CallbackId> filteredCallbackIds;
-    for (const auto& callbackId : callbackIds) {
-        if (callbackId.type == type) {
-            filteredCallbackIds.push_back(callbackId);
-        }
-    }
-    return ListenerCallbacks(transactionCompletedListener, filteredCallbackIds);
-}
-
-status_t CallbackId::writeToParcel(Parcel* output) const {
-    SAFE_PARCEL(output->writeInt64, id);
-    SAFE_PARCEL(output->writeInt32, static_cast<int32_t>(type));
-    return NO_ERROR;
-}
-
-status_t CallbackId::readFromParcel(const Parcel* input) {
-    SAFE_PARCEL(input->readInt64, &id);
-    int32_t typeAsInt;
-    SAFE_PARCEL(input->readInt32, &typeAsInt);
-    type = static_cast<CallbackId::Type>(typeAsInt);
-    return NO_ERROR;
-}
-
-status_t ReleaseCallbackId::writeToParcel(Parcel* output) const {
-    SAFE_PARCEL(output->writeUint64, bufferId);
-    SAFE_PARCEL(output->writeUint64, framenumber);
-    return NO_ERROR;
-}
-
-status_t ReleaseCallbackId::readFromParcel(const Parcel* input) {
-    SAFE_PARCEL(input->readUint64, &bufferId);
-    SAFE_PARCEL(input->readUint64, &framenumber);
-    return NO_ERROR;
-}
-
-const ReleaseCallbackId ReleaseCallbackId::INVALID_ID = ReleaseCallbackId(0, 0);
 
 }; // namespace android

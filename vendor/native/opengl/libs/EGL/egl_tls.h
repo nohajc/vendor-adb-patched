@@ -18,9 +18,12 @@
 #define ANDROID_EGL_TLS_H
 
 #include <EGL/egl.h>
+
 #include <pthread.h>
 
+// ----------------------------------------------------------------------------
 namespace android {
+// ----------------------------------------------------------------------------
 
 class DbgContext;
 
@@ -29,14 +32,15 @@ class egl_tls_t {
     static pthread_key_t sKey;
     static pthread_once_t sOnceKey;
 
-    EGLint error;
-    EGLContext ctx;
-    bool logCallWithNoContext;
+    EGLint      error;
+    EGLContext  ctx;
+    bool        logCallWithNoContext;
 
     egl_tls_t();
     static void validateTLSKey();
     static void destructTLSData(void* data);
-    static void setErrorEtcImpl(const char* caller, int line, EGLint error, bool quiet);
+    static void setErrorEtcImpl(
+            const char* caller, int line, EGLint error, bool quiet);
 
 public:
     static egl_tls_t* getTLS();
@@ -46,20 +50,24 @@ public:
     static void setContext(EGLContext ctx);
     static EGLContext getContext();
     static bool logNoContextCall();
-    static const char* egl_strerror(EGLint err);
+    static const char *egl_strerror(EGLint err);
 
-    template <typename T>
-    static T setErrorEtc(const char* caller, int line, EGLint error, T returnValue,
-                         bool quiet = false) {
+    template<typename T>
+    static T setErrorEtc(const char* caller,
+            int line, EGLint error, T returnValue, bool quiet = false) {
         setErrorEtcImpl(caller, line, error, quiet);
         return returnValue;
     }
 };
 
-#define setError(_e, _r) egl_tls_t::setErrorEtc(__FUNCTION__, __LINE__, _e, _r)
+#define setError(_e, _r)        \
+    egl_tls_t::setErrorEtc(__FUNCTION__, __LINE__, _e, _r)
 
-#define setErrorQuiet(_e, _r) egl_tls_t::setErrorEtc(__FUNCTION__, __LINE__, _e, _r, true)
+#define setErrorQuiet(_e, _r)   \
+    egl_tls_t::setErrorEtc(__FUNCTION__, __LINE__, _e, _r, true)
 
+// ----------------------------------------------------------------------------
 }; // namespace android
+// ----------------------------------------------------------------------------
 
 #endif // ANDROID_EGL_TLS_H

@@ -33,6 +33,4 @@ SIMPLEPERF_SCRIPT_PATH := \
 $(SIMPLEPERF_SCRIPT_PATH) : $(SOONG_ZIP)
 	$(hide) $(SOONG_ZIP) -d -o $@ -C system/extras/simpleperf $(SIMPLEPERF_SCRIPT_LIST)
 
-$(call declare-1p-target,$(SIMPLEPERF_SCRIPT_PATH),system/extras)
-
 $(call dist-for-goals,simpleperf,$(SIMPLEPERF_SCRIPT_PATH):simpleperf/simpleperf_script.zip)

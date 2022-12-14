@@ -74,8 +74,6 @@ struct binder_frozen_status_info {
     //
     // Indicates whether the process has received any sync calls since last
     // freeze (cleared at freeze/unfreeze)
-    // bit 0: received sync transaction after being frozen
-    // bit 1: new pending sync transaction during freezing
     //
     __u32 sync_recv;
     //
@@ -99,24 +97,5 @@ struct binder_frozen_status_info {
  */
 #define BINDER_ENABLE_ONEWAY_SPAM_DETECTION _IOW('b', 16, __u32)
 #endif // BINDER_ENABLE_ONEWAY_SPAM_DETECTION
-
-#ifndef BINDER_GET_EXTENDED_ERROR
-/* struct binder_extened_error - extended error information
- * @id:      identifier for the failed operation
- * @command: command as defined by binder_driver_return_protocol
- * @param:   parameter holding a negative errno value
- *
- * Used with BINDER_GET_EXTENDED_ERROR. This extends the error information
- * returned by the driver upon a failed operation. Userspace can pull this
- * data to properly handle specific error scenarios.
- */
-struct binder_extended_error {
-    __u32 id;
-    __u32 command;
-    __s32 param;
-};
-
-#define BINDER_GET_EXTENDED_ERROR _IOWR('b', 17, struct binder_extended_error)
-#endif // BINDER_GET_EXTENDED_ERROR
 
 #endif // _BINDER_MODULE_H_

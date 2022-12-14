@@ -38,7 +38,7 @@ var (
 
 // Simple round-trip test for fixed inputs.
 func TestRoundTrip(t *testing.T) {
-	publicKeyR, secretKeyR, err := GenerateKeyPairX25519()
+	publicKeyR, secretKeyR, err := GenerateKeyPair()
 	if err != nil {
 		t.Errorf("failed to generate key pair: %s", err)
 		return
@@ -59,8 +59,8 @@ func TestRoundTrip(t *testing.T) {
 	// Seal() our plaintext with the sender context, then Open() the
 	// ciphertext with the receiver context.
 	plaintext := []byte("foobar")
-	ciphertext := senderContext.Seal(plaintext, nil)
-	decrypted, err := receiverContext.Open(ciphertext, nil)
+	ciphertext := senderContext.Seal(nil, plaintext)
+	decrypted, err := receiverContext.Open(nil, ciphertext)
 	if err != nil {
 		t.Errorf("encryption round trip failed: %s", err)
 		return
@@ -86,9 +86,9 @@ type HpkeTestVector struct {
 	Exports     []ExportTestVector     `json:"exports"`
 }
 type EncryptionTestVector struct {
-	Plaintext      HexString `json:"pt"`
+	Plaintext      HexString `json:"plaintext"`
 	AdditionalData HexString `json:"aad"`
-	Ciphertext     HexString `json:"ct"`
+	Ciphertext     HexString `json:"ciphertext"`
 }
 type ExportTestVector struct {
 	ExportContext HexString `json:"exporter_context"`
@@ -167,10 +167,10 @@ func TestVectors(t *testing.T) {
 			}
 
 			for encryptionNum, e := range testVec.Encryptions {
-				ciphertext := senderContext.Seal(e.Plaintext, e.AdditionalData)
+				ciphertext := senderContext.Seal(e.AdditionalData, e.Plaintext)
 				checkBytesEqual(t, "ciphertext", ciphertext, e.Ciphertext)
 
-				decrypted, err := receiverContext.Open(ciphertext, e.AdditionalData)
+				decrypted, err := receiverContext.Open(e.AdditionalData, ciphertext)
 				if err != nil {
 					t.Errorf("decryption %d failed: %s", encryptionNum, err)
 					return

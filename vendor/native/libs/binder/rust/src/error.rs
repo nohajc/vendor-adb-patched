@@ -18,7 +18,7 @@ use crate::binder::AsNative;
 use crate::sys;
 
 use std::error;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::result;
 
@@ -104,10 +104,6 @@ unsafe impl Sync for Status {}
 // A thread-local `AStatus` would not be valid.
 unsafe impl Send for Status {}
 
-fn to_cstring<T: AsRef<str>>(message: T) -> Option<CString> {
-    CString::new(message.as_ref()).ok()
-}
-
 impl Status {
     /// Create a status object representing a successful transaction.
     pub fn ok() -> Self {
@@ -150,11 +146,6 @@ impl Status {
         Self(ptr)
     }
 
-    /// Creates a status object from a service specific error.
-    pub fn new_service_specific_error_str<T: AsRef<str>>(err: i32, message: Option<T>) -> Status {
-        Self::new_service_specific_error(err, message.and_then(to_cstring).as_deref())
-    }
-
     /// Create a status object from an exception code
     pub fn new_exception(exception: ExceptionCode, message: Option<&CStr>) -> Status {
         if let Some(message) = message {
@@ -165,14 +156,6 @@ impl Status {
         } else {
             exception.into()
         }
-    }
-
-    /// Creates a status object from an exception code and message.
-    pub fn new_exception_str<T: AsRef<str>>(
-        exception: ExceptionCode,
-        message: Option<T>,
-    ) -> Status {
-        Self::new_exception(exception, message.and_then(to_cstring).as_deref())
     }
 
     /// Create a status object from a raw `AStatus` pointer.
@@ -386,43 +369,5 @@ unsafe impl AsNative<sys::AStatus> for Status {
 
     fn as_native_mut(&mut self) -> *mut sys::AStatus {
         self.0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn make_service_specific_error() {
-        let status = Status::new_service_specific_error_str(-42, Some("message"));
-
-        assert!(!status.is_ok());
-        assert_eq!(status.exception_code(), ExceptionCode::SERVICE_SPECIFIC);
-        assert_eq!(status.service_specific_error(), -42);
-        assert_eq!(
-            status.get_description(),
-            "Status(-8, EX_SERVICE_SPECIFIC): '-42: message'".to_string()
-        );
-    }
-
-    #[test]
-    fn make_exception() {
-        let status = Status::new_exception_str(ExceptionCode::ILLEGAL_STATE, Some("message"));
-
-        assert!(!status.is_ok());
-        assert_eq!(status.exception_code(), ExceptionCode::ILLEGAL_STATE);
-        assert_eq!(status.service_specific_error(), 0);
-        assert_eq!(status.get_description(), "Status(-5, EX_ILLEGAL_STATE): 'message'".to_string());
-    }
-
-    #[test]
-    fn make_exception_null() {
-        let status = Status::new_exception_str(ExceptionCode::ILLEGAL_STATE, Some("one\0two"));
-
-        assert!(!status.is_ok());
-        assert_eq!(status.exception_code(), ExceptionCode::ILLEGAL_STATE);
-        assert_eq!(status.service_specific_error(), 0);
-        assert_eq!(status.get_description(), "Status(-5, EX_ILLEGAL_STATE): ''".to_string());
     }
 }

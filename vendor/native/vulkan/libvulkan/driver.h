@@ -103,95 +103,30 @@ struct DeviceData {
 bool OpenHAL();
 const VkAllocationCallbacks& GetDefaultAllocator();
 
-void QueryPresentationProperties(
+bool QueryPresentationProperties(
     VkPhysicalDevice physicalDevice,
-    VkPhysicalDevicePresentationPropertiesANDROID* presentation_properties);
+    VkPhysicalDevicePresentationPropertiesANDROID *presentation_properties);
 
-VKAPI_ATTR PFN_vkVoidFunction GetInstanceProcAddr(VkInstance instance,
-                                                  const char* pName);
-VKAPI_ATTR PFN_vkVoidFunction GetDeviceProcAddr(VkDevice device,
-                                                const char* pName);
-VKAPI_ATTR VkResult
-EnumerateInstanceExtensionProperties(const char* pLayerName,
-                                     uint32_t* pPropertyCount,
-                                     VkExtensionProperties* pProperties);
-VKAPI_ATTR VkResult
-EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
-                                   const char* pLayerName,
-                                   uint32_t* pPropertyCount,
-                                   VkExtensionProperties* pProperties);
-VKAPI_ATTR VkResult CreateInstance(const VkInstanceCreateInfo* pCreateInfo,
-                                   const VkAllocationCallbacks* pAllocator,
-                                   VkInstance* pInstance);
-VKAPI_ATTR void DestroyInstance(VkInstance instance,
-                                const VkAllocationCallbacks* pAllocator);
-VKAPI_ATTR VkResult CreateDevice(VkPhysicalDevice physicalDevice,
-                                 const VkDeviceCreateInfo* pCreateInfo,
-                                 const VkAllocationCallbacks* pAllocator,
-                                 VkDevice* pDevice);
-VKAPI_ATTR void DestroyDevice(VkDevice device,
-                              const VkAllocationCallbacks* pAllocator);
-VKAPI_ATTR VkResult
-EnumeratePhysicalDevices(VkInstance instance,
-                         uint32_t* pPhysicalDeviceCount,
-                         VkPhysicalDevice* pPhysicalDevices);
-VKAPI_ATTR VkResult EnumeratePhysicalDeviceGroups(
-    VkInstance instance,
-    uint32_t* pPhysicalDeviceGroupCount,
-    VkPhysicalDeviceGroupProperties* pPhysicalDeviceGroupProperties);
-VKAPI_ATTR void GetDeviceQueue(VkDevice device,
-                               uint32_t queueFamilyIndex,
-                               uint32_t queueIndex,
-                               VkQueue* pQueue);
-VKAPI_ATTR void GetDeviceQueue2(VkDevice device,
-                                const VkDeviceQueueInfo2* pQueueInfo,
-                                VkQueue* pQueue);
-VKAPI_ATTR VkResult
-AllocateCommandBuffers(VkDevice device,
-                       const VkCommandBufferAllocateInfo* pAllocateInfo,
-                       VkCommandBuffer* pCommandBuffers);
-VKAPI_ATTR VkResult QueueSubmit(VkQueue queue,
-                                uint32_t submitCount,
-                                const VkSubmitInfo* pSubmits,
-                                VkFence fence);
-VKAPI_ATTR void GetPhysicalDeviceFeatures2(
-    VkPhysicalDevice physicalDevice,
-    VkPhysicalDeviceFeatures2* pFeatures);
-VKAPI_ATTR void GetPhysicalDeviceProperties2(
-    VkPhysicalDevice physicalDevice,
-    VkPhysicalDeviceProperties2* pProperties);
-VKAPI_ATTR void GetPhysicalDeviceFormatProperties2(
-    VkPhysicalDevice physicalDevice,
-    VkFormat format,
-    VkFormatProperties2* pFormatProperties);
-VKAPI_ATTR VkResult GetPhysicalDeviceImageFormatProperties2(
-    VkPhysicalDevice physicalDevice,
-    const VkPhysicalDeviceImageFormatInfo2* pImageFormatInfo,
-    VkImageFormatProperties2* pImageFormatProperties);
-VKAPI_ATTR void GetPhysicalDeviceQueueFamilyProperties2(
-    VkPhysicalDevice physicalDevice,
-    uint32_t* pQueueFamilyPropertyCount,
-    VkQueueFamilyProperties2* pQueueFamilyProperties);
-VKAPI_ATTR void GetPhysicalDeviceMemoryProperties2(
-    VkPhysicalDevice physicalDevice,
-    VkPhysicalDeviceMemoryProperties2* pMemoryProperties);
-VKAPI_ATTR void GetPhysicalDeviceSparseImageFormatProperties2(
-    VkPhysicalDevice physicalDevice,
-    const VkPhysicalDeviceSparseImageFormatInfo2* pFormatInfo,
-    uint32_t* pPropertyCount,
-    VkSparseImageFormatProperties2* pProperties);
-VKAPI_ATTR void GetPhysicalDeviceExternalBufferProperties(
-    VkPhysicalDevice physicalDevice,
-    const VkPhysicalDeviceExternalBufferInfo* pExternalBufferInfo,
-    VkExternalBufferProperties* pExternalBufferProperties);
-VKAPI_ATTR void GetPhysicalDeviceExternalSemaphoreProperties(
-    VkPhysicalDevice physicalDevice,
-    const VkPhysicalDeviceExternalSemaphoreInfo* pExternalSemaphoreInfo,
-    VkExternalSemaphoreProperties* pExternalSemaphoreProperties);
-VKAPI_ATTR void GetPhysicalDeviceExternalFenceProperties(
-    VkPhysicalDevice physicalDevice,
-    const VkPhysicalDeviceExternalFenceInfo* pExternalFenceInfo,
-    VkExternalFenceProperties* pExternalFenceProperties);
+// clang-format off
+VKAPI_ATTR PFN_vkVoidFunction GetInstanceProcAddr(VkInstance instance, const char* pName);
+VKAPI_ATTR PFN_vkVoidFunction GetDeviceProcAddr(VkDevice device, const char* pName);
+VKAPI_ATTR VkResult EnumerateInstanceExtensionProperties(const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties);
+
+VKAPI_ATTR VkResult EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice, const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties);
+
+VKAPI_ATTR VkResult CreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance);
+VKAPI_ATTR void DestroyInstance(VkInstance instance, const VkAllocationCallbacks* pAllocator);
+VKAPI_ATTR VkResult CreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDevice* pDevice);
+VKAPI_ATTR void DestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator);
+
+VKAPI_ATTR VkResult EnumeratePhysicalDevices(VkInstance instance, uint32_t* pPhysicalDeviceCount, VkPhysicalDevice* pPhysicalDevices);
+VKAPI_ATTR VkResult EnumeratePhysicalDeviceGroups(VkInstance instance, uint32_t* pPhysicalDeviceGroupCount, VkPhysicalDeviceGroupProperties* pPhysicalDeviceGroupProperties);
+
+VKAPI_ATTR void GetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex, uint32_t queueIndex, VkQueue* pQueue);
+VKAPI_ATTR void GetDeviceQueue2(VkDevice device, const VkDeviceQueueInfo2* pQueueInfo, VkQueue* pQueue);
+VKAPI_ATTR VkResult AllocateCommandBuffers(VkDevice device, const VkCommandBufferAllocateInfo* pAllocateInfo, VkCommandBuffer* pCommandBuffers);
+VKAPI_ATTR VkResult QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence);
+// clang-format on
 
 template <typename DispatchableType>
 void StaticAssertDispatchable(DispatchableType) {

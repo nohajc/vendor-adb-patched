@@ -17,7 +17,7 @@
 #include <layerproto/LayerProtoHeader.h>
 
 #include <Layer.h>
-#include <gui/WindowInfo.h>
+#include <input/InputWindow.h>
 #include <math/vec4.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/Rect.h>
@@ -37,15 +37,10 @@ public:
                              std::function<FloatRectProto*()> getFloatRectProto);
     static void writeToProto(const Region& region, std::function<RegionProto*()> getRegionProto);
     static void writeToProto(const half4 color, std::function<ColorProto*()> getColorProto);
-    // This writeToProto for transform is incorrect, but due to backwards compatibility, we can't
-    // update Layers to use it. Use writeTransformToProto for any new transform proto data.
-    static void writeToProtoDeprecated(const ui::Transform& transform,
-                                       TransformProto* transformProto);
-    static void writeTransformToProto(const ui::Transform& transform,
-                                      TransformProto* transformProto);
+    static void writeToProto(const ui::Transform& transform, TransformProto* transformProto);
     static void writeToProto(const sp<GraphicBuffer>& buffer,
                              std::function<ActiveBufferProto*()> getActiveBufferProto);
-    static void writeToProto(const gui::WindowInfo& inputInfo,
+    static void writeToProto(const InputWindowInfo& inputInfo,
                              const wp<Layer>& touchableRegionBounds,
                              std::function<InputWindowInfoProto*()> getInputWindowInfoProto);
     static void writeToProto(const mat4 matrix, ColorTransformProto* colorTransformProto);

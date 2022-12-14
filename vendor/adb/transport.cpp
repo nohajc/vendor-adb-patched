@@ -33,7 +33,6 @@
 #include <memory>
 #include <mutex>
 #include <set>
-#include <string>
 #include <thread>
 
 #include <adb/crypto/rsa_2048_key.h>
@@ -61,7 +60,6 @@
 
 using namespace adb::crypto;
 using namespace adb::tls;
-using namespace std::string_literals;
 using android::base::ScopedLockAssertion;
 using TlsError = TlsConnection::TlsError;
 
@@ -92,14 +90,12 @@ const char* const kFeatureSendRecv2Brotli = "sendrecv_v2_brotli";
 const char* const kFeatureSendRecv2LZ4 = "sendrecv_v2_lz4";
 const char* const kFeatureSendRecv2Zstd = "sendrecv_v2_zstd";
 const char* const kFeatureSendRecv2DryRunSend = "sendrecv_v2_dry_run_send";
-const char* const kFeatureDelayedAck = "delayed_ack";
 // TODO(joshuaduong): Bump to v2 when openscreen discovery is enabled by default
 const char* const kFeatureOpenscreenMdns = "openscreen_mdns";
 
 namespace {
 
 #if ADB_HOST
-
 // Tracks and handles atransport*s that are attempting reconnection.
 class ReconnectHandler {
   public:
@@ -212,6 +208,7 @@ void ReconnectHandler::Run() {
 
             // Scan the whole list for kicked transports, so that we immediately handle an explicit
             // disconnect request.
+            bool kicked = false;
             for (auto it = reconnect_queue_.begin(); it != reconnect_queue_.end();) {
                 if (it->transport->kicked()) {
                     D("transport %s was kicked. giving up on it.", it->transport->serial.c_str());
@@ -220,6 +217,7 @@ void ReconnectHandler::Run() {
                 } else {
                     ++it;
                 }
+                kicked = true;
             }
 
             if (reconnect_queue_.empty()) continue;
@@ -952,34 +950,6 @@ static int qual_match(const std::string& to_test, const char* prefix, const std:
     return !*ptr;
 }
 
-// Contains either a device serial string or a USB device address like "usb:2-6"
-const char* __transport_server_one_device = nullptr;
-
-void transport_set_one_device(const char* adb_one_device) {
-    __transport_server_one_device = adb_one_device;
-}
-
-const char* transport_get_one_device() {
-    return __transport_server_one_device;
-}
-
-bool transport_server_owns_device(std::string_view serial) {
-    if (!__transport_server_one_device) {
-        // If the server doesn't own one device, server owns all devices.
-        return true;
-    }
-    return serial.compare(__transport_server_one_device) == 0;
-}
-
-bool transport_server_owns_device(std::string_view dev_path, std::string_view serial) {
-    if (!__transport_server_one_device) {
-        // If the server doesn't own one device, server owns all devices.
-        return true;
-    }
-    return serial.compare(__transport_server_one_device) == 0 ||
-           dev_path.compare(__transport_server_one_device) == 0;
-}
-
 atransport* acquire_one_transport(TransportType type, const char* serial, TransportId transport_id,
                                   bool* is_ambiguous, std::string* error_out,
                                   bool accept_any_state) {
@@ -1013,7 +983,7 @@ atransport* acquire_one_transport(TransportType type, const char* serial, Transp
         } else if (serial) {
             if (t->MatchesTarget(serial)) {
                 if (result) {
-                    *error_out = "more than one device with serial "s + serial;
+                    *error_out = "more than one device";
                     if (is_ambiguous) *is_ambiguous = true;
                     result = nullptr;
                     break;
@@ -1023,7 +993,7 @@ atransport* acquire_one_transport(TransportType type, const char* serial, Transp
         } else {
             if (type == kTransportUsb && t->type == kTransportUsb) {
                 if (result) {
-                    *error_out = "more than one USB device";
+                    *error_out = "more than one device";
                     if (is_ambiguous) *is_ambiguous = true;
                     result = nullptr;
                     break;
@@ -1219,10 +1189,8 @@ bool atransport::HandleRead(std::unique_ptr<apacket> p) {
     VLOG(TRANSPORT) << dump_packet(serial.c_str(), "from remote", p.get());
     apacket* packet = p.release();
 
-    // This needs to run on the main thread since the associated fdevent
-    // message pump exists in that context.
+    // TODO: Does this need to run on the main thread?
     fdevent_run_on_main_thread([packet, this]() { handle_packet(packet, this); });
-
     return true;
 }
 
@@ -1251,51 +1219,31 @@ size_t atransport::get_max_payload() const {
     return max_payload;
 }
 
-#if ADB_HOST
-static bool delayed_ack_enabled() {
-    static const char* env = getenv("ADB_DELAYED_ACK");
-    static bool result = env && strcmp(env, "1") == 0;
-    return result;
-}
-#endif
-
 const FeatureSet& supported_features() {
-    static const android::base::NoDestructor<FeatureSet> features([]() {
-        // Increment ADB_SERVER_VERSION when adding a feature that adbd needs
-        // to know about. Otherwise, the client can be stuck running an old
-        // version of the server even after upgrading their copy of adb.
-        // (http://b/24370690)
-
-        // clang-format off
-        FeatureSet result {
-            kFeatureShell2,
-            kFeatureCmd,
-            kFeatureStat2,
-            kFeatureLs2,
-            kFeatureFixedPushMkdir,
-            kFeatureApex,
-            kFeatureAbb,
-            kFeatureFixedPushSymlinkTimestamp,
-            kFeatureAbbExec,
-            kFeatureRemountShell,
-            kFeatureTrackApp,
-            kFeatureSendRecv2,
-            kFeatureSendRecv2Brotli,
-            kFeatureSendRecv2LZ4,
-            kFeatureSendRecv2Zstd,
-            kFeatureSendRecv2DryRunSend,
-            kFeatureOpenscreenMdns,
+    static const android::base::NoDestructor<FeatureSet> features([] {
+        return FeatureSet{
+                kFeatureShell2,
+                kFeatureCmd,
+                kFeatureStat2,
+                kFeatureLs2,
+                kFeatureFixedPushMkdir,
+                kFeatureApex,
+                kFeatureAbb,
+                kFeatureFixedPushSymlinkTimestamp,
+                kFeatureAbbExec,
+                kFeatureRemountShell,
+                kFeatureTrackApp,
+                kFeatureSendRecv2,
+                kFeatureSendRecv2Brotli,
+                kFeatureSendRecv2LZ4,
+                kFeatureSendRecv2Zstd,
+                kFeatureSendRecv2DryRunSend,
+                kFeatureOpenscreenMdns,
+                // Increment ADB_SERVER_VERSION when adding a feature that adbd needs
+                // to know about. Otherwise, the client can be stuck running an old
+                // version of the server even after upgrading their copy of adb.
+                // (http://b/24370690)
         };
-        // clang-format on
-
-#if ADB_HOST
-        if (delayed_ack_enabled()) {
-            result.push_back(kFeatureDelayedAck);
-        }
-#else
-        result.push_back(kFeatureDelayedAck);
-#endif
-        return result;
     }());
 
     return *features;
@@ -1328,7 +1276,6 @@ bool atransport::has_feature(const std::string& feature) const {
 
 void atransport::SetFeatures(const std::string& features_string) {
     features_ = StringToFeatureSet(features_string);
-    delayed_ack_ = CanUseFeature(features_, kFeatureDelayedAck);
 }
 
 void atransport::AddDisconnect(adisconnect* disconnect) {
@@ -1616,63 +1563,6 @@ void unregister_usb_transport(usb_handle* usb) {
         return t->GetUsbHandle() == usb && t->GetConnectionState() == kCsNoPerm;
     });
 }
-
-// Track reverse:forward commands, so that info can be used to develop
-// an 'allow-list':
-//   - adb reverse tcp:<device_port> localhost:<host_port> : responds with the
-//   device_port
-//   - adb reverse --remove tcp:<device_port> : responds OKAY
-//   - adb reverse --remove-all : responds OKAY
-void atransport::UpdateReverseConfig(std::string_view service_addr) {
-    check_main_thread();
-    if (!android::base::ConsumePrefix(&service_addr, "reverse:")) {
-        return;
-    }
-
-    if (android::base::ConsumePrefix(&service_addr, "forward:")) {
-        // forward:[norebind:]<remote>;<local>
-        bool norebind = android::base::ConsumePrefix(&service_addr, "norebind:");
-        auto it = service_addr.find(';');
-        if (it == std::string::npos) {
-            return;
-        }
-        std::string remote(service_addr.substr(0, it));
-
-        if (norebind && reverse_forwards_.find(remote) != reverse_forwards_.end()) {
-            // This will fail, don't update the map.
-            LOG(DEBUG) << "ignoring reverse forward that will fail due to norebind";
-            return;
-        }
-
-        std::string local(service_addr.substr(it + 1));
-        reverse_forwards_[remote] = local;
-    } else if (android::base::ConsumePrefix(&service_addr, "killforward:")) {
-        // kill-forward:<remote>
-        auto it = service_addr.find(';');
-        if (it != std::string::npos) {
-            return;
-        }
-        reverse_forwards_.erase(std::string(service_addr));
-    } else if (service_addr == "killforward-all") {
-        reverse_forwards_.clear();
-    } else if (service_addr == "list-forward") {
-        LOG(DEBUG) << __func__ << " ignoring --list";
-    } else {  // Anything else we need to know about?
-        LOG(FATAL) << "unhandled reverse service: " << service_addr;
-    }
-}
-
-// Is this an authorized :connect request?
-bool atransport::IsReverseConfigured(const std::string& local_addr) {
-    check_main_thread();
-    for (const auto& [remote, local] : reverse_forwards_) {
-        if (local == local_addr) {
-            return true;
-        }
-    }
-    return false;
-}
-
 #endif
 
 bool check_header(apacket* p, atransport* t) {

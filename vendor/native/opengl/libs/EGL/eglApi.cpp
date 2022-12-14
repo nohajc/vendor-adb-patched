@@ -20,6 +20,7 @@
 #include <EGL/eglext.h>
 
 #include "../egl_impl.h"
+
 #include "egl_layers.h"
 #include "egl_platform_entries.h"
 #include "egl_tls.h"

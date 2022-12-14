@@ -31,29 +31,6 @@
 
 namespace android {
 
-using gui::FocusRequest;
-using gui::WindowInfo;
-using gui::WindowInfoHandle;
-
-static int32_t exceptionCodeFromStatusT(status_t status) {
-    switch (status) {
-        case OK:
-            return binder::Status::EX_NONE;
-        case INVALID_OPERATION:
-            return binder::Status::EX_UNSUPPORTED_OPERATION;
-        case BAD_VALUE:
-        case BAD_TYPE:
-        case NAME_NOT_FOUND:
-            return binder::Status::EX_ILLEGAL_ARGUMENT;
-        case NO_INIT:
-            return binder::Status::EX_ILLEGAL_STATE;
-        case PERMISSION_DENIED:
-            return binder::Status::EX_SECURITY;
-        default:
-            return binder::Status::EX_TRANSACTION_FAILED;
-    }
-}
-
 InputManager::InputManager(
         const sp<InputReaderPolicyInterface>& readerPolicy,
         const sp<InputDispatcherPolicyInterface>& dispatcherPolicy) {
@@ -114,42 +91,51 @@ sp<InputDispatcherInterface> InputManager::getDispatcher() {
     return mDispatcher;
 }
 
+class BinderWindowHandle : public InputWindowHandle {
+public:
+    BinderWindowHandle(const InputWindowInfo& info) {
+        mInfo = info;
+    }
+
+    bool updateInfo() override {
+        return true;
+    }
+};
+
+void InputManager::setInputWindows(const std::vector<InputWindowInfo>& infos,
+        const sp<ISetInputWindowsListener>& setInputWindowsListener) {
+    std::unordered_map<int32_t, std::vector<sp<InputWindowHandle>>> handlesPerDisplay;
+
+    std::vector<sp<InputWindowHandle>> handles;
+    for (const auto& info : infos) {
+        handlesPerDisplay.emplace(info.displayId, std::vector<sp<InputWindowHandle>>());
+        handlesPerDisplay[info.displayId].push_back(new BinderWindowHandle(info));
+    }
+    mDispatcher->setInputWindows(handlesPerDisplay);
+
+    if (setInputWindowsListener) {
+        setInputWindowsListener->onSetInputWindowsFinished();
+    }
+}
+
 // Used by tests only.
-binder::Status InputManager::createInputChannel(const std::string& name, InputChannel* outChannel) {
+void InputManager::registerInputChannel(const sp<InputChannel>& channel) {
     IPCThreadState* ipc = IPCThreadState::self();
     const int uid = ipc->getCallingUid();
     if (uid != AID_SHELL && uid != AID_ROOT) {
         ALOGE("Invalid attempt to register input channel over IPC"
                 "from non shell/root entity (PID: %d)", ipc->getCallingPid());
-        return binder::Status::ok();
+        return;
     }
-
-    base::Result<std::unique_ptr<InputChannel>> channel = mDispatcher->createInputChannel(name);
-    if (!channel.ok()) {
-        return binder::Status::fromExceptionCode(exceptionCodeFromStatusT(channel.error().code()),
-                                                 channel.error().message().c_str());
-    }
-    (*channel)->copyTo(*outChannel);
-    return binder::Status::ok();
+    mDispatcher->registerInputChannel(channel);
 }
 
-binder::Status InputManager::removeInputChannel(const sp<IBinder>& connectionToken) {
-    mDispatcher->removeInputChannel(connectionToken);
-    return binder::Status::ok();
+void InputManager::unregisterInputChannel(const sp<InputChannel>& channel) {
+    mDispatcher->unregisterInputChannel(channel);
 }
 
-status_t InputManager::dump(int fd, const Vector<String16>& args) {
-    std::string dump;
-
-    dump += " InputFlinger dump\n";
-
-    ::write(fd, dump.c_str(), dump.size());
-    return NO_ERROR;
-}
-
-binder::Status InputManager::setFocusedWindow(const FocusRequest& request) {
-    mDispatcher->setFocusedWindow(request);
-    return binder::Status::ok();
+void InputManager::setMotionClassifierEnabled(bool enabled) {
+    mClassifier->setMotionClassifierEnabled(enabled);
 }
 
 } // namespace android
