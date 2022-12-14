@@ -1,0 +1,76 @@
+// libadbconnection
+// =========================================================
+// libadbconnection_client/server implement the socket handling for jdwp
+// forwarding and the track-jdwp service.
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "packages_modules_adb_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["packages_modules_adb_license"],
+}
+
+cc_library {
+    name: "libadbconnection_server",
+    srcs: ["adbconnection_server.cpp"],
+
+    export_include_dirs: ["include"],
+
+    stl: "libc++_static",
+    shared_libs: ["liblog"],
+    static_libs: ["libbase"],
+
+    defaults: ["adbd_defaults", "host_adbd_supported"],
+
+    // Avoid getting duplicate symbol of android::build::GetBuildNumber().
+    use_version_lib: false,
+
+    recovery_available: true,
+    min_sdk_version: "30",
+    apex_available: [
+        "com.android.adbd",
+        // TODO(b/151398197) remove the below
+        "//apex_available:platform",
+    ],
+    compile_multilib: "both",
+}
+
+cc_library {
+    name: "libadbconnection_client",
+    srcs: ["adbconnection_client.cpp"],
+
+    export_include_dirs: ["include"],
+
+    stl: "libc++_static",
+    shared_libs: ["liblog"],
+    static_libs: ["libbase"],
+
+    defaults: ["adbd_defaults"],
+    visibility: [
+        "//art:__subpackages__",
+        "//packages/modules/adb/apex:__subpackages__",
+    ],
+    min_sdk_version: "30",
+    apex_available: [
+        "com.android.adbd",
+        "test_com.android.adbd",
+    ],
+
+    // libadbconnection_client doesn't need an embedded build number.
+    use_version_lib: false,
+
+    target: {
+        linux: {
+            version_script: "libadbconnection_client.map.txt",
+        },
+        darwin: { enabled: false },
+    },
+    stubs: {
+        symbol_file: "libadbconnection_client.map.txt",
+        versions: ["1"],
+    },
+
+    host_supported: true,
+    compile_multilib: "both",
+}
