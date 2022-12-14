@@ -3,3 +3,5 @@
 .vscode
 
 /cmake-build-debug/
+
+/libtermuxadb/target
