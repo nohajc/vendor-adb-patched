@@ -102,8 +102,6 @@
 //
 
 #include <sys/types.h>
-#define __BIONIC__
-#undef INCFS_SUPPORT_DISABLED
 
 #if !defined(__BIONIC__) || INCFS_SUPPORT_DISABLED
 

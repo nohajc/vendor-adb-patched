@@ -60,6 +60,8 @@
 #include "zip_archive_private.h"
 #include "zlib.h"
 
+#define INCFS_SUPPORT_DISABLED
+
 // Used to turn on crc checks - verify that the content CRC matches the values
 // specified in the local file header and the central directory.
 static constexpr bool kCrcChecksEnabled = false;
