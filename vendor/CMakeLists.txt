@@ -103,7 +103,7 @@ install(TARGETS
 	lpmake
 	lpunpack
 	simg2img
-	e2fsdroid
+	# e2fsdroid
 	ext2simg
 	DESTINATION bin)
 
