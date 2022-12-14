@@ -10,10 +10,10 @@
 extern "C" {
     DIR *termuxadb_opendir(const char *name);
     int termuxadb_closedir(DIR *dirp);
+    struct dirent *termuxadb_readdir(DIR *dirp);
 
-    int termuxadb_open(std::string_view path, int options);
-    int termuxadb_create(std::string_view path, int options, int mode);
-
+    int termuxadb_open(const char* path, int options);
+    int termuxadb_create(const char* path, int options, int mode);
     int termuxadb_close(int fd);
 }
 
@@ -27,7 +27,7 @@ namespace termuxadb {
     }
 
     static inline struct dirent *readdir(DIR *dirp) {
-        return ::readdir(dirp);
+        return termuxadb_readdir(dirp);
     }
 
     static inline int unix_open(std::string_view path, int options, ...) {
