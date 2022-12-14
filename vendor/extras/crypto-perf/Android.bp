@@ -1,0 +1,35 @@
+package {
+    default_applicable_licenses: ["system_extras_crypto-perf_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "system_extras_crypto-perf_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_binary {
+    name: "crypto",
+
+    cflags: [
+        "-O0",
+        "-march=armv8-a+crypto",
+        "-Wall",
+        "-Werror",
+    ],
+    srcs: ["crypto.cpp"],
+
+    enabled: false,
+    arch: {
+        arm64: {
+            enabled: true,
+        },
+    },
+}

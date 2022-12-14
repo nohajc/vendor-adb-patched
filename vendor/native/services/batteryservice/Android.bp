@@ -1,0 +1,17 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_headers {
+    name: "libbatteryservice_headers",
+    vendor_available: true,
+    recovery_available: true,
+    export_include_dirs: ["include"],
+    header_libs: ["libutils_headers"],
+    export_header_lib_headers: ["libutils_headers"],
+}

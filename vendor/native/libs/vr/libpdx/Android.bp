@@ -1,0 +1,85 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_headers {
+    name: "libpdx_headers",
+    export_include_dirs: ["private"],
+    vendor_available: true,
+    min_sdk_version: "29",
+}
+
+cc_library_static {
+    name: "libpdx",
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-DLOG_TAG=\"libpdx\"",
+        "-DTRACE=0",
+    ],
+    header_libs: ["libpdx_headers"],
+    export_header_lib_headers: ["libpdx_headers"],
+    srcs: [
+        "client.cpp",
+        "service.cpp",
+        "service_dispatcher.cpp",
+        "status.cpp",
+    ],
+    shared_libs: [
+        "libbinder",
+        "libcutils",
+        "libutils",
+        "liblog",
+    ],
+}
+
+cc_test {
+    name: "pdx_tests",
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+    srcs: [
+        "client_tests.cpp",
+        "mock_tests.cpp",
+        "serialization_tests.cpp",
+        "service_tests.cpp",
+        "status_tests.cpp",
+        "thread_local_buffer_tests.cpp",
+        "variant_tests.cpp",
+    ],
+    static_libs: [
+        "libcutils",
+        "libgmock",
+        "libpdx",
+        "liblog",
+        "libutils",
+    ],
+    shared_libs: [
+        "libvndksupport",
+    ],
+}
+
+// Code analysis target.
+cc_test {
+    name: "pdx_encoder_performance_test",
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-O2",
+    ],
+    srcs: [
+        "encoder_performance_test.cpp",
+    ],
+    static_libs: [
+        "libpdx",
+    ],
+}

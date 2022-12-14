@@ -1,0 +1,171 @@
+props {
+  module: "android.sysprop.SurfaceFlingerProperties"
+  prop {
+    api_name: "color_space_agnostic_dataspace"
+    type: Long
+    prop_name: "ro.surface_flinger.color_space_agnostic_dataspace"
+  }
+  prop {
+    api_name: "default_composition_dataspace"
+    type: Long
+    prop_name: "ro.surface_flinger.default_composition_dataspace"
+  }
+  prop {
+    api_name: "default_composition_pixel_format"
+    type: Integer
+    prop_name: "ro.surface_flinger.default_composition_pixel_format"
+  }
+  prop {
+    api_name: "display_primary_blue"
+    type: DoubleList
+    prop_name: "ro.surface_flinger.display_primary_blue"
+  }
+  prop {
+    api_name: "display_primary_green"
+    type: DoubleList
+    prop_name: "ro.surface_flinger.display_primary_green"
+  }
+  prop {
+    api_name: "display_primary_red"
+    type: DoubleList
+    prop_name: "ro.surface_flinger.display_primary_red"
+  }
+  prop {
+    api_name: "display_primary_white"
+    type: DoubleList
+    prop_name: "ro.surface_flinger.display_primary_white"
+  }
+  prop {
+    api_name: "display_update_imminent_timeout_ms"
+    type: Integer
+    prop_name: "ro.surface_flinger.display_update_imminent_timeout_ms"
+  }
+  prop {
+    api_name: "enable_protected_contents"
+    prop_name: "ro.surface_flinger.protected_contents"
+  }
+  prop {
+    api_name: "force_hwc_copy_for_virtual_displays"
+    prop_name: "ro.surface_flinger.force_hwc_copy_for_virtual_displays"
+  }
+  prop {
+    api_name: "has_HDR_display"
+    prop_name: "ro.surface_flinger.has_HDR_display"
+  }
+  prop {
+    api_name: "has_wide_color_display"
+    prop_name: "ro.surface_flinger.has_wide_color_display"
+  }
+  prop {
+    api_name: "max_frame_buffer_acquired_buffers"
+    type: Long
+    prop_name: "ro.surface_flinger.max_frame_buffer_acquired_buffers"
+  }
+  prop {
+    api_name: "max_graphics_height"
+    type: Integer
+    prop_name: "ro.surface_flinger.max_graphics_height"
+  }
+  prop {
+    api_name: "max_graphics_width"
+    type: Integer
+    prop_name: "ro.surface_flinger.max_graphics_width"
+  }
+  prop {
+    api_name: "max_virtual_display_dimension"
+    type: Long
+    prop_name: "ro.surface_flinger.max_virtual_display_dimension"
+  }
+  prop {
+    api_name: "present_time_offset_from_vsync_ns"
+    type: Long
+    prop_name: "ro.surface_flinger.present_time_offset_from_vsync_ns"
+  }
+  prop {
+    api_name: "primary_display_orientation"
+    type: Enum
+    prop_name: "ro.surface_flinger.primary_display_orientation"
+    enum_values: "ORIENTATION_0|ORIENTATION_90|ORIENTATION_180|ORIENTATION_270"
+  }
+  prop {
+    api_name: "refresh_rate_switching"
+    prop_name: "ro.surface_flinger.refresh_rate_switching"
+    deprecated: true
+  }
+  prop {
+    api_name: "running_without_sync_framework"
+    prop_name: "ro.surface_flinger.running_without_sync_framework"
+  }
+  prop {
+    api_name: "set_display_power_timer_ms"
+    type: Integer
+    prop_name: "ro.surface_flinger.set_display_power_timer_ms"
+  }
+  prop {
+    api_name: "set_idle_timer_ms"
+    type: Integer
+    prop_name: "ro.surface_flinger.set_idle_timer_ms"
+  }
+  prop {
+    api_name: "set_touch_timer_ms"
+    type: Integer
+    prop_name: "ro.surface_flinger.set_touch_timer_ms"
+  }
+  prop {
+    api_name: "start_graphics_allocator_service"
+    prop_name: "ro.surface_flinger.start_graphics_allocator_service"
+  }
+  prop {
+    api_name: "support_kernel_idle_timer"
+    prop_name: "ro.surface_flinger.support_kernel_idle_timer"
+  }
+  prop {
+    api_name: "supports_background_blur"
+    prop_name: "ro.surface_flinger.supports_background_blur"
+  }
+  prop {
+    api_name: "use_color_management"
+    prop_name: "ro.surface_flinger.use_color_management"
+  }
+  prop {
+    api_name: "use_content_detection_for_refresh_rate"
+    prop_name: "ro.surface_flinger.use_content_detection_for_refresh_rate"
+  }
+  prop {
+    api_name: "use_context_priority"
+    prop_name: "ro.surface_flinger.use_context_priority"
+  }
+  prop {
+    api_name: "use_frame_rate_api"
+    prop_name: "ro.surface_flinger.use_frame_rate_api"
+  }
+  prop {
+    api_name: "use_smart_90_for_video"
+    prop_name: "ro.surface_flinger.use_smart_90_for_video"
+    deprecated: true
+  }
+  prop {
+    api_name: "use_vr_flinger"
+    prop_name: "ro.surface_flinger.use_vr_flinger"
+  }
+  prop {
+    api_name: "vsync_event_phase_offset_ns"
+    type: Long
+    prop_name: "ro.surface_flinger.vsync_event_phase_offset_ns"
+  }
+  prop {
+    api_name: "vsync_sf_event_phase_offset_ns"
+    type: Long
+    prop_name: "ro.surface_flinger.vsync_sf_event_phase_offset_ns"
+  }
+  prop {
+    api_name: "wcg_composition_dataspace"
+    type: Long
+    prop_name: "ro.surface_flinger.wcg_composition_dataspace"
+  }
+  prop {
+    api_name: "wcg_composition_pixel_format"
+    type: Integer
+    prop_name: "ro.surface_flinger.wcg_composition_pixel_format"
+  }
+}

@@ -1,0 +1,36 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_static {
+    name: "libvr_hwc-binder",
+    srcs: [
+        "android/dvr/IVrComposer.aidl",
+        "android/dvr/IVrComposerCallback.aidl",
+        "android/dvr/parcelable_composer_frame.cpp",
+        "android/dvr/parcelable_composer_layer.cpp",
+        "android/dvr/parcelable_unique_fd.cpp",
+    ],
+    aidl: {
+        local_include_dirs: ["."],
+        export_aidl_headers: true,
+    },
+    export_include_dirs: ["."],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    shared_libs: [
+        "libbinder",
+        "libui",
+        "libutils",
+        "libvr_hwc-hal",
+    ],
+}

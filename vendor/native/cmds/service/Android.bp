@@ -1,0 +1,72 @@
+package {
+    default_applicable_licenses: ["frameworks_native_cmds_service_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "frameworks_native_cmds_service_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+cc_binary {
+    name: "service",
+
+    srcs: ["service.cpp"],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "libbinder",
+    ],
+
+    cflags: [
+        "-DXP_UNIX",
+        "-Wall",
+        "-Werror",
+    ],
+}
+
+cc_binary {
+    name: "vndservice",
+
+    proprietary: true,
+    srcs: ["service.cpp"],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "libbinder",
+    ],
+
+    cflags: [
+        "-DXP_UNIX",
+        "-DVENDORSERVICES",
+        "-Wall",
+        "-Werror",
+    ],
+}
+
+cc_binary_host {
+    name: "aservice",
+
+    srcs: ["service.cpp"],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "libbinder",
+    ],
+
+    cflags: [
+        "-DXP_UNIX",
+        "-Wall",
+        "-Werror",
+    ],
+}

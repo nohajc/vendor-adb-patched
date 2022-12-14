@@ -1,0 +1,7 @@
+{
+  "presubmit": [
+    {
+      "name": "libbinderthreadstateutils_test"
+    }
+  ]
+}

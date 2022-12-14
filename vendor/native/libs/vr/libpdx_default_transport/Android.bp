@@ -1,0 +1,88 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_defaults {
+    name: "pdx_default_transport_compiler_defaults",
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
+}
+
+cc_defaults {
+    name: "pdx_default_transport_lib_defaults",
+    export_include_dirs: ["private"],
+    whole_static_libs: ["libpdx"],
+}
+
+cc_defaults {
+    name: "pdx_use_transport_servicefs",
+    export_include_dirs: ["private/servicefs"],
+    whole_static_libs: [
+        "libpdx_servicefs",
+        "libservicefs",
+    ],
+}
+
+cc_defaults {
+    name: "pdx_use_transport_uds",
+    export_include_dirs: ["private/uds"],
+    whole_static_libs: ["libpdx_uds"],
+}
+
+cc_library_shared {
+    name: "libpdx_default_transport",
+    defaults: [
+        "pdx_default_transport_compiler_defaults",
+        "pdx_default_transport_lib_defaults",
+        "pdx_use_transport_uds",
+    ],
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libcutils",
+        "liblog",
+        "libutils",
+        "libselinux",
+    ],
+}
+
+cc_binary {
+    name: "pdx_tool",
+    system_ext_specific: true,
+    defaults: ["pdx_default_transport_compiler_defaults"],
+    srcs: [
+        "pdx_tool.cpp",
+    ],
+    shared_libs: [
+        "libbinder",
+        "libcutils",
+        "liblog",
+        "libpdx_default_transport",
+    ],
+}
+
+// Benchmarks.
+cc_binary {
+    name: "pdx_benchmarks",
+    defaults: ["pdx_default_transport_compiler_defaults"],
+    srcs: [
+        "pdx_benchmarks.cpp",
+    ],
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libchrome",
+        "libcutils",
+        "liblog",
+        "libutils",
+        "libpdx_default_transport",
+    ],
+}

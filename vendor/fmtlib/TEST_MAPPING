@@ -1,0 +1,18 @@
+{
+  "presubmit": [
+    {
+      "name": "fmtlib_test"
+    },
+    {
+      "name": "fmtlib_ostream_test"
+    }
+  ],
+  "hwasan-presubmit": [
+    {
+      "name": "fmtlib_test"
+    },
+    {
+      "name": "fmtlib_ostream_test"
+    }
+  ]
+}

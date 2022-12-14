@@ -1,0 +1,80 @@
+// Copyright (C) 2015 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library_shared {
+    name: "libinputflingerhost",
+
+    srcs: [
+        "InputFlinger.cpp",
+        "InputDriver.cpp",
+        "InputHost.cpp",
+    ],
+
+    header_libs: ["jni_headers"],
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libcrypto",
+        "libcutils",
+        "libinput",
+        "liblog",
+        "libutils",
+        "libhardware",
+    ],
+    static_libs: [
+        "libarect",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wno-unused-parameter",
+        // TODO: Move inputflinger to its own process and mark it hidden
+        //-fvisibility=hidden
+    ],
+
+    export_header_lib_headers: ["jni_headers"],
+    export_include_dirs: ["."],
+}
+
+//#######################################################################
+// build input flinger executable
+cc_binary {
+    name: "inputflinger",
+
+    srcs: ["main.cpp"],
+
+    cflags: ["-Wall", "-Werror"],
+
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libinputflingerhost",
+        "libutils",
+        "libinput"
+    ],
+    static_libs: [
+        "libarect",
+        "libui-types",
+    ],
+}

@@ -1,0 +1,9 @@
+service servicemanager /system/bin/servicemanager.microdroid
+    class core
+    user system
+    group system readproc
+    critical
+    onrestart setprop servicemanager.ready false
+    onrestart restart apexd
+    task_profiles ServiceCapacityLow
+    shutdown critical

@@ -1,0 +1,121 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_defaults {
+    name: "servicemanager_defaults",
+
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-DANDROID_UTILS_REF_BASE_DISABLE_IMPLICIT_CONSTRUCTION",
+    ],
+
+    srcs: [
+        "Access.cpp",
+        "ServiceManager.cpp",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libbinder", // also contains servicemanager_interface
+        "libvintf",
+        "libcutils",
+        "liblog",
+        "libutils",
+        "libselinux",
+    ],
+
+    target: {
+        vendor: {
+            exclude_shared_libs: ["libvintf"],
+        },
+    },
+}
+
+cc_binary {
+    name: "servicemanager",
+    defaults: ["servicemanager_defaults"],
+    init_rc: ["servicemanager.rc"],
+    srcs: ["main.cpp"],
+    bootstrap: true,
+}
+
+cc_binary {
+    name: "servicemanager.microdroid",
+    defaults: ["servicemanager_defaults"],
+    init_rc: ["servicemanager.microdroid.rc"],
+    srcs: ["main.cpp"],
+    bootstrap: true,
+}
+
+cc_binary {
+    name: "servicemanager.recovery",
+    stem: "servicemanager",
+    recovery: true,
+    defaults: ["servicemanager_defaults"],
+    init_rc: ["servicemanager.recovery.rc"],
+    srcs: ["main.cpp"],
+}
+
+cc_binary {
+    name: "vndservicemanager",
+    defaults: ["servicemanager_defaults"],
+    init_rc: ["vndservicemanager.rc"],
+    vendor: true,
+    cflags: [
+        "-DVENDORSERVICEMANAGER=1",
+    ],
+    required: [
+        "vndservice",
+    ],
+    srcs: ["main.cpp"],
+}
+
+cc_test {
+    name: "servicemanager_test",
+    test_suites: ["device-tests"],
+    defaults: ["servicemanager_defaults"],
+    srcs: [
+        "test_sm.cpp",
+    ],
+    static_libs: ["libgmock"],
+}
+
+cc_fuzz {
+    name: "servicemanager_fuzzer",
+    defaults: ["servicemanager_defaults"],
+    host_supported: true,
+    static_libs: [
+        "libbase",
+        "libbinder_random_parcel",
+        "libcutils",
+    ],
+    target: {
+        android: {
+            shared_libs: [
+                "libbinder_ndk",
+                "libbinder",
+            ],
+        },
+        host: {
+            static_libs: [
+                "libbinder_ndk",
+                "libbinder",
+            ],
+        },
+    },
+    srcs: ["ServiceManagerFuzzer.cpp"],
+    fuzz_config: {
+        cc: [
+            "smoreland@google.com",
+            "waghpawan@google.com",
+        ],
+    },
+}

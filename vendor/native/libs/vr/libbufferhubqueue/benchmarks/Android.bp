@@ -1,0 +1,35 @@
+
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_benchmark {
+    srcs: ["buffer_transport_benchmark.cpp"],
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libcutils",
+        "libdvr.google",
+        "libgui",
+        "liblog",
+        "libhardware",
+        "libui",
+        "libutils",
+        "libnativewindow",
+        "libbufferhubqueue",
+        "libpdx_default_transport",
+    ],
+    cflags: [
+        "-DLOG_TAG=\"buffer_transport_benchmark\"",
+        "-DTRACE=0",
+        "-O2",
+        "-Wall",
+        "-Werror",
+    ],
+    name: "buffer_transport_benchmark",
+}

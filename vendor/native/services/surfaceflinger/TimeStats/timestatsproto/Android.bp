@@ -1,0 +1,66 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library {
+    name: "libtimestats_proto",
+    export_include_dirs: ["include"],
+
+    srcs: [
+        "TimeStatsHelper.cpp",
+        "timestats.proto",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libprotobuf-cpp-lite",
+    ],
+
+    proto: {
+        export_proto_headers: true,
+    },
+
+    cppflags: [
+        "-Werror",
+        "-Wno-c++98-compat-pedantic",
+        "-Wno-disabled-macro-expansion",
+        "-Wno-float-conversion",
+        "-Wno-float-equal",
+        "-Wno-format",
+        "-Wno-old-style-cast",
+        "-Wno-padded",
+        "-Wno-sign-conversion",
+        "-Wno-undef",
+        "-Wno-unused-parameter",
+    ],
+}
+
+// ====  java host library for timestats proto  ===========================
+// Note timestats is deprecated and is only used for legacy tests
+java_library_host {
+    name: "host-timestats-proto",
+    srcs: [
+        "timestats.proto",
+    ],
+    proto: {
+        type: "full",
+    },
+}
+
+// ====  java device library for timestats proto  ===========================
+// Note timestats is deprecated and is only used for legacy tests
+java_library {
+    name: "timestats-proto",
+    srcs: [
+        "timestats.proto",
+    ],
+    proto: {
+        type: "lite",
+    },
+    sdk_version: "current",
+}

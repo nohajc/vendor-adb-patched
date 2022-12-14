@@ -1,0 +1,306 @@
+/*
+ * Copyright 2021 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+syntax = "proto2";
+option optimize_for = LITE_RUNTIME;
+package android.surfaceflinger;
+
+// This is a copy of surfaceflinger's atoms from frameworks/proto_logging/stats/atoms.proto.
+// Pulled atoms for surfaceflinger must be routed through system server since surfaceflinger is
+// in the bootstrap namespace. This copy is used to pass the atoms as protos to system server using
+// proto lite to serialize/deserialize the atoms.
+
+// These wrappers are so that we can pass a List<Atom> as a single byte string.
+// They are not in atoms.proto
+message SurfaceflingerStatsGlobalInfoWrapper {
+    repeated SurfaceflingerStatsGlobalInfo atom = 1;
+}
+
+message SurfaceflingerStatsLayerInfoWrapper {
+    repeated SurfaceflingerStatsLayerInfo atom = 1;
+}
+
+/**
+ * Global display pipeline metrics reported by SurfaceFlinger.
+ * Metrics exist beginning in Android 11.
+ * Pulled from:
+ *    frameworks/native/services/surfaceflinger/TimeStats/TimeStats.cpp
+ */
+message SurfaceflingerStatsGlobalInfo {
+    // Aggregated refresh rate buckets that layers were presenting at. Buckets
+    // are defined in SurfaceFlinger and are tracked per device.
+    // Introduced in Android 12.
+    // This is intended to be used as a dimenstion in collecting per-refresh rate
+    // jank statistics.
+    optional int32 display_refresh_rate_bucket = 18;
+    // Aggregated render rate buckets that layers were overridden to run at.
+    // Buckets are defined in SurfaceFlinger and are tracked per device.
+    // Introduced in Android 12.
+    // This is intended to be used as a dimension in collecting per-render rate
+    // jank statistics.
+    optional int32 render_rate_bucket = 21;
+    // Total number of frames presented during the tracing period
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional int64 total_frames = 1;
+    // Total number of frames missed
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional int64 missed_frames = 2;
+    // Total number of frames that fell back to client composition
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional int64 client_composition_frames = 3;
+    // Total time the display was turned on
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional int64 display_on_millis = 4;
+    // Total time that was spent performing animations.
+    // This is derived from the present-to-present layer histogram.
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional int64 animation_millis = 5;
+    // Total number of event connections tracked by SurfaceFlinger at the time
+    // of this pull. If this number grows prohibitively large, then this can
+    // cause jank due to resource contention.
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional int32 event_connection_count = 6;
+    // Set of timings measured from when SurfaceFlinger began compositing a
+    // frame, until the frame was requested to be presented to the display. This
+    // measures SurfaceFlinger's total CPU walltime on the critical path per
+    // frame.
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional FrameTimingHistogram frame_duration = 7;
+    // Set of timings measured from when SurfaceFlinger first began using the
+    // GPU to composite a frame, until the GPU has finished compositing that
+    // frame. This measures the total additional time SurfaceFlinger needed to
+    // perform due to falling back into GPU composition.
+    // Note: This stat is not sliced by dimension. It will be duplicated for metrics
+    // using render_rate_bucket as a dimension.
+    optional FrameTimingHistogram render_engine_timing = 8;
+    // Number of frames where SF saw a frame, based on its frame timeline.
+    // Frame timelines may include transactions without updating buffer contents.
+    // Introduced in Android 12.
+    optional int32 total_timeline_frames = 9;
+    // Number of frames where SF saw a janky frame.
+    // Introduced in Android 12.
+    optional int32 total_janky_frames = 10;
+    // Number of janky frames where SF spent a long time on the CPU.
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_with_long_cpu = 11;
+    // Number of janky frames where SF spent a long time on the GPU.
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_with_long_gpu = 12;
+    // Number of janky frames where SF missed the frame deadline, but there
+    // was not an attributed reason (e.g., maybe HWC missed?)
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_sf_unattributed = 13;
+    // Number of janky frames where the app missed the frame deadline, but
+    // there was not an attributed reason
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_app_unattributed = 14;
+    // Number of janky frames that were caused because of scheduling errors in
+    // SF that resulted in early present (e.g., SF sending a buffer to the
+    // composition engine earlier than expected, resulting in a present that is
+    // one vsync early)
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_sf_scheduling = 15;
+    // Number of frames that were classified as jank because of possible drift in
+    // vsync predictions.
+    // Introduced in Android 12.
+    optional int32 total_jank_frames_sf_prediction_error = 16;
+    // Number of janky frames where the app was in a buffer stuffed state (more
+    // than one buffer ready to be presented at the same vsync). Usually caused
+    // when the first frame is unusually long, the following frames enter into a
+    // stuffed state.
+    // Introduced in Android 12.
+    optional int32 total_jank_frames_app_buffer_stuffing = 17;
+    // Buckets of timings in ms by which SurfaceFlinger's deadline was missed
+    // while latching and presenting frames.
+    // Introduced in Android 12.
+    optional FrameTimingHistogram sf_deadline_misses = 19;
+    // Buckets of timings in ms by which the Vsync prediction drifted, when
+    // compared to the actual hardware vsync.
+    // Introduced in Android 12.
+    optional FrameTimingHistogram sf_prediction_errors = 20;
+
+    // Next ID: 22
+}
+
+/**
+ * Per-layer display pipeline metrics reported by SurfaceFlinger.
+ * Metrics exist beginning in Android 11.
+ * The number of layers uploaded may be restricted due to size limitations.
+ * Pulled from:
+ *    frameworks/native/services/surfaceflinger/TimeStats/TimeStats.cpp
+ */
+message SurfaceflingerStatsLayerInfo {
+    // UID of the application who submitted this layer for presentation
+    // This is intended to be used as a dimension for surfacing rendering
+    // statistics to applications.
+    // Introduced in Android 12.
+    optional int32 uid = 12;
+    // Refresh rate bucket that the layer was presenting at. Buckets are
+    // defined in SurfaceFlinger and are tracked per device.
+    // Introduced in Android 12.
+    // This is intended to be used as a dimension in collecting per-refresh rate
+    // jank statistics
+    optional int32 display_refresh_rate_bucket = 22;
+    // Render rate bucket that the layer was submitting frames at. Buckets are
+    // defined in SurfaceFlinger and are tracked per device.
+    // Introduced in Android 12.
+    // This is intended to be used as a dimension in collecting per-render rate
+    // jank statistics.
+    optional int32 render_rate_bucket = 23;
+
+    enum GameMode {
+         GAME_MODE_UNSPECIFIED = 0;
+         GAME_MODE_UNSUPPORTED = 1;
+         GAME_MODE_STANDARD = 2;
+         GAME_MODE_PERFORMANCE = 3;
+         GAME_MODE_BATTERY = 4;
+    }
+
+    // Game mode that the layer was running at. Used to track user engagement
+    // in different modes. The modes are defined in GameManager.java
+    // Game modes are used only for integrating with GameManager. All non-game
+    // layers will have this field set to UNSUPPORTED.
+    // Introduced in Android 12
+    // This is intended to be used as a dimension in collecting per-game mode
+    // fps and frame related metrics.
+    optional GameMode game_mode = 26;
+    // The layer for this set of metrics
+    // In many scenarios the package name is included in the layer name, e.g.,
+    // layers created by Window Manager. But this is not a guarantee - in the
+    // general case layer names are arbitrary debug names.
+    optional string layer_name = 1;
+    // Total number of frames presented
+    optional int64 total_frames = 2;
+    // Total number of dropped frames while latching a buffer for this layer.
+    optional int64 dropped_frames = 3;
+    // Set of timings measured between successive presentation timestamps.
+    optional FrameTimingHistogram present_to_present = 4;
+    // Set of timings measured from when an app queued a buffer for
+    // presentation, until the buffer was actually presented to the
+    // display.
+    optional FrameTimingHistogram post_to_present = 5;
+    // Set of timings measured from when a buffer is ready to be presented,
+    // until the buffer was actually presented to the display.
+    optional FrameTimingHistogram acquire_to_present = 6;
+    // Set of timings measured from when a buffer was latched by
+    // SurfaceFlinger, until the buffer was presented to the display
+    optional FrameTimingHistogram latch_to_present = 7;
+    // Set of timings measured from the desired presentation to the actual
+    // presentation time
+    optional FrameTimingHistogram desired_to_present = 8;
+    // Set of timings measured from when an app queued a buffer for
+    // presentation, until the buffer was ready to be presented.
+    optional FrameTimingHistogram post_to_acquire = 9;
+    // Frames missed latch because the acquire fence didn't fire
+    optional int64 late_acquire_frames = 10;
+    // Frames latched early because the desired present time was bad
+    optional int64 bad_desired_present_frames = 11;
+    // Number of frames where SF saw a frame, based on its frame timeline.
+    // Frame timelines may include transactions without updating buffer contents.
+    // Introduced in Android 12.
+    optional int32 total_timeline_frames = 13;
+    // Number of frames where SF saw a janky frame.
+    // Introduced in Android 12.
+    optional int32 total_janky_frames = 14;
+    // Number of janky frames where SF spent a long time on the CPU.
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_with_long_cpu = 15;
+    // Number of janky frames where SF spent a long time on the GPU.
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_with_long_gpu = 16;
+    // Number of janky frames where SF missed the frame deadline, but there
+    // was not an attributed reason (e.g., maybe HWC missed?)
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_sf_unattributed = 17;
+    // Number of janky frames where the app missed the frame deadline, but
+    // there was not an attributed reason
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_app_unattributed = 18;
+    // Number of janky frames that were caused because of scheduling errors in
+    // SF that resulted in early present (e.g., SF sending a buffer to the
+    // composition engine earlier than expected, resulting in a present that is
+    // one vsync early)
+    // Introduced in Android 12.
+    optional int32 total_janky_frames_sf_scheduling = 19;
+    // Number of frames that were classified as jank because of possible drift in
+    // vsync predictions.
+    // Introduced in Android 12.
+    optional int32 total_jank_frames_sf_prediction_error = 20;
+    // Number of janky frames where the app was in a buffer stuffed state (more
+    // than one buffer ready to be presented at the same vsync). Usually caused
+    // when the first frame is unusually long, the following frames enter into a
+    // stuffed state.
+    // Introduced in Android 12.
+    optional int32 total_jank_frames_app_buffer_stuffing = 21;
+
+    /**
+     * Encapsulates the FrameRateVote information sent by the application while
+     * calling setFrameRate.
+     * Metrics exist beginning in Android 12.
+     */
+    message SetFrameRateVote {
+        // The desired frame rate the application wishes to run on.
+        optional float frame_rate = 1;
+
+        enum FrameRateCompatibility {
+            FRAME_RATE_UNDEFINED = 0;
+            FRAME_RATE_DEFAULT = 1;
+            FRAME_RATE_EXACT_OR_MULTIPLE = 2;
+        }
+
+        // Specifies how to interpret the frame rate associated with the layer.
+        // Defined in Layer.h
+        optional FrameRateCompatibility frame_rate_compatibility = 2;
+
+        enum Seamlessness {
+            SEAMLESS_UNDEFINED = 0;
+            SEAMLESS_SHOULD_BE_SEAMLESS = 1;
+            SEAMLESS_NOT_REQUIRED = 2;
+        }
+        // Indicates whether seamless refresh rate switch is required or not.
+        optional Seamlessness seamlessness = 3;
+    }
+
+    // The last frame rate vote set by the application.
+    // Introduced in Android 12.
+    optional SetFrameRateVote set_frame_rate_vote = 24;
+    // Buckets of timings in ms by which the app deadline was missed while
+    // submitting work for a frame.
+    // Introduced in Android 12.
+    optional FrameTimingHistogram app_deadline_misses = 25;
+
+    // Next ID: 27
+}
+
+/**
+ * Histogram of frame counts bucketed by time in milliseconds.
+ * Because of size limitations, we hard-cap the number of buckets, with
+ * buckets for corresponding to larger milliseconds being less precise.
+ */
+message FrameTimingHistogram {
+    // Timings in milliseconds that describes a set of histogram buckets
+    repeated int32 time_millis_buckets = 1;
+    // Number of frames that match to each time_millis, i.e. the bucket
+    // contents
+    // It's required that len(time_millis) == len(frame_count)
+    repeated int64 frame_counts = 2;
+}

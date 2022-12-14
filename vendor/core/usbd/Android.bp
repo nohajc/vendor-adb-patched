@@ -1,0 +1,17 @@
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+cc_binary {
+    name: "usbd",
+    init_rc: ["usbd.rc"],
+    srcs: ["usbd.cpp"],
+    shared_libs: [
+        "libbase",
+        "libhidlbase",
+        "liblog",
+        "libutils",
+        "libhardware",
+        "android.hardware.usb.gadget@1.0",
+    ],
+}

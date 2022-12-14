@@ -1,0 +1,9 @@
+props {
+  module: "android.sysprop.IncrementalProperties"
+  prop {
+    api_name: "enable"
+    type: String
+    scope: Internal
+    prop_name: "ro.incremental.enable"
+  }
+}

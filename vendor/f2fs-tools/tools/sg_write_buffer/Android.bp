@@ -1,0 +1,38 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "external_f2fs-tools_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-BSD
+    //   SPDX-license-identifier-GPL-2.0
+    default_applicable_licenses: ["external_f2fs-tools_license"],
+}
+
+cc_defaults {
+    name: "sg3-utils-defaults",
+    cflags: [
+        "-Wno-unused-function"
+    ],
+    local_include_dirs: [
+        "include",
+    ],
+}
+
+cc_binary {
+    name: "sg_write_buffer",
+    defaults: [ "sg3-utils-defaults" ],
+    srcs: [
+        "sg_write_buffer.c",
+        "sg_cmds_basic.c",
+        "sg_cmds_basic2.c",
+        "sg_cmds_extra.c",
+        "sg_cmds_mmc.c",
+        "sg_io_linux.c",
+        "sg_lib.c",
+        "sg_lib_data.c",
+        "sg_pt_common.c",
+        "sg_pt_linux.c",
+        "sg_pt_linux_nvme.c",
+    ],
+    system_ext_specific: true,
+}

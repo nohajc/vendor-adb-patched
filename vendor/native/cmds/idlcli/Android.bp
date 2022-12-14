@@ -1,0 +1,84 @@
+// Copyright (C) 2019 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_defaults {
+    name: "idlcli-defaults",
+    shared_libs: [
+        "android.hardware.vibrator-V2-ndk",
+        "android.hardware.vibrator@1.0",
+        "android.hardware.vibrator@1.1",
+        "android.hardware.vibrator@1.2",
+        "android.hardware.vibrator@1.3",
+        "libbase",
+        "libbinder_ndk",
+        "libhidlbase",
+        "liblog",
+        "libutils",
+    ],
+    cflags: [
+        "-DLOG_TAG=\"idlcli\"",
+    ],
+    vendor_available: true,
+}
+
+cc_library {
+    name: "libidlcli",
+    defaults: ["idlcli-defaults"],
+    srcs: [
+        "CommandVibrator.cpp",
+        "vibrator/CommandAlwaysOnDisable.cpp",
+        "vibrator/CommandAlwaysOnEnable.cpp",
+        "vibrator/CommandCompose.cpp",
+        "vibrator/CommandComposePwle.cpp",
+        "vibrator/CommandGetBandwidthAmplitudeMap.cpp",
+        "vibrator/CommandGetCapabilities.cpp",
+        "vibrator/CommandGetCompositionDelayMax.cpp",
+        "vibrator/CommandGetCompositionSizeMax.cpp",
+        "vibrator/CommandGetFrequencyMinimum.cpp",
+        "vibrator/CommandGetFrequencyResolution.cpp",
+        "vibrator/CommandGetPrimitiveDuration.cpp",
+        "vibrator/CommandGetPwleCompositionSizeMax.cpp",
+        "vibrator/CommandGetPwlePrimitiveDurationMax.cpp",
+        "vibrator/CommandGetQFactor.cpp",
+        "vibrator/CommandGetResonantFrequency.cpp",
+        "vibrator/CommandGetSupportedAlwaysOnEffects.cpp",
+        "vibrator/CommandGetSupportedBraking.cpp",
+        "vibrator/CommandGetSupportedEffects.cpp",
+        "vibrator/CommandGetSupportedPrimitives.cpp",
+        "vibrator/CommandOff.cpp",
+        "vibrator/CommandOn.cpp",
+        "vibrator/CommandPerform.cpp",
+        "vibrator/CommandSetAmplitude.cpp",
+        "vibrator/CommandSetExternalControl.cpp",
+        "vibrator/CommandSupportsAmplitudeControl.cpp",
+        "vibrator/CommandSupportsExternalControl.cpp",
+    ],
+    visibility: [":__subpackages__"],
+}
+
+cc_binary {
+    name: "idlcli",
+    defaults: ["idlcli-defaults"],
+    srcs: ["main.cpp"],
+    whole_static_libs: ["libidlcli"],
+}

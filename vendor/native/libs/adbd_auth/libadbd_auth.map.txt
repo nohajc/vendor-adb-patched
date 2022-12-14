@@ -1,0 +1,17 @@
+LIBADBD_AUTH {
+  global:
+    adbd_auth_new; # systemapi introduced=30
+    adbd_auth_delete; # systemapi introduced=30
+    adbd_auth_run; # systemapi introduced=30
+    adbd_auth_get_public_keys; # systemapi introduced=30
+    adbd_auth_notify_auth; # systemapi introduced=30
+    adbd_auth_notify_disconnect; # systemapi introduced=30
+    adbd_auth_prompt_user; # systemapi introduced=30
+    adbd_auth_prompt_user_with_id; # systemapi introduced=30
+    adbd_auth_tls_device_connected; # systemapi introduced=30
+    adbd_auth_tls_device_disconnected; # systemapi introduced=30
+    adbd_auth_get_max_version; # systemapi introduced=30
+    adbd_auth_supports_feature; # systemapi introduced=30
+  local:
+    *;
+};

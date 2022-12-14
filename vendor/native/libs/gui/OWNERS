@@ -1,0 +1,20 @@
+adyabr@google.com
+alecmouri@google.com
+chaviw@google.com
+chrisforbes@google.com
+lpy@google.com
+jreck@google.com
+racarr@google.com
+vishnun@google.com
+
+per-file EndToEndNativeInputTest.cpp = svv@google.com
+
+# BufferQueue is feature-frozen
+per-file BufferQueue* = set noparent
+per-file BufferQueue* = jreck@google.com, sumir@google.com, alecmouri@google.com
+per-file IGraphicBuffer* = set noparent
+per-file IGraphicBuffer* = jreck@google.com, sumir@google.com, alecmouri@google.com
+per-file include/gui/BufferQueue* = set noparent
+per-file include/gui/BufferQueue* = jreck@google.com, sumir@google.com, alecmouri@google.com
+per-file include/gui/IGraphicBuffer* = set noparent
+per-file include/gui/IGraphicBuffer* = jreck@google.com, sumir@google.com, alecmouri@google.com

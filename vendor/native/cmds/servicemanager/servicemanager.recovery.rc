@@ -1,0 +1,5 @@
+service servicemanager /system/bin/servicemanager
+    disabled
+    group system readproc
+    onrestart setprop servicemanager.ready false
+    seclabel u:r:servicemanager:s0

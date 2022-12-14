@@ -1,0 +1,62 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_library {
+    name: "liblayers_proto",
+    export_include_dirs: ["include"],
+
+    srcs: [
+        "LayerProtoParser.cpp",
+        "*.proto",
+    ],
+
+    shared_libs: [
+        "android.hardware.graphics.common@1.1",
+        "libgui",
+        "libui",
+        "libprotobuf-cpp-lite",
+        "libbase",
+    ],
+
+    proto: {
+        export_proto_headers: true,
+    },
+
+    cppflags: [
+        "-Werror",
+        "-Wno-unused-parameter",
+        "-Wno-format",
+        "-Wno-c++98-compat-pedantic",
+        "-Wno-float-conversion",
+        "-Wno-disabled-macro-expansion",
+        "-Wno-float-equal",
+        "-Wno-sign-conversion",
+        "-Wno-padded",
+        "-Wno-old-style-cast",
+        "-Wno-undef",
+    ],
+}
+
+java_library_static {
+    name: "layersprotosnano",
+    host_supported: true,
+    proto: {
+        type: "nano",
+    },
+    srcs: ["*.proto"],
+    sdk_version: "core_platform",
+    target: {
+        android: {
+            jarjar_rules: "jarjar-rules.txt",
+        },
+        host: {
+            static_libs: ["libprotobuf-java-nano"],
+        },
+    },
+}

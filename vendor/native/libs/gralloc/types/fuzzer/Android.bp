@@ -1,0 +1,45 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "frameworks_native_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["frameworks_native_license"],
+}
+
+cc_fuzz {
+    name: "libgralloctypes_fuzzer",
+    host_supported: true,
+    target: {
+        darwin: {
+            enabled: false,
+        },
+    },
+
+    fuzz_config: {
+        cc: ["marissaw@google.com"],
+    },
+
+    srcs: [
+        "gralloctypes.cpp",
+        "main.cpp",
+        "util.cpp",
+    ],
+    static_libs: [
+        "libbase",
+        "libcgrouprc",
+        "libcgrouprc_format",
+        "libcutils",
+        "libgralloctypes",
+        "libhidlbase",
+        "liblog",
+        "libprocessgroup",
+        "libjsoncpp",
+        "libutils",
+    ],
+
+    // This flag enables verbose output in the fuzz target, and is very useful
+    // for debugging a failure. If you are trying to diagnose how a crash was
+    // produced, you may find uncommenting the below line very useful.
+    // cflags: ["-DENABLE_LOG_FUZZ"],
+}
