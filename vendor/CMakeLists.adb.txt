@@ -199,7 +199,6 @@ target_link_libraries(adb
 	PkgConfig::libbrotlidec
 	PkgConfig::libbrotlienc
 	PkgConfig::liblz4
-	Threads::Threads
 	PkgConfig::libusb-1.0
 	z
 	PkgConfig::libzstd)
