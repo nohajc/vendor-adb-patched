@@ -16,6 +16,7 @@
 
 #define TRACE_TAG USB
 
+#include "termux_adb.h"
 #include "sysdeps.h"
 
 #include "client/usb.h"
@@ -59,7 +60,7 @@ using namespace std::literals;
 
 struct usb_handle {
     ~usb_handle() {
-      if (fd != -1) unix_close(fd);
+      if (fd != -1) termuxadb::unix_close(fd);
     }
 
     std::string path;
@@ -126,19 +127,20 @@ static void find_usb_device(const std::string& base,
                             void (*register_device_callback)(const char*, const char*,
                                                              unsigned char, unsigned char, int, int,
                                                              unsigned, size_t)) {
-    std::unique_ptr<DIR, int(*)(DIR*)> bus_dir(opendir(base.c_str()), closedir);
+
+    std::unique_ptr<DIR, int(*)(DIR*)> bus_dir(termuxadb::opendir(base.c_str()), termuxadb::closedir);
     if (!bus_dir) return;
 
     dirent* de;
-    while ((de = readdir(bus_dir.get())) != nullptr) {
+    while ((de = termuxadb::readdir(bus_dir.get())) != nullptr) {
         if (contains_non_digit(de->d_name)) continue;
 
         std::string bus_name = base + "/" + de->d_name;
 
-        std::unique_ptr<DIR, int(*)(DIR*)> dev_dir(opendir(bus_name.c_str()), closedir);
+        std::unique_ptr<DIR, int(*)(DIR*)> dev_dir(termuxadb::opendir(bus_name.c_str()), termuxadb::closedir);
         if (!dev_dir) continue;
 
-        while ((de = readdir(dev_dir.get()))) {
+        while ((de = termuxadb::readdir(dev_dir.get()))) {
             unsigned char devdesc[4096];
             unsigned char* bufptr = devdesc;
             unsigned char* bufend;
@@ -156,7 +158,7 @@ static void find_usb_device(const std::string& base,
                 continue;
             }
 
-            int fd = unix_open(dev_name, O_RDONLY | O_CLOEXEC);
+            int fd = termuxadb::unix_open(dev_name, O_RDONLY | O_CLOEXEC);
             if (fd == -1) {
                 continue;
             }
@@ -167,7 +169,7 @@ static void find_usb_device(const std::string& base,
                 // should have device and configuration descriptors, and atleast two endpoints
             if (desclength < USB_DT_DEVICE_SIZE + USB_DT_CONFIG_SIZE) {
                 D("desclength %zu is too small", desclength);
-                unix_close(fd);
+                termuxadb::unix_close(fd);
                 continue;
             }
 
@@ -175,7 +177,7 @@ static void find_usb_device(const std::string& base,
             bufptr += USB_DT_DEVICE_SIZE;
 
             if((device->bLength != USB_DT_DEVICE_SIZE) || (device->bDescriptorType != USB_DT_DEVICE)) {
-                unix_close(fd);
+                termuxadb::unix_close(fd);
                 continue;
             }
 
@@ -187,7 +189,7 @@ static void find_usb_device(const std::string& base,
             bufptr += USB_DT_CONFIG_SIZE;
             if (config->bLength != USB_DT_CONFIG_SIZE || config->bDescriptorType != USB_DT_CONFIG) {
                 D("usb_config_descriptor not found");
-                unix_close(fd);
+                termuxadb::unix_close(fd);
                 continue;
             }
 
@@ -294,7 +296,7 @@ static void find_usb_device(const std::string& base,
                 }
             } // end of while
 
-            unix_close(fd);
+            termuxadb::unix_close(fd);
         }
     }
 }
@@ -580,10 +582,10 @@ static void register_device(const char* dev_name, const char* dev_path, unsigned
     // Initialize mark so we don't get garbage collected after the device scan.
     usb->mark = true;
 
-    usb->fd = unix_open(usb->path, O_RDWR | O_CLOEXEC);
+    usb->fd = termuxadb::unix_open(usb->path, O_RDWR | O_CLOEXEC);
     if (usb->fd == -1) {
         // Opening RW failed, so see if we have RO access.
-        usb->fd = unix_open(usb->path, O_RDONLY | O_CLOEXEC);
+        usb->fd = termuxadb::unix_open(usb->path, O_RDONLY | O_CLOEXEC);
         if (usb->fd == -1) {
             D("[ usb open %s failed: %s]", usb->path.c_str(), strerror(errno));
             return;
