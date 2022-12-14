@@ -15,6 +15,8 @@ extern "C" {
     int termuxadb_open(const char* path, int options);
     int termuxadb_create(const char* path, int options, int mode);
     int termuxadb_close(int fd);
+
+    void termuxadb_start();
 }
 
 namespace termuxadb {
@@ -46,5 +48,9 @@ namespace termuxadb {
 
     static inline int adb_close(int fd) {
         return termuxadb_close(fd);
+    }
+
+    static inline void start() {
+        termuxadb_start();
     }
 }

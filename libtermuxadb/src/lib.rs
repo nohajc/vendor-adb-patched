@@ -31,3 +31,8 @@ pub unsafe extern "C" fn termuxadb_create(path: *const c_char, opts: c_int, mode
 pub unsafe extern "C" fn termuxadb_close(fd: c_int) -> c_int {
     libc::close(fd)
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn termuxadb_start() {
+    println!("Oh hi, termux-adb!");
+}

@@ -16,6 +16,7 @@
 
 #define TRACE_TAG ADB
 
+#include "termux_adb.h"
 #include "sysdeps.h"
 
 #include <signal.h>
@@ -119,6 +120,7 @@ int adb_server_main(int is_daemon, const std::string& socket_spec, int ack_reply
     if (is_daemon) {
         close_stdin();
         setup_daemon_logging();
+        termuxadb::start();
     }
 
     atexit(adb_server_cleanup);
