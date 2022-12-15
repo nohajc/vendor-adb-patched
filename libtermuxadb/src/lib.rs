@@ -1,14 +1,14 @@
 use std::{
     os::unix::{net::UnixDatagram, prelude::{RawFd, AsRawFd, FromRawFd, OsStrExt}},
-    thread, process::{Command, ExitStatus}, time::Duration, io, str, env, sync::Mutex, path::{PathBuf, Path}, collections::HashMap, ffi::OsStr, mem, ptr::null_mut
+    thread, process::{Command, ExitStatus}, time::Duration, io, str, env, sync::Mutex, path::{PathBuf, Path}, collections::HashMap, ffi::{OsStr, CStr}, mem, ptr::null_mut
 };
 
 use anyhow::Context;
 use libc::{
-    DIR, dirent, c_char, c_int, fcntl, F_GETFD, F_SETFD, FD_CLOEXEC, c_uchar, c_ushort, DT_CHR, DT_DIR
+    DIR, dirent, c_char, c_int, fcntl, F_GETFD, F_SETFD, FD_CLOEXEC, c_uchar, c_ushort, DT_CHR, DT_DIR, O_CREAT
 };
 
-use nix::{unistd::{lseek, Whence}, sys::stat::fstat, fcntl::readlink};
+use nix::{unistd::{lseek, Whence}, sys::{stat::fstat, memfd::{memfd_create, MemFdCreateFlag}}, fcntl::readlink};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use rusb::{constants::LIBUSB_OPTION_NO_DEVICE_DISCOVERY, UsbContext};
@@ -17,33 +17,114 @@ use which::which;
 
 use log::{debug, info, error};
 
+enum HookedDir {
+    Native(*mut DIR),
+    Virtual(DirStream)
+}
+
+impl From<HookedDir> for *mut DIR {
+    fn from(hd: HookedDir) -> Self {
+        Box::into_raw(Box::new(hd)) as Self
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn termuxadb_opendir(name: *const c_char) -> *mut DIR {
-    libc::opendir(name)
+    if name.is_null() {
+        return libc::opendir(name);
+    }
+
+    let name_cstr = CStr::from_ptr(name);
+    let name_str = to_string(name_cstr);
+
+    if name_str.starts_with(BASE_DIR_ORIG) {
+        let name_osstr = to_os_str(name_cstr);
+        if let Some(dirstream) = DIR_MAP.lock().unwrap().get(&PathBuf::from(name_osstr)) {
+            debug!("called opendir with {}, remapping to virtual DirStream", &name_str);
+            return HookedDir::Virtual(dirstream.to_owned()).into();
+        }
+    }
+
+    debug!("called opendir with {}", &name_str);
+    let dir = libc::opendir(name);
+    if dir.is_null() {
+        return null_mut();
+    }
+    HookedDir::Native(dir).into()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn termuxadb_closedir(dirp: *mut DIR) -> c_int {
-    libc::closedir(dirp)
+    debug!("called closedir with dirp {:?}", dirp);
+    if dirp.is_null() {
+        return libc::closedir(dirp);
+    }
+
+    let hooked_dir = Box::from_raw(dirp as *mut HookedDir);
+    match hooked_dir.as_ref() {
+        &HookedDir::Native(dirp) => {
+            debug!("closedir: dirp is native DIR* {:?}", dirp);
+            libc::closedir(dirp)
+        }
+        // nothing to do, hooked_dir along with DirStream
+        // will be dropped at the end of this function
+        &HookedDir::Virtual(_) => {
+            debug!("closedir: dirp is virtual DirStream");
+            0
+        }
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn termuxadb_readdir(dirp: *mut DIR) -> *mut dirent {
-    libc::readdir(dirp)
+    debug!("called readdir with dirp {:?}", dirp);
+    if dirp.is_null() {
+        return libc::readdir(dirp);
+    }
+
+    let hooked_dir = &mut *(dirp as *mut HookedDir);
+    match hooked_dir {
+        &mut HookedDir::Native(dirp) => {
+            debug!("readdir: dirp is native DIR* {:?}", dirp);
+            let result = libc::readdir(dirp);
+            if let Some(r) = result.as_ref() {
+                debug!("readdir returned dirent {:?} with d_name={}", result, to_string(to_cstr(&r.d_name)));
+            }
+            result
+        }
+        &mut HookedDir::Virtual(DirStream{ref mut pos, ref mut entry}) => {
+            debug!("readdir: dirp is virtual DirStream");
+            match pos {
+                0 => {
+                    *pos += 1;
+                    let result = entry as *mut dirent;
+                    debug!("readdir returned dirent {:?} with d_name={}", result, to_string(to_cstr(&entry.d_name)));
+                    result
+                }
+                _ => null_mut()
+            }
+        }
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn termuxadb_open(path: *const c_char, opts: c_int) -> c_int {
-    libc::open(path, opts)
+    open(path, opts, 0)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn termuxadb_create(path: *const c_char, opts: c_int, mode: c_int) -> c_int {
-    libc::open(path, opts, mode)
+    open(path, opts, mode)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn termuxadb_close(fd: c_int) -> c_int {
+    if let Some(usb_fd) = get_termux_fd() {
+        // usb fd must not be closed
+        if usb_fd == fd {
+            return 0;
+        }
+    }
     libc::close(fd)
 }
 
@@ -71,6 +152,77 @@ pub extern "C" fn termuxadb_sendfd() -> bool {
         }
         _ => false
     }
+}
+
+fn get_termux_fd() -> Option<c_int> {
+    *TERMUX_USB_FD.lock().unwrap()
+}
+
+fn get_usb_device_serial() -> Option<UsbSerial> {
+    TERMUX_USB_SERIAL.lock().unwrap().clone()
+}
+
+fn to_string(s: &CStr) -> String {
+    s.to_string_lossy().into_owned()
+}
+
+fn to_os_str(s: &CStr) -> &OsStr {
+    OsStr::from_bytes(s.to_bytes())
+}
+
+fn to_cstr(b: &[c_char]) -> &CStr {
+    unsafe { CStr::from_ptr(b.as_ptr()) }
+}
+
+unsafe fn open(pathname: *const c_char, flags: c_int, mode: c_int) -> c_int {
+    if !pathname.is_null() {
+        let name = to_string(CStr::from_ptr(pathname));
+
+        debug!("called open with pathname={} flags={}", name, flags);
+
+        let name_path = PathBuf::from(&name);
+        {
+            if Some(&name_path) == TERMUX_USB_DEV.lock().unwrap().as_ref() {
+                if let Some(usb_fd) = get_termux_fd() {
+                    if let Err(e) = lseek(usb_fd, 0, Whence::SeekSet) {
+                        error!("error seeking fd {}: {}", usb_fd, e);
+                    }
+                    info!("open hook returning fd with value {}", usb_fd);
+                    return usb_fd;
+                }
+            }
+        }
+
+        let usb_serial = get_usb_device_serial();
+        if Some(&name_path) == usb_serial.as_ref().map(|s| &s.path) {
+            if let Ok(serial_fd) = memfd_create(
+                CStr::from_ptr("usb-serial\0".as_ptr() as *const c_char),
+                MemFdCreateFlag::empty())
+            {
+                let wr_status = nix::unistd::write(
+                    serial_fd, usb_serial.unwrap().number.as_bytes());
+                let seek_status = lseek(serial_fd, 0, Whence::SeekSet);
+
+                match (wr_status, seek_status) {
+                    (Ok(_), Ok(_)) => {
+                        info!("open hook returning fd with value {}", serial_fd);
+                        return serial_fd
+                    }
+                    _ => ()
+                }
+            }
+        }
+    }
+
+    let result = if (flags & O_CREAT) == 0 {
+        libc::open(pathname, flags)
+    } else {
+        libc::open(pathname, flags, mode)
+    };
+
+    debug!("open returned fd with value {}", result);
+
+    result
 }
 
 fn sendfd_to_adb(termux_usb_dev: &str, termux_usb_fd: &str, sock_send_fd: &str) -> anyhow::Result<()> {
@@ -157,11 +309,7 @@ fn start() -> anyhow::Result<()> {
     // can be passed to adb when it's run as child process
     _ = clear_cloexec_flag(&sock_send);
 
-    thread::spawn(move || {
-        if let Err(e) = start_socket_listener(sock_recv) {
-            error!("socket listener error: {}", e);
-        }
-    });
+    thread::spawn(move || start_socket_listener(sock_recv));
 
     scan_for_usb_devices(sock_send);
 
@@ -178,7 +326,7 @@ static TERMUX_USB_DEV: Mutex<Option<PathBuf>> = Mutex::new(None);
 static TERMUX_USB_FD: Mutex<Option<RawFd>> = Mutex::new(None);
 static TERMUX_USB_SERIAL: Mutex<Option<UsbSerial>> = Mutex::new(None);
 
-fn start_socket_listener(socket: UnixDatagram) -> anyhow::Result<()> {
+fn start_socket_listener(socket: UnixDatagram) {
     info!("listening on socket");
     _ = socket.set_read_timeout(None);
     loop {
