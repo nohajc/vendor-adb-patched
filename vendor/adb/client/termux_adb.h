@@ -1,5 +1,6 @@
 #pragma once
 
+#include <android-base/file.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -57,5 +58,16 @@ namespace termuxadb {
 
     static inline void start() {
         termuxadb_start();
+    }
+
+    static inline bool ReadFileToString(const std::string& path, std::string* content, bool follow_symlinks = false) {
+        content->clear();
+
+        int flags = O_RDONLY | O_CLOEXEC | O_BINARY | (follow_symlinks ? 0 : O_NOFOLLOW);
+        android::base::unique_fd fd(TEMP_FAILURE_RETRY(termuxadb_open(path.c_str(), flags)));
+        if (fd == -1) {
+            return false;
+        }
+        return ReadFdToString(fd, content);
     }
 }

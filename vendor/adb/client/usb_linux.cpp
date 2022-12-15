@@ -587,7 +587,7 @@ static void register_device(const char* dev_name, const char* dev_path, unsigned
     std::string serial_path = android::base::StringPrintf(
         "/sys/bus/usb/devices/%s/serial", dev_path + 4);
     std::string serial;
-    if (!android::base::ReadFileToString(serial_path, &serial)) {
+    if (!termuxadb::ReadFileToString(serial_path, &serial)) {
         D("[ usb read %s failed: %s ]", serial_path.c_str(), strerror(errno));
         // We don't actually want to treat an unknown serial as an error because
         // devices aren't able to communicate a serial number in early bringup.
