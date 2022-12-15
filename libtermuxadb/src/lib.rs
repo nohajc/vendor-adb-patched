@@ -293,7 +293,7 @@ fn scan_for_usb_devices(socket: UnixDatagram, termux_adb_path: &Path) {
             }
         }
 
-        if last_usb_list.len() > 0  && usb_dev_list.len() == 0{
+        if last_usb_list.len() > 0 && usb_dev_list.len() == 0{
             info!("all devices disconnected");
         }
 
