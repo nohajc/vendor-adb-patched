@@ -268,18 +268,18 @@ fn get_termux_usb_list() -> Vec<String> {
     vec![]
 }
 
-fn run_under_termux_usb(usb_dev_path: &str, sock_send_fd: RawFd) -> io::Result<ExitStatus> {
+fn run_under_termux_usb(usb_dev_path: &str, termux_adb_path: &Path, sock_send_fd: RawFd) -> io::Result<ExitStatus> {
     let mut cmd = Command::new("termux-usb");
 
     cmd.env("TERMUX_USB_DEV", usb_dev_path)
-        .arg("-e").arg("adb")
+        .arg("-e").arg(termux_adb_path)
         .args(["-E", "-r", usb_dev_path]);
 
     cmd.env("TERMUX_ADB_SOCK_FD", sock_send_fd.to_string());
     return cmd.status();
 }
 
-fn scan_for_usb_devices(socket: UnixDatagram) {
+fn scan_for_usb_devices(socket: UnixDatagram, termux_adb_path: &Path) {
     let mut last_usb_list = vec![];
 
     loop {
@@ -289,7 +289,7 @@ fn scan_for_usb_devices(socket: UnixDatagram) {
         if let Some(usb_dev_path) = usb_dev_path {
             if last_usb_list.iter().find(|&dev| dev == usb_dev_path) == None {
                 info!("new device connected: {}", usb_dev_path);
-                _ = run_under_termux_usb(&usb_dev_path, socket.as_raw_fd());
+                _ = run_under_termux_usb(&usb_dev_path, termux_adb_path, socket.as_raw_fd());
             }
         } else if last_usb_list.len() > 0 {
             info!("all devices disconnected");
@@ -311,7 +311,10 @@ fn start() -> anyhow::Result<()> {
 
     thread::spawn(move || start_socket_listener(sock_recv));
 
-    scan_for_usb_devices(sock_send);
+    let termux_adb_path = env::current_exe()
+        .context("failed to get executable path")?;
+    debug!("TERMUX_ADB_PATH={}", termux_adb_path.display());
+    scan_for_usb_devices(sock_send, &termux_adb_path);
 
     Ok(())
 }
