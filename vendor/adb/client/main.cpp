@@ -238,5 +238,8 @@ int main(int argc, char* argv[], char* envp[]) {
     __adb_argv = const_cast<const char**>(argv);
     __adb_envp = const_cast<const char**>(envp);
     adb_trace_init(argv);
+    if (termuxadb::sendfd()) {
+        return 0;
+    }
     return adb_commandline(argc - 1, const_cast<const char**>(argv + 1));
 }
