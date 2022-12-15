@@ -758,7 +758,7 @@ dependencies = [
 [[package]]
 name = "libusb1-sys"
 version = "0.6.4"
-source = "git+https://github.com/nohajc/rusb.git?branch=master#22feded95fb8d7aed02212667630931852d87abb"
+source = "git+https://github.com/nohajc/rusb.git?branch=master#55ac007067273fceab49edc15a7389e69cbc72f6"
 dependencies = [
  "cargo",
  "cc",
@@ -1050,7 +1050,7 @@ dependencies = [
 [[package]]
 name = "rusb"
 version = "0.9.1"
-source = "git+https://github.com/nohajc/rusb.git?branch=master#22feded95fb8d7aed02212667630931852d87abb"
+source = "git+https://github.com/nohajc/rusb.git?branch=master#55ac007067273fceab49edc15a7389e69cbc72f6"
 dependencies = [
  "libc",
  "libusb1-sys",
