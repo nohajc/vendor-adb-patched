@@ -162,7 +162,7 @@ dependencies = [
 [[package]]
 name = "libusb1-sys"
 version = "0.6.4"
-source = "git+https://github.com/nohajc/rusb.git?branch=master#b804b385a4595bc38fe8e57366b94e128ccf6995"
+source = "git+https://github.com/nohajc/rusb.git?branch=master#9e6679032a9876e4536515ed153f9d245e51c9b5"
 dependencies = [
  "libc",
  "vcpkg",
@@ -298,7 +298,7 @@ checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
 [[package]]
 name = "rusb"
 version = "0.9.1"
-source = "git+https://github.com/nohajc/rusb.git?branch=master#b804b385a4595bc38fe8e57366b94e128ccf6995"
+source = "git+https://github.com/nohajc/rusb.git?branch=master#9e6679032a9876e4536515ed153f9d245e51c9b5"
 dependencies = [
  "libc",
  "libusb1-sys",
