@@ -1,11 +1,12 @@
 use std::{
     os::unix::{net::UnixDatagram, prelude::{RawFd, AsRawFd, FromRawFd, OsStrExt}},
-    thread, process::{Command, ExitStatus}, time::Duration, io, str, env, sync::Mutex, path::{PathBuf, Path}, collections::HashMap, ffi::{OsStr, CStr}, mem, ptr::null_mut
+    thread, process::{Command, ExitStatus}, time::Duration, io, str, env, sync::Mutex,
+    path::{PathBuf, Path}, collections::{HashMap, BTreeSet}, ffi::{OsStr, CStr}, mem, ptr::null_mut, cmp::Ordering
 };
 
 use anyhow::Context;
 use libc::{
-    DIR, dirent, c_char, c_int, fcntl, F_GETFD, F_SETFD, FD_CLOEXEC, c_uchar, c_ushort, DT_CHR, DT_DIR, O_CREAT
+    DIR, dirent, c_char, c_int, fcntl, F_GETFD, F_SETFD, FD_CLOEXEC, c_uchar, c_ushort, DT_CHR, DT_DIR, O_CREAT, strcmp
 };
 
 use nix::{unistd::{lseek, Whence}, sys::{stat::fstat, memfd::{memfd_create, MemFdCreateFlag}}, fcntl::readlink};
@@ -39,9 +40,9 @@ pub unsafe extern "C" fn termuxadb_opendir(name: *const c_char) -> *mut DIR {
 
     if name_str.starts_with(BASE_DIR_ORIG) {
         let name_osstr = to_os_str(name_cstr);
-        if let Some(dirstream) = DIR_MAP.lock().unwrap().get(&PathBuf::from(name_osstr)) {
+        if let Some(dir_entries) = DIR_MAP.lock().unwrap().get(&PathBuf::from(name_osstr)) {
             debug!("called opendir with {}, remapping to virtual DirStream", &name_str);
-            return HookedDir::Virtual(dirstream.to_owned()).into();
+            return HookedDir::Virtual(DirStream::from(dir_entries)).into();
         }
     }
 
@@ -94,14 +95,14 @@ pub unsafe extern "C" fn termuxadb_readdir(dirp: *mut DIR) -> *mut dirent {
         }
         &mut HookedDir::Virtual(DirStream{ref mut pos, ref mut entry}) => {
             debug!("readdir: dirp is virtual DirStream");
-            match pos {
-                0 => {
-                    *pos += 1;
-                    let result = entry as *mut dirent;
-                    debug!("readdir returned dirent {:?} with d_name={}", result, to_string(to_cstr(&entry.d_name)));
-                    result
-                }
-                _ => null_mut()
+            let idx = *pos as usize;
+            if idx < entry.len() {
+                *pos += 1;
+                let result = &mut entry[idx] as *mut dirent;
+                debug!("readdir returned dirent {:?} with d_name={}", result, to_string(to_cstr(&entry[idx].d_name)));
+                result
+            } else {
+                null_mut()
             }
         }
     }
@@ -158,8 +159,8 @@ fn get_termux_fd() -> Option<c_int> {
     *TERMUX_USB_FD.lock().unwrap()
 }
 
-fn get_usb_device_serial() -> Option<UsbSerial> {
-    TERMUX_USB_SERIAL.lock().unwrap().clone()
+fn get_usb_device_serial(path: &Path) -> Option<String> {
+    USB_SERIAL_MAP.lock().unwrap().get(path).map(|p| p.to_owned())
 }
 
 fn to_string(s: &CStr) -> String {
@@ -193,14 +194,13 @@ unsafe fn open(pathname: *const c_char, flags: c_int, mode: c_int) -> c_int {
             }
         }
 
-        let usb_serial = get_usb_device_serial();
-        if Some(&name_path) == usb_serial.as_ref().map(|s| &s.path) {
+        if let Some(usb_serial) = get_usb_device_serial(&name_path) {
             if let Ok(serial_fd) = memfd_create(
                 CStr::from_ptr("usb-serial\0".as_ptr() as *const c_char),
                 MemFdCreateFlag::empty())
             {
                 let wr_status = nix::unistd::write(
-                    serial_fd, usb_serial.unwrap().number.as_bytes());
+                    serial_fd, usb_serial.as_bytes());
                 let seek_status = lseek(serial_fd, 0, Whence::SeekSet);
 
                 match (wr_status, seek_status) {
@@ -284,16 +284,19 @@ fn scan_for_usb_devices(socket: UnixDatagram, termux_adb_path: &Path) {
 
     loop {
         let usb_dev_list = get_termux_usb_list();
-        let usb_dev_path = usb_dev_list.iter().next();
+        let mut usb_dev_list_iter = usb_dev_list.iter();
 
-        if let Some(usb_dev_path) = usb_dev_path {
+        while let Some(usb_dev_path) = usb_dev_list_iter.next() {
             if last_usb_list.iter().find(|&dev| dev == usb_dev_path) == None {
                 info!("new device connected: {}", usb_dev_path);
                 _ = run_under_termux_usb(&usb_dev_path, termux_adb_path, socket.as_raw_fd());
             }
-        } else if last_usb_list.len() > 0 {
+        }
+
+        if last_usb_list.len() > 0  && usb_dev_list.len() == 0{
             info!("all devices disconnected");
         }
+
         last_usb_list = usb_dev_list;
         thread::sleep(Duration::from_millis(2000));
     }
@@ -327,7 +330,6 @@ struct UsbSerial {
 
 static TERMUX_USB_DEV: Mutex<Option<PathBuf>> = Mutex::new(None);
 static TERMUX_USB_FD: Mutex<Option<RawFd>> = Mutex::new(None);
-static TERMUX_USB_SERIAL: Mutex<Option<UsbSerial>> = Mutex::new(None);
 
 fn start_socket_listener(socket: UnixDatagram) {
     info!("listening on socket");
@@ -348,7 +350,12 @@ fn start_socket_listener(socket: UnixDatagram) {
                 update_dir_map(&mut DIR_MAP.lock().unwrap(), &usb_dev_path);
                 *TERMUX_USB_DEV.lock().unwrap() = Some(usb_dev_path);
                 *TERMUX_USB_FD.lock().unwrap() = Some(usb_fd);
-                *TERMUX_USB_SERIAL.lock().unwrap() = log_err_and_convert(init_libusb_device_serial(usb_fd));
+
+                if let Some(ref usb_serial) = log_err_and_convert(init_libusb_device_serial(usb_fd)) {
+                    let mut usb_serial_map = USB_SERIAL_MAP.lock().unwrap();
+                    usb_serial_map.insert(usb_serial.path.clone(), usb_serial.number.clone());
+                    debug!("updated USB_SERIAL_MAP: {:?}", &*usb_serial_map);
+                }
             }
             Err(e) => {
                 error!("message receive error: {}", e);
@@ -359,13 +366,40 @@ fn start_socket_listener(socket: UnixDatagram) {
 
 // our directory structure will always be flat
 // so we can have just one dirent per DirStream
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct DirStream {
     pos: i32,
-    entry: dirent,
+    entry: Vec<dirent>,
 }
 
-static DIR_MAP: Lazy<Mutex<HashMap<PathBuf, DirStream>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+impl From<&BTreeSet<DirEntry>> for DirStream {
+    fn from(set: &BTreeSet<DirEntry>) -> Self {
+        DirStream { pos: 0, entry: set.iter().map(|e| e.0).collect() }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DirEntry(dirent);
+
+impl PartialOrd for DirEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(match unsafe{ strcmp(self.0.d_name.as_ptr(), other.0.d_name.as_ptr()) } {
+            -1 => Ordering::Less,
+            0 => Ordering::Equal,
+            1 => Ordering::Greater,
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl Ord for DirEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+static DIR_MAP: Lazy<Mutex<HashMap<PathBuf, BTreeSet<DirEntry>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static USB_SERIAL_MAP: Lazy<Mutex<HashMap<PathBuf, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 const BASE_DIR_ORIG: &str = "/dev/bus/usb";
 
@@ -397,29 +431,29 @@ fn dirent_new(off: i64, typ: c_uchar, name: &OsStr) -> dirent {
     entry
 }
 
-fn update_dir_map(dir_map: &mut HashMap<PathBuf, DirStream>, usb_dev_path: &Path) {
-    dir_map.clear();
-
+fn update_dir_map(dir_map: &mut HashMap<PathBuf, BTreeSet<DirEntry>>, usb_dev_path: &Path) {
     if let Some(usb_dev_name) = usb_dev_path.file_name() {
-        let mut last_entry = dirent_new(
+        let mut last_entry = DirEntry(dirent_new(
             0, DT_CHR, usb_dev_name
-        );
+        ));
         let mut current_dir = usb_dev_path.to_owned();
 
         while current_dir.pop() {
-            dir_map.insert(current_dir.clone(), DirStream{
-                pos: 0,
-                entry: last_entry.clone(),
-            });
-            last_entry = dirent_new(
+            dir_map.entry(current_dir.clone())
+                .and_modify(|entries| {
+                    entries.insert(last_entry.clone());
+                })
+                .or_insert(BTreeSet::new());
+            last_entry = DirEntry(dirent_new(
                 0, DT_DIR, current_dir.file_name().unwrap()
-            );
+            ));
 
             if current_dir.as_os_str() == BASE_DIR_ORIG {
                 break;
             }
         }
     }
+    debug!("updated DIR_MAP: {:?}", dir_map);
 }
 
 fn log_err_and_convert<T>(r: anyhow::Result<T>) -> Option<T> {
