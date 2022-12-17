@@ -45,9 +45,9 @@ include(CMakeLists.libandroidfw.txt)
 include(CMakeLists.adb.txt)
 include(CMakeLists.sparse.txt)
 include(CMakeLists.fastboot.txt)
-include(CMakeLists.mke2fs.txt)
-include(CMakeLists.partition.txt)
-include(CMakeLists.mkbootimg.txt)
+# include(CMakeLists.mke2fs.txt)
+# include(CMakeLists.partition.txt)
+# include(CMakeLists.mkbootimg.txt)
 
 # Various C++20 features are used across the codebase, e.g.
 # std::string_view.starts_with. Additionally, GNU extension
@@ -66,24 +66,27 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-attributes")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_FILE_OFFSET_BITS=64")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 
+set_target_properties(adb PROPERTIES OUTPUT_NAME "termux-adb")
+set_target_properties(fastboot PROPERTIES OUTPUT_NAME "termux-fastboot")
+
 # Targets which should be installed by `make install`.
 install(TARGETS
-	"${ANDROID_MKE2FS_NAME}"
+	# "${ANDROID_MKE2FS_NAME}"
 	adb
-	append2simg
+	# append2simg
 	fastboot
-	img2simg
-	lpadd
-	lpdump
-	lpflash
-	lpmake
-	lpunpack
-	simg2img
+	# img2simg
+	# lpadd
+	# lpdump
+	# lpflash
+	# lpmake
+	# lpunpack
+	# simg2img
 	DESTINATION bin)
 
 # Install common completion files.
-install(FILES adb/adb.bash RENAME adb DESTINATION "${COMPLETION_COMMON_DIR}")
-install(FILES core/fastboot/fastboot.bash RENAME fastboot DESTINATION "${COMPLETION_COMMON_DIR}")
+install(FILES adb/adb.bash RENAME termux-adb DESTINATION "${COMPLETION_COMMON_DIR}")
+install(FILES core/fastboot/fastboot.bash RENAME termux-fastboot DESTINATION "${COMPLETION_COMMON_DIR}")
 
 # Install license files.
 # Disabled for now, see https://github.com/nmeum/android-tools/issues/30#issuecomment-855365636
