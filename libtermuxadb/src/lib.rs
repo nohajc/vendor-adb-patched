@@ -384,10 +384,9 @@ struct DirEntry(dirent);
 impl PartialOrd for DirEntry {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(match unsafe{ strcmp(self.0.d_name.as_ptr(), other.0.d_name.as_ptr()) } {
-            -1 => Ordering::Less,
-            0 => Ordering::Equal,
-            1 => Ordering::Greater,
-            _ => unreachable!(),
+            res if res < 0 => Ordering::Less,
+            res if res > 0 => Ordering::Greater,
+            _ => Ordering::Equal,
         })
     }
 }
