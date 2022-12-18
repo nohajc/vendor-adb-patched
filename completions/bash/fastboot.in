@@ -5,4 +5,4 @@ function check_type() {
 	type -t "$1"
 }
 
-source "@COMPLETION_COMMON_DIR@/fastboot"
+source "@COMPLETION_COMMON_DIR@/termux-fastboot"
