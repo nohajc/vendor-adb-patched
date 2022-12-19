@@ -119,14 +119,9 @@ pub unsafe extern "C" fn termuxadb_create(path: *const c_char, opts: c_int, mode
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn termuxadb_close(fd: c_int) -> c_int {
-    if let Some(usb_fd) = get_termux_fd() {
-        // usb fd must not be closed
-        if usb_fd == fd {
-            return 0;
-        }
-    }
-    libc::close(fd)
+pub unsafe extern "C" fn termuxadb_close(_fd: c_int) -> c_int {
+    // this is called from a patched adb and it's always no-op
+    0
 }
 
 #[no_mangle]
@@ -155,12 +150,12 @@ pub extern "C" fn termuxadb_sendfd() -> bool {
     }
 }
 
-fn get_termux_fd() -> Option<c_int> {
-    *TERMUX_USB_FD.lock().unwrap()
+fn get_termux_fd(path: &Path) -> Option<RawFd> {
+    USB_FD_MAP.lock().unwrap().get(path).map(|fd| *fd)
 }
 
 fn get_usb_device_serial(path: &Path) -> Option<String> {
-    USB_SERIAL_MAP.lock().unwrap().get(path).map(|p| p.to_owned())
+    USB_SERIAL_MAP.lock().unwrap().get(path).map(|sn| sn.to_owned())
 }
 
 fn to_string(s: &CStr) -> String {
@@ -182,16 +177,12 @@ unsafe fn open(pathname: *const c_char, flags: c_int, mode: c_int) -> c_int {
         debug!("called open with pathname={} flags={}", name, flags);
 
         let name_path = PathBuf::from(&name);
-        {
-            if Some(&name_path) == TERMUX_USB_DEV.lock().unwrap().as_ref() {
-                if let Some(usb_fd) = get_termux_fd() {
-                    if let Err(e) = lseek(usb_fd, 0, Whence::SeekSet) {
-                        error!("error seeking fd {}: {}", usb_fd, e);
-                    }
-                    info!("open hook returning fd with value {}", usb_fd);
-                    return usb_fd;
-                }
+        if let Some(usb_fd) = get_termux_fd(&name_path) {
+            if let Err(e) = lseek(usb_fd, 0, Whence::SeekSet) {
+                error!("error seeking fd {}: {}", usb_fd, e);
             }
+            info!("open hook returning fd with value {}", usb_fd);
+            return usb_fd;
         }
 
         if let Some(usb_serial) = get_usb_device_serial(&name_path) {
@@ -328,9 +319,6 @@ struct UsbSerial {
     path: PathBuf,
 }
 
-static TERMUX_USB_DEV: Mutex<Option<PathBuf>> = Mutex::new(None);
-static TERMUX_USB_FD: Mutex<Option<RawFd>> = Mutex::new(None);
-
 fn start_socket_listener(socket: UnixDatagram) {
     info!("listening on socket");
     _ = socket.set_read_timeout(None);
@@ -348,8 +336,7 @@ fn start_socket_listener(socket: UnixDatagram) {
                 info!("received message (size={}) with fd={}: {}", size, usb_fd, usb_dev_path.display());
 
                 update_dir_map(&mut DIR_MAP.lock().unwrap(), &usb_dev_path);
-                *TERMUX_USB_DEV.lock().unwrap() = Some(usb_dev_path);
-                *TERMUX_USB_FD.lock().unwrap() = Some(usb_fd);
+                USB_FD_MAP.lock().unwrap().insert(usb_dev_path, usb_fd);
 
                 if let Some(ref usb_serial) = log_err_and_convert(init_libusb_device_serial(usb_fd)) {
                     let mut usb_serial_map = USB_SERIAL_MAP.lock().unwrap();
@@ -399,6 +386,7 @@ impl Ord for DirEntry {
 
 static DIR_MAP: Lazy<Mutex<HashMap<PathBuf, BTreeSet<DirEntry>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 static USB_SERIAL_MAP: Lazy<Mutex<HashMap<PathBuf, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static USB_FD_MAP: Lazy<Mutex<HashMap<PathBuf, RawFd>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 const BASE_DIR_ORIG: &str = "/dev/bus/usb";
 
