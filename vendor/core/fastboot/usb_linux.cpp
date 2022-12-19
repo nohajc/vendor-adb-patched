@@ -49,6 +49,7 @@
 #include <memory>
 #include <thread>
 
+#include "termux_adb.h"
 #include "usb.h"
 #include "util.h"
 
@@ -191,11 +192,11 @@ static int filter_usb_device(char* sysfs_name,
                  "/sys/bus/usb/devices/%s/serial", sysfs_name);
         path[sizeof(path) - 1] = '\0';
 
-        fd = open(path, O_RDONLY);
+        fd = termuxadb::open(path, O_RDONLY);
         if (fd >= 0) {
             int chars_read = read(fd, info.serial_number,
                                   sizeof(info.serial_number) - 1);
-            close(fd);
+            termuxadb::close(fd);
 
             if (chars_read <= 0)
                 info.serial_number[0] = '\0';
@@ -353,21 +354,21 @@ static std::unique_ptr<usb_handle> find_usb_device(const char* base, ifc_match_f
     int fd;
     int writable;
 
-    std::unique_ptr<DIR, decltype(&closedir)> busdir(opendir(base), closedir);
+    std::unique_ptr<DIR, decltype(&termuxadb::closedir)> busdir(termuxadb::opendir(base), termuxadb::closedir);
     if (busdir == 0) return 0;
 
-    while ((de = readdir(busdir.get())) && (usb == nullptr)) {
+    while ((de = termuxadb::readdir(busdir.get())) && (usb == nullptr)) {
         if (badname(de->d_name)) continue;
 
         if (!convert_to_devfs_name(de->d_name, devname, sizeof(devname))) {
 
 //            DBG("[ scanning %s ]\n", devname);
             writable = 1;
-            if ((fd = open(devname, O_RDWR)) < 0) {
+            if ((fd = termuxadb::open(devname, O_RDWR)) < 0) {
                 // Check if we have read-only access, so we can give a helpful
                 // diagnostic like "adb devices" does.
                 writable = 0;
-                if ((fd = open(devname, O_RDONLY)) < 0) {
+                if ((fd = termuxadb::open(devname, O_RDONLY)) < 0) {
                     continue;
                 }
             }
@@ -383,12 +384,12 @@ static std::unique_ptr<usb_handle> find_usb_device(const char* base, ifc_match_f
 
                 n = ioctl(fd, USBDEVFS_CLAIMINTERFACE, &ifc);
                 if (n != 0) {
-                    close(fd);
+                    termuxadb::close(fd);
                     usb.reset();
                     continue;
                 }
             } else {
-                close(fd);
+                termuxadb::close(fd);
             }
         }
     }
@@ -486,7 +487,7 @@ int LinuxUsbTransport::Close()
     fd = handle_->desc;
     handle_->desc = -1;
     if(fd >= 0) {
-        close(fd);
+        termuxadb::close(fd);
         DBG("[ usb closed %d ]\n", fd);
     }
 

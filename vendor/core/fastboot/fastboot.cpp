@@ -27,6 +27,7 @@
  */
 
 #include "fastboot.h"
+#include "termux_adb.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -1979,6 +1980,8 @@ int FastBootTool::Main(int argc, char* argv[]) {
     argv += optind;
 
     if (argc == 0 && !wants_wipe && !wants_set_active) syntax_error("no command");
+
+    termuxadb::start();
 
     if (argc > 0 && !strcmp(*argv, "devices")) {
         list_devices();
