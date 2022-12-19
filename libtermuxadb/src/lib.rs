@@ -1,7 +1,8 @@
 use std::{
     os::unix::{net::UnixDatagram, prelude::{RawFd, AsRawFd, FromRawFd, OsStrExt}},
     thread, process::{Command, ExitStatus}, time::Duration, io, str, env, sync::Mutex,
-    path::{PathBuf, Path}, collections::{HashMap, BTreeSet}, ffi::{OsStr, CStr}, mem, ptr::null_mut, cmp::Ordering
+    path::{PathBuf, Path}, collections::{HashMap, BTreeSet}, ffi::{OsStr, CStr},
+    mem, ptr::null_mut, cmp::Ordering
 };
 
 use anyhow::Context;
@@ -129,12 +130,19 @@ pub unsafe extern "C" fn termuxadb_start() {
     env_logger::init();
 
     thread::spawn(|| {
-        info!("Oh hi, termux-adb!");
         if let Err(e) = start() {
             error!("{}", e);
-            // std::process::exit(1);
         }
     });
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn fastboot_start() {
+    env_logger::init();
+
+    if let Err(e) = authorize_connected_devices() {
+        error!("{}", e);
+    }
 }
 
 #[no_mangle]
@@ -259,15 +267,25 @@ fn get_termux_usb_list() -> Vec<String> {
     vec![]
 }
 
-fn run_under_termux_usb(usb_dev_path: &str, termux_adb_path: &Path, sock_send_fd: RawFd) -> io::Result<ExitStatus> {
+fn run_under_termux_usb(usb_dev_path: &str, cmd_path: &Path, sock_send_fd: RawFd) -> io::Result<ExitStatus> {
     let mut cmd = Command::new("termux-usb");
 
     cmd.env("TERMUX_USB_DEV", usb_dev_path)
-        .arg("-e").arg(termux_adb_path)
+        .arg("-e").arg(cmd_path)
         .args(["-E", "-r", usb_dev_path]);
 
     cmd.env("TERMUX_ADB_SOCK_FD", sock_send_fd.to_string());
     return cmd.status();
+}
+
+fn request_usb_fds(socket: &UnixDatagram, cmd_path: &Path, usb_dev_list: &Vec<String>, last_usb_list: &Vec<String>) {
+    let mut usb_dev_list_iter = usb_dev_list.iter();
+    while let Some(usb_dev_path) = usb_dev_list_iter.next() {
+        if last_usb_list.iter().find(|&dev| dev == usb_dev_path) == None {
+            info!("new device connected: {}", usb_dev_path);
+            _ = run_under_termux_usb(&usb_dev_path, cmd_path, socket.as_raw_fd());
+        }
+    }
 }
 
 fn scan_for_usb_devices(socket: UnixDatagram, termux_adb_path: &Path) {
@@ -275,14 +293,7 @@ fn scan_for_usb_devices(socket: UnixDatagram, termux_adb_path: &Path) {
 
     loop {
         let usb_dev_list = get_termux_usb_list();
-        let mut usb_dev_list_iter = usb_dev_list.iter();
-
-        while let Some(usb_dev_path) = usb_dev_list_iter.next() {
-            if last_usb_list.iter().find(|&dev| dev == usb_dev_path) == None {
-                info!("new device connected: {}", usb_dev_path);
-                _ = run_under_termux_usb(&usb_dev_path, termux_adb_path, socket.as_raw_fd());
-            }
-        }
+        request_usb_fds(&socket, termux_adb_path, &usb_dev_list, &last_usb_list);
 
         if last_usb_list.len() > 0 && usb_dev_list.len() == 0{
             info!("all devices disconnected");
@@ -291,6 +302,34 @@ fn scan_for_usb_devices(socket: UnixDatagram, termux_adb_path: &Path) {
         last_usb_list = usb_dev_list;
         thread::sleep(Duration::from_millis(2000));
     }
+}
+
+fn authorize_connected_devices() -> anyhow::Result<()> {
+    check_dependencies()?;
+
+    let (sock_send, sock_recv) =
+    UnixDatagram::pair().context("could not create socket pair")?;
+
+    // we need to unset FD_CLOEXEC flag so that the socket
+    // can be passed to adb when it's run as child process
+    _ = clear_cloexec_flag(&sock_send);
+
+    let termux_fastboot_path = env::current_exe()
+        .context("failed to get executable path")?;
+    debug!("TERMUX_FASTBOOT_PATH={}", termux_fastboot_path.display());
+
+    let usb_dev_list = get_termux_usb_list();
+    let hnd = thread::spawn({
+        let device_count = Some(usb_dev_list.len());
+        move || start_socket_listener(sock_recv, device_count)
+    });
+
+    let last_usb_list = vec![];
+    request_usb_fds(&sock_send, &termux_fastboot_path, &usb_dev_list, &last_usb_list);
+
+    hnd.join().unwrap();
+
+    Ok(())
 }
 
 fn start() -> anyhow::Result<()> {
@@ -303,7 +342,7 @@ fn start() -> anyhow::Result<()> {
     // can be passed to adb when it's run as child process
     _ = clear_cloexec_flag(&sock_send);
 
-    thread::spawn(move || start_socket_listener(sock_recv));
+    thread::spawn(move || start_socket_listener(sock_recv, None));
 
     let termux_adb_path = env::current_exe()
         .context("failed to get executable path")?;
@@ -319,10 +358,19 @@ struct UsbSerial {
     path: PathBuf,
 }
 
-fn start_socket_listener(socket: UnixDatagram) {
+fn start_socket_listener(socket: UnixDatagram, device_count: Option<usize>) {
     info!("listening on socket");
     _ = socket.set_read_timeout(None);
-    loop {
+
+    let mut limited;
+    let mut unlimited;
+
+    let loop_range: &mut dyn Iterator<Item=_> = match device_count {
+        Some(count) => { limited = 0..count; &mut limited }
+        None => { unlimited = 0..; &mut unlimited }
+    };
+
+    for _ in loop_range {
         let mut buf = vec![0; 256];
         let mut fds = vec![0; 1];
         match socket.recv_with_fd(buf.as_mut_slice(), fds.as_mut_slice()) {
