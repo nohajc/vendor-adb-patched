@@ -375,12 +375,14 @@ static std::unique_ptr<usb_handle> find_usb_device(const std::string& base, ifc_
         while ((de = termuxadb::readdir(dev_dir.get()))) {
             if (contains_non_digit(de->d_name)) continue;
 
+            std::string dev_name = bus_name + "/" + de->d_name;
+
             writable = 1;
-            if ((fd = termuxadb::open(de->d_name, O_RDWR)) < 0) {
+            if ((fd = termuxadb::open(dev_name, O_RDWR)) < 0) {
                 // Check if we have read-only access, so we can give a helpful
                 // diagnostic like "adb devices" does.
                 writable = 0;
-                if ((fd = termuxadb::open(de->d_name, O_RDONLY)) < 0) {
+                if ((fd = termuxadb::open(dev_name, O_RDONLY)) < 0) {
                     continue;
                 }
             }
@@ -389,7 +391,7 @@ static std::unique_ptr<usb_handle> find_usb_device(const std::string& base, ifc_
 
             if (filter_usb_device(fd, desc, n, writable, callback, &in, &out, &ifc) == 0) {
                 usb.reset(new usb_handle());
-                strcpy(usb->fname, de->d_name);
+                strcpy(usb->fname, dev_name.c_str());
                 usb->ep_in = in;
                 usb->ep_out = out;
                 usb->desc = fd;
