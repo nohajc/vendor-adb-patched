@@ -17,7 +17,7 @@ use rusb::{constants::LIBUSB_OPTION_NO_DEVICE_DISCOVERY, UsbContext};
 use sendfd::{SendWithFd, RecvWithFd};
 use which::which;
 
-use log::{debug, info, error};
+use log::{debug, info, error, warn};
 
 enum HookedDir {
     Native(*mut DIR),
@@ -386,7 +386,7 @@ fn start_socket_listener(socket: UnixDatagram, device_count: Option<usize>) {
                 update_dir_map(&mut DIR_MAP.lock().unwrap(), &usb_dev_path);
                 USB_FD_MAP.lock().unwrap().insert(usb_dev_path, usb_fd);
 
-                if let Some(ref usb_serial) = log_err_and_convert(init_libusb_device_serial(usb_fd)) {
+                if let Some(ref usb_serial) = log_warning_and_convert(init_libusb_device_serial(usb_fd)) {
                     let mut usb_serial_map = USB_SERIAL_MAP.lock().unwrap();
                     usb_serial_map.insert(usb_serial.path.clone(), usb_serial.number.clone());
                     debug!("updated USB_SERIAL_MAP: {:?}", &*usb_serial_map);
@@ -491,11 +491,11 @@ fn update_dir_map(dir_map: &mut HashMap<PathBuf, BTreeSet<DirEntry>>, usb_dev_pa
     debug!("updated DIR_MAP: {:?}", dir_map);
 }
 
-fn log_err_and_convert<T>(r: anyhow::Result<T>) -> Option<T> {
+fn log_warning_and_convert<T>(r: anyhow::Result<T>) -> Option<T> {
     match r {
         Ok(v) => Some(v),
         Err(e) => {
-            error!("{}", e);
+            warn!("{}", e);
             None
         }
     }
