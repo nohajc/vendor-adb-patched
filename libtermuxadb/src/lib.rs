@@ -478,7 +478,7 @@ fn update_dir_map(dir_map: &mut HashMap<PathBuf, BTreeSet<DirEntry>>, usb_dev_pa
                 .and_modify(|entries| {
                     entries.insert(last_entry.clone());
                 })
-                .or_insert(BTreeSet::new());
+                .or_insert(BTreeSet::from([last_entry.clone()]));
             last_entry = DirEntry(dirent_new(
                 0, DT_DIR, current_dir.file_name().unwrap()
             ));
