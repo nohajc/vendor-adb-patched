@@ -98,7 +98,7 @@ int selinux_getenforcemode(int *enforce)
 			fclose(cfg);
 			return -1;
 		}
-		while (fgets_unlocked(buf, selinux_page_size, cfg)) {
+		while (fgets(buf, selinux_page_size, cfg)) {
 			if (strncmp(buf, SELINUXTAG, len))
 				continue;
 			if (!strncasecmp

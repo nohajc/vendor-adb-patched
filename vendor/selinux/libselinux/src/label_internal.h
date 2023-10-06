@@ -16,10 +16,8 @@
 #include "dso.h"
 #include "sha1.h"
 
-#if defined(ANDROID) || defined(__APPLE__)
 // Android and Mac do not have fgets_unlocked()
 #define fgets_unlocked(buf, size, fp) fgets(buf, size, fp)
-#endif
 
 /*
  * Installed backends

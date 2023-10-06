@@ -599,7 +599,7 @@ static char *selabel_sub(struct selabel_sub *ptr, const char *src)
 	return NULL;
 }
 
-#if !defined(BUILD_HOST) && !defined(ANDROID)
+#if 0
 static int selabel_subs_init(const char *path, struct selabel_digest *digest,
 		       struct selabel_sub **out_subs)
 {
@@ -763,7 +763,7 @@ static int init(struct selabel_handle *rec, const struct selinux_opt *opts,
 			}
 		}
 	}
-#if !defined(BUILD_HOST) && !defined(ANDROID)
+#if 0
 	char subs_file[PATH_MAX + 1];
 	/* Process local and distribution substitution files */
 	if (!path_provided) {
