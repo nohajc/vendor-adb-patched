@@ -99,6 +99,7 @@ else()
 endif()
 pkg_check_modules(libzstd REQUIRED IMPORTED_TARGET libzstd)
 
+set(Protobuf_USE_STATIC_LIBS ON)
 find_package(Protobuf CONFIG)
 find_package(Protobuf REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
