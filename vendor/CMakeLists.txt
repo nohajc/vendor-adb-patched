@@ -73,6 +73,7 @@ pkg_check_modules(libpcre2-8 REQUIRED IMPORTED_TARGET libpcre2-8)
 pkg_check_modules(libusb-1.0 REQUIRED IMPORTED_TARGET libusb-1.0)
 pkg_check_modules(libzstd REQUIRED IMPORTED_TARGET libzstd)
 
+set(Protobuf_USE_STATIC_LIBS ON)
 find_package(Protobuf CONFIG)
 find_package(Protobuf REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
