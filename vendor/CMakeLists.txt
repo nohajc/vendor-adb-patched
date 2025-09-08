@@ -73,8 +73,8 @@ pkg_check_modules(libpcre2-8 REQUIRED IMPORTED_TARGET libpcre2-8)
 pkg_check_modules(libusb-1.0 REQUIRED IMPORTED_TARGET libusb-1.0)
 pkg_check_modules(libzstd REQUIRED IMPORTED_TARGET libzstd)
 
+find_package(Protobuf CONFIG)
 find_package(Protobuf REQUIRED)
-find_library(protobuf-tadb NAMES protobuf-tadb libprotobuf-tadb REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
